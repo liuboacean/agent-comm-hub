@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+dist/
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Environment
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+*.err
+
+# Python
+__pycache__/
+*.pyc
+
+# Trigger files
+*.notified
+
+# WorkBuddy internal
+.workbuddy/

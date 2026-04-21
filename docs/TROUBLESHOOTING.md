@@ -75,6 +75,38 @@ launchctl unload ~/Library/LaunchAgents/com.workbuddy.hub-watcher.plist
 launchctl load ~/Library/LaunchAgents/com.workbuddy.hub-watcher.plist
 ```
 
+### Q: Agent 看不到 Hub 新增的 MCP 工具
+
+**原因**：MCP 客户端在会话启动时注册工具列表，之后缓存不再刷新。Hub 重启并新增/移除工具后，Agent 需要重新连接 MCP 服务器才能看到变化。
+
+**现象**：
+- Agent 日志显示旧工具列表（包含已移除的 `list_resources` / `list_prompts`）
+- 调用新增工具报 "tool not found"
+- Hub 侧的 `Method not found` 错误
+
+**解决**：
+1. 重启 Agent 会话（让 MCP 客户端重新 `tools/list`）
+2. 验证：检查 Agent 日志中 `registered X tool(s)` 的工具数量和名称是否与 Hub 一致
+
+### Q: 如何查看消费水位线数据
+
+```bash
+# 查看水位线记录总数
+sqlite3 hub-server/comm_hub.db "SELECT COUNT(*) FROM consumed_log;"
+
+# 查看某 Agent 的最近消费记录
+sqlite3 hub-server/comm_hub.db "
+SELECT resource, resource_type, action,
+  datetime(consumed_at/1000, 'unixepoch', '+8 hours') as time
+FROM consumed_log
+WHERE agent_id='hermes'
+ORDER BY consumed_at DESC LIMIT 10;
+"
+
+# 通过 REST API 查询
+curl "http://localhost:3100/api/consumed?agent_id=hermes"
+```
+
 ## 踩坑经验详解
 
 ### 1. MCP Stateful vs Stateless

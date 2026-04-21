@@ -84,12 +84,47 @@ data: {"result":{"content":[{"type":"text","text":"{\"success\":true,...}"}]},"j
 
 ### PATCH /api/messages/:id/status
 
-标记消息已读。
+标记消息状态。
 
 **Body**：
 
 ```json
 { "status": "read" }
+```
+
+或标记为已处理（acknowledged）：
+
+```json
+{ "status": "acknowledged" }
+```
+
+### GET /api/consumed
+
+查询消费水位线记录（v1.1 新增）。
+
+**参数**：
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `agent_id` | string | ✅ | Agent ID |
+| `resource` | string | ❌ | 按资源路径精确查询 |
+
+**响应示例**：
+
+```json
+{
+  "count": 21,
+  "records": [
+    {
+      "id": "uuid-xxx",
+      "resource": "feedback/workbuddy_review.json",
+      "resource_type": "file",
+      "action": "reviewed_and_replied",
+      "notes": "审查报告已处理并回复",
+      "consumed_at": "2026-04-21T09:28:13.000Z"
+    }
+  ]
+}
 ```
 
 ## SSE 端点

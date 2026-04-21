@@ -1,7 +1,7 @@
 ---
 name: agent-comm-hub
 description: "多智能体协同通信基础设施——基于 MCP+SSE 的实时消息、任务调度与在线感知。支持 WorkBuddy、Hermes 及任意 MCP 兼容 Agent 接入。触发词：agent通信、智能体通信、hub通信、多智能体、跨agent通信、任务调度hub、assign_task、send_message、hermes通信、workbuddy通信、agent hub、通信hub、mcp通信"
-version: 1.0.0
+version: 1.1.0
 category: autonomous-ai-agents
 ---
 
@@ -34,7 +34,9 @@ category: autonomous-ai-agents
 
 ## 核心能力
 
-### 6 个 MCP 工具
+### 9 个 MCP 工具
+
+**通信与任务调度（6 个）**：
 
 | 工具 | 功能 |
 |------|------|
@@ -45,7 +47,17 @@ category: autonomous-ai-agents
 | `broadcast_message` | 广播消息给多个 Agent |
 | `get_online_agents` | 查询在线 Agent 列表 |
 
-### 4 个 REST API
+**消费水位线（3 个）**：
+
+| 工具 | 功能 |
+|------|------|
+| `acknowledge_message` | 标记 Hub 消息为已处理，防止重复出现在待处理列表 |
+| `mark_consumed` | 记录 Agent 已处理某资源（文件/信号），防止重复处理 |
+| `check_consumed` | 查询某资源是否已被处理过，处理前先查再处理 |
+
+> 所有工具内置 try-catch + 3 次指数退避重试（100ms → 200ms → 400ms）。`check_consumed` 查询失败时降级返回 `consumed=false`（不阻塞业务）。
+
+### 5 个 REST API
 
 | 端点 | 方法 | 功能 |
 |------|------|------|
@@ -53,6 +65,7 @@ category: autonomous-ai-agents
 | `/api/messages` | GET | 查询消息列表 |
 | `/api/tasks/:id/status` | PATCH | 更新任务状态（自动通知发起方） |
 | `/api/messages/:id/status` | PATCH | 标记消息已读 |
+| `/api/consumed` | GET | 查询消费水位线记录（支持 agent_id + resource 过滤） |
 
 ### 任务状态机
 
@@ -154,7 +167,7 @@ agent-comm-hub/
 │   │   ├── server.ts                 # 主入口：Express + MCP + SSE
 │   │   ├── db.ts                     # SQLite 持久化层（WAL 模式）
 │   │   ├── sse.ts                    # SSE 连接管理
-│   │   └── tools.ts                  # 6 个 MCP 工具定义
+│   │   └── tools.ts                  # 9 个 MCP 工具定义
 │   ├── client-sdk/
 │   │   └── agent-client.ts           # 通用 TypeScript 客户端 SDK
 │   └── scripts/

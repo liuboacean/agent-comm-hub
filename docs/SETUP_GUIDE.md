@@ -130,7 +130,7 @@ await client.start()
 
 ### 纯 MCP 配置（无需代码）
 
-在 Agent 的 MCP 配置中添加 Hub URL 即可，LLM 可以直接调用 Hub 的 6 个工具。
+在 Agent 的 MCP 配置中添加 Hub URL 即可，LLM 可以直接调用 Hub 的 9 个工具。
 
 ---
 

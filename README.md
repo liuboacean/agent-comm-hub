@@ -65,7 +65,7 @@ Hub 使用 MCP SDK 的 Stateless 模式：每个请求创建独立的 Server + T
 
 ```bash
 # 克隆仓库
-git clone https://github.com/YOUR_USER/agent-comm-hub.git
+git clone https://github.com/liuboacean/agent-comm-hub.git
 cd agent-comm-hub/hub-server
 
 # 安装依赖
@@ -108,7 +108,7 @@ Hub 启动后监听 `http://localhost:3100`：
 }
 ```
 
-Agent 的 LLM 现在可以直接调用 6 个 MCP 工具：`assign_task`、`send_message`、`update_task_status`、`get_task_status`、`broadcast_message`、`get_online_agents`。
+Agent 的 LLM 现在可以直接调用 9 个 MCP 工具：`assign_task`、`send_message`、`update_task_status`、`get_task_status`、`broadcast_message`、`get_online_agents`、`acknowledge_message`、`mark_consumed`、`check_consumed`。
 
 #### 方式 B：TypeScript SDK
 
@@ -172,6 +172,8 @@ launchctl load ~/Library/LaunchAgents/com.workbuddy.hub-task-runner.plist
 
 ### MCP 工具
 
+**通信与任务调度（6 个）**：
+
 | 工具 | 参数 | 说明 |
 |------|------|------|
 | `send_message` | `from`, `to`, `content`, `type?`, `metadata?` | 发送即时消息 |
@@ -180,6 +182,16 @@ launchctl load ~/Library/LaunchAgents/com.workbuddy.hub-task-runner.plist
 | `get_task_status` | `task_id` | 查询任务状态 |
 | `broadcast_message` | `from`, `agent_ids`, `content`, `metadata?` | 广播消息 |
 | `get_online_agents` | — | 查询在线 Agent |
+
+**消费水位线（3 个，v1.1 新增）**：
+
+| 工具 | 参数 | 说明 |
+|------|------|------|
+| `acknowledge_message` | `message_id`, `agent_id` | 标记消息为已处理 |
+| `mark_consumed` | `agent_id`, `resource`, `action`, `resource_type?`, `notes?` | 记录资源已处理（防重复） |
+| `check_consumed` | `agent_id`, `resource` | 查询资源是否已处理 |
+
+> 所有工具内置错误处理：try-catch + 3 次指数退避重试（100ms → 200ms → 400ms）。`check_consumed` 查询失败时降级返回 `consumed=false`。
 
 ### REST API
 
@@ -190,6 +202,7 @@ launchctl load ~/Library/LaunchAgents/com.workbuddy.hub-task-runner.plist
 | `/api/messages` | GET | `agent_id`, `status?` | 查询消息列表 |
 | `/api/tasks/:id/status` | PATCH | `status`, `result?`, `progress?` | 更新任务状态 |
 | `/api/messages/:id/status` | PATCH | `status` | 标记消息已读 |
+| `/api/consumed` | GET | `agent_id`, `resource?` | 查询消费水位线记录 |
 
 ### SSE 端点
 
@@ -253,7 +266,7 @@ agent-comm-hub/
 │   │   ├── server.ts                 # 主入口：Express + MCP + SSE
 │   │   ├── db.ts                     # SQLite 持久化（WAL 模式）
 │   │   ├── sse.ts                    # SSE 连接管理
-│   │   └── tools.ts                  # 6 个 MCP 工具定义
+│   │   └── tools.ts                  # 9 个 MCP 工具定义
 │   ├── client-sdk/
 │   │   └── agent-client.ts           # 通用 TypeScript 客户端 SDK
 │   └── scripts/

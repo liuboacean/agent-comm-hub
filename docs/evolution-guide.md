@@ -2,7 +2,7 @@
 
 > **版本**：v2.0 | **日期**：2026-04-25
 > **所属**：Agent Synergy Framework Phase 3 + Phase 4b
-> **Hub 版本**：v2.0.0+（含 Evolution Engine + 分级审批）
+> **Hub 版本**：v2.2.0+（含 Evolution Engine + 分级审批）
 
 ---
 

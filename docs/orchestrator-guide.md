@@ -2,7 +2,7 @@
 
 > **版本**：v1.0 | **日期**：2026-04-25
 > **所属**：Agent Synergy Framework Phase 4b
-> **Hub 版本**：v2.0.0+（含 Task Orchestrator 进阶能力）
+> **Hub 版本**：v2.2.0+（含 Task Orchestrator 进阶能力）
 
 ---
 

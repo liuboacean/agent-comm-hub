@@ -296,7 +296,7 @@ base = 50
 |------|------|------|------|
 | `agent_id` | string | ✅ | Agent ID |
 | `content` | string | ✅ | 记忆内容（最多 10000 字符） |
-| `scope` | enum | ✅ | `private` / `team` / `global` |
+| `scope` | enum | ✅ | `private` / `group` / `collective` |
 | `tags` | string[] | ❌ | 标签列表 |
 
 ---
@@ -425,7 +425,7 @@ base = 50
 
 ### list_strategies / search_strategies / apply_strategy / feedback_strategy / approve_strategy / get_evolution_status
 
-详见 [Evolution Engine 使用指南](./docs/evolution-engine-guide.md)
+详见 [Evolution Engine 使用指南](./evolution-guide.md)
 
 ---
 

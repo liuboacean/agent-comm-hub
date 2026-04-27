@@ -125,6 +125,7 @@ class SynergyHubClient:
         # 客户端去重（_hub_event_id）
         self._seen_event_ids: set[int] = set()
         self._seen_event_ids_lock = threading.Lock()
+        self._seen_event_ids_ordered: list[int] = []  # 有序列表，用于按插入顺序清理
         self._dedup_max_size = 10000  # 防止内存泄漏
 
         # SSE 断线重连：Last-Event-ID 跟踪
@@ -992,7 +993,7 @@ class SynergyHubClient:
     # 对外 API — Phase 5a: Security 增强
     # ═══════════════════════════════════════════════════════
 
-    async def set_agent_role(
+    def set_agent_role(
         self,
         agent_id: str,
         role: str,
@@ -1013,7 +1014,7 @@ class SynergyHubClient:
             params["managed_group_id"] = managed_group_id
         return self._call_tool("set_agent_role", params)
 
-    async def recalculate_trust_scores(
+    def recalculate_trust_scores(
         self,
         agent_id: Optional[str] = None,
     ) -> dict:
@@ -1033,6 +1034,88 @@ class SynergyHubClient:
         if agent_id is not None:
             params["agent_id"] = agent_id
         return self._call_tool("recalculate_trust_scores", params)
+
+    # ═══════════════════════════════════════════════════════
+    # 对外 API — Phase 6: 搜索 + Pipeline（补齐）
+    # ═══════════════════════════════════════════════════════
+
+    def search_messages(
+        self,
+        query: str,
+        *,
+        from_agent: Optional[str] = None,
+        to_agent: Optional[str] = None,
+        limit: int = 50,
+    ) -> dict:
+        """搜索消息（FTS5 全文检索）"""
+        params: dict = {"query": query, "limit": limit}
+        if from_agent:
+            params["from_agent"] = from_agent
+        if to_agent:
+            params["to_agent"] = to_agent
+        return self._call_tool("search_messages", params)
+
+    def search_memories(
+        self,
+        query: str,
+        *,
+        scope: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        limit: int = 50,
+    ) -> dict:
+        """搜索记忆（FTS5 全文检索）"""
+        params: dict = {"query": query, "limit": limit}
+        if scope:
+            params["scope"] = scope
+        if agent_id:
+            params["agent_id"] = agent_id
+        return self._call_tool("search_memories", params)
+
+    def create_pipeline(self, name: str, description: str = "") -> dict:
+        """创建 Pipeline（任务容器）"""
+        return self._call_tool("create_pipeline", {
+            "name": name,
+            "description": description,
+        })
+
+    def get_pipeline(self, pipeline_id: str) -> dict:
+        """获取 Pipeline 详情"""
+        return self._call_tool("get_pipeline", {"pipeline_id": pipeline_id})
+
+    def list_pipelines(self, *, status: Optional[str] = None) -> dict:
+        """列出 Pipelines"""
+        params: dict = {}
+        if status:
+            params["status"] = status
+        return self._call_tool("list_pipelines", params)
+
+    def add_task_to_pipeline(
+        self,
+        pipeline_id: str,
+        description: str,
+        *,
+        assigned_to: Optional[str] = None,
+        priority: str = "medium",
+        depends_on: Optional[list] = None,
+    ) -> dict:
+        """向 Pipeline 添加任务"""
+        params: dict = {
+            "pipeline_id": pipeline_id,
+            "description": description,
+            "priority": priority,
+        }
+        if assigned_to:
+            params["assigned_to"] = assigned_to
+        if depends_on:
+            params["depends_on"] = depends_on
+        return self._call_tool("add_task_to_pipeline", params)
+
+    def cancel_task(self, task_id: str, reason: str = "") -> dict:
+        """取消任务"""
+        params: dict = {"task_id": task_id}
+        if reason:
+            params["reason"] = reason
+        return self._call_tool("cancel_task", params)
 
     # ═══════════════════════════════════════════════════════
     # 对外 API — 消费追踪
@@ -1107,8 +1190,6 @@ class SynergyHubClient:
 
             try:
                 url = f"{self.hub_url}/events/{self.agent_id}"
-                if self._token:
-                    url += f"?token={self._token}"
 
                 logger.info(f"[{self.agent_id}] SSE 连接: {self.hub_url}")
                 conn = self._create_sse_connection(url)
@@ -1243,11 +1324,14 @@ class SynergyHubClient:
                     logger.debug(f"去重: event_id={event_id}")
                     return
                 self._seen_event_ids.add(event_id)
-                # 防止内存泄漏
+                self._seen_event_ids_ordered.append(event_id)
+                # 防止内存泄漏：保留最新的一半（按插入顺序）
                 if len(self._seen_event_ids) > self._dedup_max_size:
-                    # 保留最新的一半
-                    to_keep = set(list(self._seen_event_ids)[-self._dedup_max_size // 2:])
-                    self._seen_event_ids = to_keep
+                    trim_count = self._dedup_max_size // 2
+                    old_ids = self._seen_event_ids_ordered[:trim_count]
+                    self._seen_event_ids_ordered = self._seen_event_ids_ordered[trim_count:]
+                    for old_id in old_ids:
+                        self._seen_event_ids.discard(old_id)
 
         # ── 事件路由 ───────────────────────────────────
         if event_type == "new_message":

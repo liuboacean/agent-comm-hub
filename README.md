@@ -55,7 +55,7 @@
 | **Orchestration 编排** | 10 | 依赖链(DFS 环检测)、并行组、交接协议、质量门 |
 | **Security 安全** | 2 | Token 管理、RBAC、审计哈希链 |
 
-**共计 44 个 MCP 工具**，详见 [API_REFERENCE.md](docs/API_REFERENCE.md)
+**共计 46 个 MCP 工具**，详见 [API_REFERENCE.md](docs/API_REFERENCE.md)
 
 ## 权限模型
 
@@ -115,7 +115,7 @@ print(result)  # agent_id + api_token
 }
 ```
 
-Agent 的 LLM 可以直接调用全部 44 个工具。
+Agent 的 LLM 可以直接调用全部 46 个工具。
 
 ### 4. SDK 接入（可选）
 
@@ -156,7 +156,7 @@ curl http://localhost:3100/metrics  # Prometheus 指标
 
 ### 作为 Skill 安装（推荐）
 
-将本仓库作为 Skill 安装到你的 Agent 平台，即可获得 44 个 MCP 工具 + SDK + 完整文档：
+将本仓库作为 Skill 安装到你的 Agent 平台，即可获得 46 个 MCP 工具 + SDK + 完整文档：
 
 ```bash
 # SkillHub — 覆盖 30+ Agent 平台（Claude Code、OpenClaw、CodeBuddy 等）
@@ -187,7 +187,7 @@ agent-comm-hub/
 │   ├── agent-client.ts            # TypeScript SDK（35 个公开方法）
 │   └── agent-client.js            # 编译后的 JS
 ├── docs/
-│   ├── API_REFERENCE.md           # 44 个工具完整参考 v2.2
+│   ├── API_REFERENCE.md           # 46 个工具完整参考 v2.2
 │   ├── SETUP_GUIDE.md             # 详细部署指南
 │   ├── TROUBLESHOOTING.md         # 踩坑经验（8 大类）
 │   ├── orchestrator-guide.md      # 进阶编排指南
@@ -219,7 +219,7 @@ agent-comm-hub/
 
 | 文档 | 说明 |
 |------|------|
-| [API_REFERENCE.md](docs/API_REFERENCE.md) | 44 个 MCP 工具完整参考 |
+| [API_REFERENCE.md](docs/API_REFERENCE.md) | 46 个 MCP 工具完整参考 |
 | [SETUP_GUIDE.md](docs/SETUP_GUIDE.md) | 从零部署指南 |
 | [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | 踩坑经验速查 |
 | [orchestrator-guide.md](docs/orchestrator-guide.md) | 进阶编排（依赖链/并行组/质量门） |

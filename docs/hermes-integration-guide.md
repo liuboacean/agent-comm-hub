@@ -466,11 +466,11 @@ for a in agents["agents"]:
 
 | 文档 | 路径 | 内容 |
 |------|------|------|
-| API 参考手册 v2.2 | `API_REFERENCE.md` | **40 个** MCP 工具的完整参数、权限矩阵（含 group_admin）、数据模型 |
-| 进阶编排指南 | `docs/advanced-orchestration-guide.md` | 依赖链 + 并行组 + 质量门 + 交接协议 + 组合工作流 |
-| 进化引擎指南 v2.0 | `docs/evolution-engine-guide.md` | 经验分享、策略传播、分级审批（4 级审批路径） |
+| API 参考手册 v2.2 | `API_REFERENCE.md` | **46 个** MCP 工具的完整参数、权限矩阵（含 group_admin）、数据模型 |
+| 进阶编排指南 | `orchestrator-guide.md` | 依赖链 + 并行组 + 质量门 + 交接协议 + 组合工作流 |
+| 进化引擎指南 v2.0 | `evolution-guide.md` | 经验分享、策略传播、分级审批（4 级审批路径） |
 
-### 7.1 API_REFERENCE.md（40 个 MCP 工具）
+### 7.1 API_REFERENCE.md（46 个 MCP 工具）
 
 | 分类 | 工具数 | 权限 | 说明 |
 |------|--------|------|------|

@@ -7,7 +7,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/MCP_Tools-46-blue" alt="46 MCP Tools">
   <img src="https://img.shields.io/badge/RBAC-4_Levels-green" alt="4-Level RBAC">
-  <img src="https://img.shields.io/badge/Python_SDK-0_Depedencies-brightgreen" alt="Zero Dependencies">
+  <img src="https://img.shields.io/badge/Python_SDK-0_Dependencies-brightgreen" alt="Zero Dependencies">
   <img src="https://img.shields.io/badge/Protocol-MCP+%2B+SSE-orange" alt="MCP + SSE">
   <img src="https://img.shields.io/badge/License-MIT-yellow" alt="MIT License">
 </p>

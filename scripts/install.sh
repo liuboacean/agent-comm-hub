@@ -20,7 +20,7 @@ if [ -d "$HUB_REPO" ]; then
     fi
 else
     echo "[1/4] 从 GitHub 克隆..."
-    git clone https://github.com/liubotype/agent-comm-hub.git "$INSTALL_DIR" 2>/dev/null || {
+    git clone https://github.com/liuboacean/agent-comm-hub.git "$INSTALL_DIR" 2>/dev/null || {
         echo "     GitHub 克隆失败，请手动下载源码到 $INSTALL_DIR"
         exit 1
     }

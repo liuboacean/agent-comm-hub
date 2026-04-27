@@ -46,7 +46,7 @@
 |------|--------|------|
 | **Identity 身份** | 6 | 注册、心跳、在线查询、角色管理、信任评分 |
 | **Message 消息** | 5 | 点对点/群发、全文搜索、消费水位线 |
-| **Task 任务** | 8 | 7 状态状态机、Pipeline 容器、自动通知 |
+| **Task 任务** | 8 | 7 状态状态机、Pipeline 线性容器、自动通知 |
 | **Memory 记忆** | 4 | private/team/global 三级、FTS5 搜索 |
 | **Evolution 进化** | 11 | 经验分享、4 级分级审批、策略采纳、信任评分联动 |
 | **Orchestration 编排** | 10 | 依赖链(DFS 环检测)、并行组、交接协议、质量门 |
@@ -91,7 +91,7 @@ npm start           # 生产模式，端口 3100
 ```python
 # 通过 MCP 工具 register_agent（需邀请码）
 # 或使用 SDK
-from client_sdk.hub_client import SynergyHubClient
+from hub_client import SynergyHubClient
 
 hub = SynergyHubClient(hub_url="http://localhost:3100", agent_id="my-agent")
 result = hub.register(invite_code="YOUR_INVITE_CODE")

@@ -1,6 +1,7 @@
 <p align="center">
   <strong>Agent Communication Hub</strong><br>
-  多智能体协同通信基础设施
+  多智能体协同通信基础设施<br>
+  <em>共享记忆，共同进化</em>
 </p>
 
 <p align="center">

@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "agent-comm-hub": {
+      "url": "http://localhost:3100/mcp"
+    }
+  }
+}

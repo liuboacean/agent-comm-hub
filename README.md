@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/MCP_Tools-44-blue" alt="44 MCP Tools">
+  <img src="https://img.shields.io/badge/MCP_Tools-46-blue" alt="46 MCP Tools">
   <img src="https://img.shields.io/badge/RBAC-4_Levels-green" alt="4-Level RBAC">
   <img src="https://img.shields.io/badge/Python_SDK-0_Depedencies-brightgreen" alt="Zero Dependencies">
   <img src="https://img.shields.io/badge/Protocol-MCP+%2B+SSE-orange" alt="MCP + SSE">
@@ -27,6 +27,8 @@
 让两个或多个独立 AI 智能体实现**实时双向通信**、**任务自动调度**、**记忆共享**和**协同进化**。
 
 基于 MCP 协议 + SSE 推送，SQLite WAL 持久化，消息零丢失，延迟 < 50ms。
+
+> **注意**：本仓库是 Hub 的 **Skill 分发包**（SDK + 文档 + 安装脚本），不包含服务端源码。Hub 服务端是一个独立的 Node.js 项目，通过 `install.sh` 自动从 GitHub 克隆并构建。
 
 ```
 ┌──────────────┐         ┌──────────────────────────┐         ┌──────────────┐

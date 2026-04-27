@@ -286,7 +286,7 @@ class SynergyHubClient:
 
         payload = {
             "jsonrpc": "2.0",
-            "id": f"call_{int(time.time() * 1000)}",
+            "id": uuid.uuid4().hex,
             "method": "tools/call",
             "params": {"name": tool_name, "arguments": args},
         }

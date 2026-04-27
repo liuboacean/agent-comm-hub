@@ -4,27 +4,15 @@
 set -e
 
 INSTALL_DIR="${1:-$HOME/agent-comm-hub}"
-HUB_REPO="$HOME/WorkBuddy/20260416213415/agent-comm-hub"
 
 echo "=== Agent Communication Hub v2.2 安装 ==="
 echo ""
 
-# 优先使用本地代码仓库（避免网络依赖）
-if [ -d "$HUB_REPO" ]; then
-    echo "[1/4] 使用本地代码仓库: $HUB_REPO"
-    if [ -d "$INSTALL_DIR" ]; then
-        echo "     目标目录已存在，跳过复制"
-    else
-        cp -r "$HUB_REPO" "$INSTALL_DIR"
-        echo "     已复制到 $INSTALL_DIR"
-    fi
-else
-    echo "[1/4] 从 GitHub 克隆..."
-    git clone https://github.com/liuboacean/agent-comm-hub.git "$INSTALL_DIR" 2>/dev/null || {
-        echo "     GitHub 克隆失败，请手动下载源码到 $INSTALL_DIR"
-        exit 1
-    }
-fi
+echo "[1/4] 从 GitHub 克隆..."
+git clone https://github.com/liuboacean/agent-comm-hub.git "$INSTALL_DIR" 2>/dev/null || {
+    echo "     GitHub 克隆失败，请手动下载源码到 $INSTALL_DIR"
+    exit 1
+}
 
 cd "$INSTALL_DIR"
 

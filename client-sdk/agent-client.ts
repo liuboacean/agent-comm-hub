@@ -59,6 +59,7 @@ export class AgentClient extends EventEmitter {
   private sessionId:  string | null = null;  // MCP session ID
   private initialized: boolean = false;
   private initPromise: Promise<void> | null = null;  // 并发安全
+  private _apiToken:  string = "";  // REST API 认证 token
 
   constructor(opts: AgentClientOptions) {
     super();
@@ -290,7 +291,7 @@ export class AgentClient extends EventEmitter {
     const { body } = await this.postMcp(
       {
         jsonrpc: "2.0",
-        id:      Date.now(),
+        id:      crypto.randomUUID(),
         method:  "tools/call",
         params:  { name: toolName, arguments: args },
       },
@@ -508,7 +509,7 @@ export class AgentClient extends EventEmitter {
     if (status) url.searchParams.set("status", status);
 
     const res = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${(this as any)._apiToken ?? ""}` },
+      headers: { Authorization: `Bearer ${this._apiToken}` },
     });
     if (!res.ok) throw new Error(`getTasks failed: ${res.status} ${res.statusText}`);
     return res.json();
@@ -740,6 +741,111 @@ export class AgentClient extends EventEmitter {
     const args: Record<string, unknown> = {};
     if (agentId) args.agent_id = agentId;
     return this.callTool("recalculate_trust_scores", args);
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // Token 管理 — Token Management
+  // ═══════════════════════════════════════════════════════
+
+  /** 设置 REST API 认证 token（register_agent 返回后调用） */
+  setToken(token: string): void {
+    this._apiToken = token;
+  }
+
+  /** 撤销 Agent 的 API token（admin only） */
+  async revokeToken(agentId: string) {
+    return this.callTool("revoke_token", { agent_id: agentId });
+  }
+
+  /** 设置 Agent 信任评分（admin only） */
+  async setTrustScore(agentId: string, score: number) {
+    return this.callTool("set_trust_score", {
+      agent_id: agentId,
+      trust_score: score,
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // 记忆搜索 — Memory Search (Phase 6)
+  // ═══════════════════════════════════════════════════════
+
+  /**
+   * 全文搜索记忆（FTS5）
+   * @param query 搜索关键词
+   * @param opts 可选：scope / limit
+   * @returns 匹配的记忆列表
+   */
+  async searchMemories(
+    query: string,
+    opts?: { scope?: string; limit?: number },
+  ) {
+    const args: Record<string, unknown> = { query };
+    if (opts?.scope) args.scope = opts.scope;
+    if (opts?.limit) args.limit = opts.limit;
+    return this.callTool("search_memories", args);
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // Pipeline 管理 — Pipeline Management (Phase 6)
+  // ═══════════════════════════════════════════════════════
+
+  /**
+   * 创建 Pipeline（线性任务容器）
+   * @param name Pipeline 名称
+   * @param description 可选描述
+   * @returns { pipelineId: string }
+   */
+  async createPipeline(name: string, description?: string) {
+    const args: Record<string, unknown> = { name };
+    if (description) args.description = description;
+    return this.callTool("create_pipeline", args);
+  }
+
+  /**
+   * 获取 Pipeline 详情（含任务列表和依赖关系）
+   * @param pipelineId Pipeline ID
+   * @returns Pipeline 详情
+   */
+  async getPipeline(pipelineId: string) {
+    return this.callTool("get_pipeline", { pipeline_id: pipelineId });
+  }
+
+  /**
+   * 列出所有 Pipeline
+   * @param opts 可选：status / limit
+   * @returns Pipeline 列表
+   */
+  async listPipelines(opts?: { status?: string; limit?: number }) {
+    const args: Record<string, unknown> = {};
+    if (opts?.status) args.status = opts.status;
+    if (opts?.limit) args.limit = opts.limit;
+    return this.callTool("list_pipelines", args);
+  }
+
+  /**
+   * 向 Pipeline 添加任务
+   * @param pipelineId Pipeline ID
+   * @param description 任务描述
+   * @param opts 可选：assignedTo / order / dependsOn
+   * @returns 添加结果
+   */
+  async addTaskToPipeline(
+    pipelineId: string,
+    description: string,
+    opts?: {
+      assignedTo?: string;
+      order?: number;
+      dependsOn?: string;
+    },
+  ) {
+    const args: Record<string, unknown> = {
+      pipeline_id: pipelineId,
+      description,
+    };
+    if (opts?.assignedTo) args.assigned_to = opts.assignedTo;
+    if (opts?.order !== undefined) args.order = opts.order;
+    if (opts?.dependsOn) args.depends_on = opts.dependsOn;
+    return this.callTool("add_task_to_pipeline", args);
   }
 
   // ═══════════════════════════════════════════════════════

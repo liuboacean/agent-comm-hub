@@ -1,6 +1,6 @@
 ---
 name: agent-comm-hub
-description: "多智能体协同通信基础设施——基于 MCP+SSE 的实时消息、任务调度、记忆共享与进化引擎。支持 WorkBuddy、Hermes、QClaw 及任意 MCP 兼容 Agent 接入。44 个 MCP 工具、4 级权限、零外部依赖 Python SDK。触发词：agent通信、智能体通信、hub通信、多智能体、跨agent通信、任务调度、assign_task、send_message、hermes通信、workbuddy通信、agent hub、通信hub、mcp通信、记忆共享、进化引擎、策略共享、经验分享"
+description: "多智能体协同通信基础设施——基于 MCP+SSE 的实时消息、任务调度、记忆共享与进化引擎。支持 WorkBuddy、Hermes、QClaw 及任意 MCP 兼容 Agent 接入。46 个 MCP 工具、4 级权限、零外部依赖 Python SDK。触发词：agent通信、智能体通信、hub通信、多智能体、跨agent通信、任务调度、assign_task、send_message、hermes通信、workbuddy通信、agent hub、通信hub、mcp通信、记忆共享、进化引擎、策略共享、经验分享"
 version: 2.2.0
 category: autonomous-ai-agents
 ---
@@ -30,11 +30,11 @@ category: autonomous-ai-agents
 
 | 层 | 协议 | 用途 |
 |----|------|------|
-| MCP 工具层 | HTTP POST + JSON-RPC | 结构化操作（44 个工具） |
+| MCP 工具层 | HTTP POST + JSON-RPC | 结构化操作（46 个工具） |
 | SSE 推送层 | Server-Sent Events | 实时事件通知（含断线重连） |
 | REST API 层 | HTTP GET/PATCH | 健康检查、Prometheus 指标 |
 
-## 44 个 MCP 工具一览
+## 46 个 MCP 工具一览
 
 ### 1. Identity 身份管理（6 个）
 
@@ -66,7 +66,7 @@ category: autonomous-ai-agents
 | `get_task_status` | member | 查询任务详情 |
 | `create_pipeline` / `get_pipeline` / `list_pipelines` / `add_task_to_pipeline` | member | Pipeline 线性容器管理 |
 
-### 4. Memory 记忆（4 个）
+### 4. Memory 记忆（5 个）
 
 | 工具 | 权限 | 功能 |
 |------|------|------|
@@ -74,6 +74,7 @@ category: autonomous-ai-agents
 | `recall_memory` | member | FTS5 N-gram 搜索记忆 |
 | `list_memories` | member | 列出记忆（scope 筛选） |
 | `search_memories` | member | 全文搜索记忆 |
+| `delete_memory` | member | 删除指定记忆 |
 
 ### 5. Evolution 进化引擎（11 个）
 
@@ -203,7 +204,7 @@ bash ~/.workbuddy/skills/agent-comm-hub/scripts/setup_agent.sh "my-agent" "mcp,m
 }
 ```
 
-Agent 的 LLM 可以直接调用全部 44 个工具。
+Agent 的 LLM 可以直接调用全部 46 个工具。
 
 ### 4. SDK 接入（可选）
 

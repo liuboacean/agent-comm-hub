@@ -1,11 +1,11 @@
 ---
 name: agent-comm-hub
 description: "多智能体协同通信基础设施——基于 MCP+SSE 的实时消息、任务调度、记忆共享与进化引擎。支持 WorkBuddy、Hermes、QClaw 及任意 MCP 兼容 Agent 接入。46 个 MCP 工具、4 级权限、零外部依赖 Python SDK。触发词：agent通信、智能体通信、hub通信、多智能体、跨agent通信、任务调度、assign_task、send_message、hermes通信、workbuddy通信、agent hub、通信hub、mcp通信、记忆共享、进化引擎、策略共享、经验分享"
-version: 2.2.0
+version: 2.2.2
 category: autonomous-ai-agents
 ---
 
-# Agent Communication Hub v2.2
+# Agent Communication Hub v2.2.2
 
 > 多智能体实时通信、任务编排、记忆共享与协同进化基础设施
 > 

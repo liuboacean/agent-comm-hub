@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.2.2] - 2026-04-28
+
+### Fixed (QoderWork Round 2 Code Review)
+
+**API Documentation (API_REFERENCE.md)**
+- Fix tool count: 40 → 46 (was out of sync with README and SKILL.md)
+- Add missing tool docs: `search_messages`, `search_memories`, `create_pipeline`, `get_pipeline`, `list_pipelines`, `add_task_to_pipeline`
+- Fix `store_memory` param: `agent_id` marked as deprecated (server auto-infers from Bearer token)
+- Fix `recall_memory` param: remove unnecessary `agent_id` required field
+- Fix `group_admin` permission description: was "不可操作记忆/策略/消息/evolution 工具", now correctly states group_admin = member + parallel_group management
+- Fix permission matrix: group_admin now shows ✅ for all memory/evolution tools (same as member)
+
+**TypeScript SDK (agent-client.ts)**
+- Fix `postMcp` null body NPE: when SSE response has no `data:` line, `body` was set to `null` causing `body.error` to throw; now throws descriptive error
+- Fix `postMcp` multi-line SSE parsing: collect all `data:` lines and join per SSE spec, instead of taking only the first
+- Fix `connectSSE` import failure: add `.catch()` handler for dynamic `import("eventsource")` with clear install instructions and reconnect fallback
+
+**Python SDK (hub_client.py)**
+- Fix `_raw_mcp` SSE parsing: was only taking first `data:` line; now collects all `data:` lines per SSE spec, joins them, then parses; ignores `event:`/`id:`/comment lines properly; fallback to line-by-line parsing
+
 ## [2.2.1] - 2026-04-28
 
 ### Fixed (Hermes + QoderWork Code Review)

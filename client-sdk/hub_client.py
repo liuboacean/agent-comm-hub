@@ -258,19 +258,42 @@ class SynergyHubClient:
         """
         底层 MCP POST 请求
         处理 SSE 格式响应（text/event-stream）和普通 JSON 响应
+
+        SSE 响应格式：
+            event: message\\n
+            data: {"result":...}\\n
+            \\n
+
+        多行 data: 按 SSE 规范拼接后再 JSON 解析。
+        忽略 event: / id: / : 开头的行。
         """
         raw = self._request("POST", "/mcp", data=payload, headers=self._auth_headers())
         text = raw.decode("utf-8", errors="replace")
 
-        # 尝试 SSE 格式解析
+        # 尝试 SSE 格式解析：收集所有 data: 行，拼接后解析
+        data_parts: list[str] = []
         for line in text.split("\n"):
-            line = line.strip()
-            if line.startswith("data: "):
-                json_str = line[6:]
-                try:
-                    return json.loads(json_str)
-                except json.JSONDecodeError:
-                    continue
+            stripped = line.strip()
+            if stripped.startswith("data:"):
+                # data: 可能是 "data:" 或 "data: "，按 SSE 规范去掉前缀
+                data_value = stripped[5:]
+                if data_value.startswith(" "):
+                    data_value = data_value[1:]
+                data_parts.append(data_value)
+            # 忽略 event: / id: / : (心跳注释) 开头的行
+
+        if data_parts:
+            # SSE 规范：多行 data 拼接为一个值
+            combined = "".join(data_parts)
+            try:
+                return json.loads(combined)
+            except json.JSONDecodeError:
+                # 拼接失败，尝试逐行解析
+                for part in reversed(data_parts):
+                    try:
+                        return json.loads(part)
+                    except json.JSONDecodeError:
+                        continue
 
         # 尝试直接 JSON
         try:

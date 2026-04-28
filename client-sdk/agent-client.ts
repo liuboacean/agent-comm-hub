@@ -182,14 +182,20 @@ export class AgentClient extends EventEmitter {
       let body: any;
 
       if (res.headers.get("content-type")?.includes("text/event-stream")) {
-        // SSE 格式：找 "data: " 开头的行
-        const dataLine = raw.split("\n")
+        // SSE 格式：合并所有 "data: " 行（处理多行 data 场景）
+        const dataLines = raw.split("\n")
           .map(line => line.trim())
-          .find(line => line.startsWith("data: "));
+          .filter(line => line.startsWith("data: "));
 
-        if (dataLine) {
-          const jsonStr = dataLine.slice(6); // 去掉 "data: " 前缀
-          body = JSON.parse(jsonStr);
+        if (dataLines.length > 0) {
+          // 多行 data: 按 SSE 规范拼接
+          const jsonStr = dataLines.map(line => line.slice(6)).join("");
+          try {
+            body = JSON.parse(jsonStr);
+          } catch {
+            // 单行解析回退
+            try { body = JSON.parse(dataLines[0].slice(6)); } catch { body = null; }
+          }
         } else {
           body = null;
         }
@@ -218,10 +224,24 @@ export class AgentClient extends EventEmitter {
       this.sse = new (globalThis as any).EventSource(url);
     } catch {
       // Node.js 回退：动态 import eventsource 包（ESM 兼容）
-      import("eventsource").then((mod: any) => {
-        this.sse = new (mod.default || mod.EventSource || mod)(url);
-        this.bindSSEEvents();
-      });
+      import("eventsource")
+        .then((mod: any) => {
+          this.sse = new (mod.default || mod.EventSource || mod)(url);
+          this.bindSSEEvents();
+        })
+        .catch((err: any) => {
+          console.error(
+            `[${this.opts.agentId}] SSE: Failed to import 'eventsource' package. ` +
+            `Install it with: npm install eventsource\n` +
+            `Error: ${err?.message || err}`
+          );
+          // 指数退避重连
+          if (!this.stopping) {
+            setTimeout(() => {
+              if (!this.stopping) this.connectSSE();
+            }, this.opts.reconnectDelay! * 2);
+          }
+        });
       return; // bindSSEEvents 将在 import 完成后调用
     }
 
@@ -297,6 +317,11 @@ export class AgentClient extends EventEmitter {
       },
       this.opts.mcpTimeout!
     );
+
+    // null body 处理（SSE 解析失败）
+    if (!body) {
+      throw new Error(`MCP tool error [${toolName}]: empty response body (SSE parse failed)`);
+    }
 
     // 错误处理
     if (body.error) {

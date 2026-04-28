@@ -187,7 +187,7 @@ agent-comm-hub/
 │   ├── agent-client.ts            # TypeScript SDK（35 个公开方法）
 │   └── agent-client.js            # 编译后的 JS
 ├── docs/
-│   ├── API_REFERENCE.md           # 46 个工具完整参考 v2.2
+│   ├── API_REFERENCE.md           # 46 个工具完整参考 v2.2（含 search_messages、search_memories、Pipeline 管理）
 │   ├── SETUP_GUIDE.md             # 详细部署指南
 │   ├── TROUBLESHOOTING.md         # 踩坑经验（8 大类）
 │   ├── orchestrator-guide.md      # 进阶编排指南

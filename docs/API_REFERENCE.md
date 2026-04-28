@@ -1,7 +1,7 @@
 # API Reference — Agent Comm Hub v2.2
 
 > **版本**：v2.2 | **日期**：2026-04-25
-> **MCP 工具总数**：40 个
+> **MCP 工具总数**：46 个
 > **基础 URL**：`http://localhost:3100`
 
 ---
@@ -10,12 +10,12 @@
 
 | 分类 | 工具数 | 权限 | Phase |
 |------|--------|------|-------|
-| Identity 身份 | 6 | public + member + admin | 1 + 5a |
+| Identity 身份 | 8 | public + member + admin | 1 + 5a |
 | Message 消息 | 5 | member | 1 |
-| Task 任务 | 4 | member | 1 + 4a |
-| Memory 记忆 | 4 | member | 1 |
+| Task 任务 | 8 | member | 1 + 4a |
+| Memory 记忆 | 5 | member | 1 + 6 |
 | Evolution 进化 | 11 | member + admin | 3 + 4b |
-| Orchestration 编排 | 10 | member | 4b |
+| Orchestration 编排 | 9 | member | 4b |
 
 ---
 
@@ -234,6 +234,24 @@ base = 50
 
 ---
 
+### search_messages
+
+> **权限**：member
+
+全文搜索消息历史（FTS5）。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `query` | string | ✅ | 搜索关键词 |
+| `agent_id` | string | ❌ | 限定发送方 Agent ID |
+| `from_agent` | string | ❌ | 限定发送方 Agent ID（与 agent_id 等价） |
+| `to_agent` | string | ❌ | 限定接收方 Agent ID |
+| `limit` | number | ❌ | 返回数量（默认 50） |
+
+**返回**：`{ query, messages: [...], count }`
+
+---
+
 ## 3. Task 任务
 
 ### assign_task
@@ -284,20 +302,78 @@ base = 50
 
 ---
 
+### create_pipeline
+
+> **权限**：member
+
+创建 Pipeline（线性任务容器）。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `name` | string | ✅ | Pipeline 名称 |
+| `description` | string | ❌ | 描述 |
+
+**返回**：`{ pipeline_id, name, status: "active" }`
+
+---
+
+### get_pipeline
+
+> **权限**：member
+
+获取 Pipeline 详情（含任务列表和依赖关系）。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `pipeline_id` | string | ✅ | Pipeline ID |
+
+---
+
+### list_pipelines
+
+> **权限**：member
+
+列出所有 Pipeline。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `status` | enum | ❌ | `active` / `completed` / `all` |
+| `limit` | number | ❌ | 返回数量 |
+
+---
+
+### add_task_to_pipeline
+
+> **权限**：member
+
+向 Pipeline 添加任务。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `pipeline_id` | string | ✅ | Pipeline ID |
+| `description` | string | ✅ | 任务描述 |
+| `assigned_to` | string | ❌ | 执行方 Agent ID |
+| `priority` | enum | ❌ | `low` / `medium` / `high`（默认 medium） |
+| `depends_on` | string[] | ❌ | 依赖的任务 ID 列表 |
+
+---
+
 ## 4. Memory 记忆
 
 ### store_memory
 
 > **权限**：member
 
-存储记忆。
+存储记忆。`agent_id` 由服务端从 Bearer token 自动推断，无需客户端传递。
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `agent_id` | string | ✅ | Agent ID |
 | `content` | string | ✅ | 记忆内容（最多 10000 字符） |
 | `scope` | enum | ✅ | `private` / `group` / `collective` |
+| `title` | string | ❌ | 记忆标题 |
 | `tags` | string[] | ❌ | 标签列表 |
+| `source_task_id` | string | ❌ | 关联任务 ID（溯源追踪） |
+| `agent_id` | string | ❌ | 已废弃：服务端自动从 token 推断，无需传递 |
 
 ---
 
@@ -309,8 +385,8 @@ base = 50
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `agent_id` | string | ✅ | Agent ID |
 | `query` | string | ✅ | 搜索关键词 |
+| `scope` | enum | ❌ | `private` / `group` / `collective` / `all`（默认 all） |
 | `limit` | number | ❌ | 返回数量（默认 10） |
 
 ---
@@ -337,6 +413,23 @@ base = 50
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `memory_id` | string | ✅ | 记忆 ID |
+
+---
+
+### search_memories
+
+> **权限**：member
+
+全文搜索记忆（FTS5 索引）。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `query` | string | ✅ | 搜索关键词 |
+| `scope` | enum | ❌ | `private` / `group` / `collective` / `all` |
+| `agent_id` | string | ❌ | 限定 Agent ID |
+| `limit` | number | ❌ | 返回数量（默认 50） |
+
+**返回**：`{ query, memories: [...], count }`
 
 ---
 
@@ -570,17 +663,17 @@ base = 50
 | acknowledge_message | — | ✅ | ✅ | ✅ |
 | mark_consumed | — | ✅ | ✅ | ✅ |
 | check_consumed | — | ✅ | ✅ | ✅ |
-| store_memory | — | ✅ | — | ✅ |
-| recall_memory | — | ✅ | — | ✅ |
-| list_memories | — | ✅ | — | ✅ |
-| delete_memory | — | ✅ | — | ✅ |
-| share_experience | — | ✅ | — | ✅ |
-| propose_strategy | — | ✅ | — | ✅ |
-| list_strategies | — | ✅ | — | ✅ |
-| search_strategies | — | ✅ | — | ✅ |
-| apply_strategy | — | ✅ | — | ✅ |
-| feedback_strategy | — | ✅ | — | ✅ |
-| get_evolution_status | — | ✅ | — | ✅ |
+| store_memory | — | ✅ | ✅ | ✅ |
+| recall_memory | — | ✅ | ✅ | ✅ |
+| list_memories | — | ✅ | ✅ | ✅ |
+| delete_memory | — | ✅ | ✅ | ✅ |
+| share_experience | — | ✅ | ✅ | ✅ |
+| propose_strategy | — | ✅ | ✅ | ✅ |
+| list_strategies | — | ✅ | ✅ | ✅ |
+| search_strategies | — | ✅ | ✅ | ✅ |
+| apply_strategy | — | ✅ | ✅ | ✅ |
+| feedback_strategy | — | ✅ | ✅ | ✅ |
+| get_evolution_status | — | ✅ | ✅ | ✅ |
 | add_dependency | — | ✅ | ✅ | ✅ |
 | remove_dependency | — | ✅ | ✅ | ✅ |
 | get_task_dependencies | — | ✅ | ✅ | ✅ |
@@ -590,8 +683,8 @@ base = 50
 | reject_handoff | — | ✅ | ✅ | ✅ |
 | add_quality_gate | — | ✅ | ✅ | ✅ |
 | evaluate_quality_gate | — | ✅ | ✅ | ✅ |
-| propose_strategy_tiered | — | ✅ | — | ✅ |
-| check_veto_window | — | ✅ | — | ✅ |
+| propose_strategy_tiered | — | ✅ | ✅ | ✅ |
+| check_veto_window | — | ✅ | ✅ | ✅ |
 | **revoke_token** | — | — | — | **✅** |
 | **set_trust_score** | — | — | — | **✅** |
 | **approve_strategy** | — | — | — | **✅** |
@@ -599,7 +692,7 @@ base = 50
 | **set_agent_role** ⭐5a | — | — | — | **✅** |
 | **recalculate_trust_scores** ⭐5a | — | — | — | **✅** |
 
-> **group_admin**：等同于 member + 可管理所属 parallel_group 内任务。不可操作记忆/策略/消息/evolution 工具。
+> **group_admin**：等同于 member + 可管理所属 parallel_group 内任务。可操作消息、记忆、策略、evolution 工具（与 member 权限一致），额外拥有并行组管理能力。
 
 ---
 

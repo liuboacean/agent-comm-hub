@@ -1,3 +1,8 @@
 __pycache__/
 *.pyc
 .DS_Store
+*.db
+*.db-journal
+*.db-wal
+node_modules/
+dist/

@@ -1,3 +1,4 @@
+"use strict";
 /**
  * agent-client.ts — 通用 Agent 客户端 SDK
  * WorkBuddy 和 Hermes 都用这个文件接入 Hub
@@ -7,15 +8,18 @@
  *  2. MCP 工具调用封装（HTTP POST /mcp，含 initialize 握手）
  *  3. 事件路由（new_message / task_assigned / task_updated / pending_messages）
  */
-import { EventEmitter } from "events";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.AgentClient = void 0;
+const events_1 = require("events");
 // ─── AgentClient 类 ────────────────────────────────────
-export class AgentClient extends EventEmitter {
+class AgentClient extends events_1.EventEmitter {
     opts;
     sse = null; // EventSource 实例
     stopping = false;
     sessionId = null; // MCP session ID
     initialized = false;
     initPromise = null; // 并发安全
+    _apiToken = ""; // REST API 认证 token
     constructor(opts) {
         super();
         this.opts = {
@@ -118,13 +122,25 @@ export class AgentClient extends EventEmitter {
             const raw = await res.text();
             let body;
             if (res.headers.get("content-type")?.includes("text/event-stream")) {
-                // SSE 格式：找 "data: " 开头的行
-                const dataLine = raw.split("\n")
+                // SSE 格式：合并所有 "data: " 行（处理多行 data 场景）
+                const dataLines = raw.split("\n")
                     .map(line => line.trim())
-                    .find(line => line.startsWith("data: "));
-                if (dataLine) {
-                    const jsonStr = dataLine.slice(6); // 去掉 "data: " 前缀
-                    body = JSON.parse(jsonStr);
+                    .filter(line => line.startsWith("data: "));
+                if (dataLines.length > 0) {
+                    // 多行 data: 按 SSE 规范拼接
+                    const jsonStr = dataLines.map(line => line.slice(6)).join("");
+                    try {
+                        body = JSON.parse(jsonStr);
+                    }
+                    catch {
+                        // 单行解析回退
+                        try {
+                            body = JSON.parse(dataLines[0].slice(6));
+                        }
+                        catch {
+                            body = null;
+                        }
+                    }
                 }
                 else {
                     body = null;
@@ -155,9 +171,22 @@ export class AgentClient extends EventEmitter {
         }
         catch {
             // Node.js 回退：动态 import eventsource 包（ESM 兼容）
-            import("eventsource").then((mod) => {
+            import("eventsource")
+                .then((mod) => {
                 this.sse = new (mod.default || mod.EventSource || mod)(url);
                 this.bindSSEEvents();
+            })
+                .catch((err) => {
+                console.error(`[${this.opts.agentId}] SSE: Failed to import 'eventsource' package. ` +
+                    `Install it with: npm install eventsource\n` +
+                    `Error: ${err?.message || err}`);
+                // 指数退避重连
+                if (!this.stopping) {
+                    setTimeout(() => {
+                        if (!this.stopping)
+                            this.connectSSE();
+                    }, this.opts.reconnectDelay * 2);
+                }
             });
             return; // bindSSEEvents 将在 import 完成后调用
         }
@@ -221,10 +250,14 @@ export class AgentClient extends EventEmitter {
     async _callTool(toolName, args) {
         const { body } = await this.postMcp({
             jsonrpc: "2.0",
-            id: Date.now(),
+            id: crypto.randomUUID(),
             method: "tools/call",
             params: { name: toolName, arguments: args },
         }, this.opts.mcpTimeout);
+        // null body 处理（SSE 解析失败）
+        if (!body) {
+            throw new Error(`MCP tool error [${toolName}]: empty response body (SSE parse failed)`);
+        }
         // 错误处理
         if (body.error) {
             const errMsg = body.error.message ?? JSON.stringify(body.error);
@@ -415,7 +448,7 @@ export class AgentClient extends EventEmitter {
         if (status)
             url.searchParams.set("status", status);
         const res = await fetch(url.toString(), {
-            headers: { Authorization: `Bearer ${this._apiToken ?? ""}` },
+            headers: { Authorization: `Bearer ${this._apiToken}` },
         });
         if (!res.ok)
             throw new Error(`getTasks failed: ${res.status} ${res.statusText}`);
@@ -619,6 +652,97 @@ export class AgentClient extends EventEmitter {
         return this.callTool("recalculate_trust_scores", args);
     }
     // ═══════════════════════════════════════════════════════
+    // Token 管理 — Token Management
+    // ═══════════════════════════════════════════════════════
+    /** 设置 REST API 认证 token（register_agent 返回后调用） */
+    setToken(token) {
+        this._apiToken = token;
+    }
+    /** 撤销 Agent 的 API token（admin only） */
+    async revokeToken(agentId) {
+        return this.callTool("revoke_token", { agent_id: agentId });
+    }
+    /** 设置 Agent 信任评分（admin only） */
+    async setTrustScore(agentId, score) {
+        return this.callTool("set_trust_score", {
+            agent_id: agentId,
+            trust_score: score,
+        });
+    }
+    // ═══════════════════════════════════════════════════════
+    // 记忆搜索 — Memory Search (Phase 6)
+    // ═══════════════════════════════════════════════════════
+    /**
+     * 全文搜索记忆（FTS5）
+     * @param query 搜索关键词
+     * @param opts 可选：scope / limit
+     * @returns 匹配的记忆列表
+     */
+    async searchMemories(query, opts) {
+        const args = { query };
+        if (opts?.scope)
+            args.scope = opts.scope;
+        if (opts?.limit)
+            args.limit = opts.limit;
+        return this.callTool("search_memories", args);
+    }
+    // ═══════════════════════════════════════════════════════
+    // Pipeline 管理 — Pipeline Management (Phase 6)
+    // ═══════════════════════════════════════════════════════
+    /**
+     * 创建 Pipeline（线性任务容器）
+     * @param name Pipeline 名称
+     * @param description 可选描述
+     * @returns { pipelineId: string }
+     */
+    async createPipeline(name, description) {
+        const args = { name };
+        if (description)
+            args.description = description;
+        return this.callTool("create_pipeline", args);
+    }
+    /**
+     * 获取 Pipeline 详情（含任务列表和依赖关系）
+     * @param pipelineId Pipeline ID
+     * @returns Pipeline 详情
+     */
+    async getPipeline(pipelineId) {
+        return this.callTool("get_pipeline", { pipeline_id: pipelineId });
+    }
+    /**
+     * 列出所有 Pipeline
+     * @param opts 可选：status / limit
+     * @returns Pipeline 列表
+     */
+    async listPipelines(opts) {
+        const args = {};
+        if (opts?.status)
+            args.status = opts.status;
+        if (opts?.limit)
+            args.limit = opts.limit;
+        return this.callTool("list_pipelines", args);
+    }
+    /**
+     * 向 Pipeline 添加任务
+     * @param pipelineId Pipeline ID
+     * @param description 任务描述
+     * @param opts 可选：assignedTo / order / dependsOn
+     * @returns 添加结果
+     */
+    async addTaskToPipeline(pipelineId, description, opts) {
+        const args = {
+            pipeline_id: pipelineId,
+            description,
+        };
+        if (opts?.assignedTo)
+            args.assigned_to = opts.assignedTo;
+        if (opts?.order !== undefined)
+            args.order = opts.order;
+        if (opts?.dependsOn)
+            args.depends_on = opts.dependsOn;
+        return this.callTool("add_task_to_pipeline", args);
+    }
+    // ═══════════════════════════════════════════════════════
     // 消息搜索 — Message Search (Phase 6)
     // ═══════════════════════════════════════════════════════
     /**
@@ -636,4 +760,4 @@ export class AgentClient extends EventEmitter {
         return this.callTool("search_messages", args);
     }
 }
-//# sourceMappingURL=agent-client.js.map
+exports.AgentClient = AgentClient;

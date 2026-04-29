@@ -29,6 +29,15 @@ const HEARTBEAT_ONLINE_THRESHOLD = parseInt(process.env.HEARTBEAT_ONLINE_THRESHO
 const HEARTBEAT_NOTIFY_THRESHOLD = parseInt(process.env.HEARTBEAT_NOTIFY_THRESHOLD ?? "300000", 10); // 5min → 通知
 const HEARTBEAT_CHECK_INTERVAL   = parseInt(process.env.HEARTBEAT_CHECK_INTERVAL ?? "30000", 10);  // 30s 检查一次
 
+// Phase 1.2: 连续心跳信任分增长配置
+export const HEARTBEAT_CONFIG = {
+  TRUST_SCORE_INCREMENT_INTERVAL: 3,  // 每 3 次连续心跳 +1 分
+  TRUST_SCORE_MAX: 100,               // trust_score 上限
+};
+
+// 连续心跳计数器：agentId → 连续在线心跳次数
+const heartbeatCounters = new Map<string, number>();
+
 // ─── 类型 ────────────────────────────────────────────────
 export interface AgentInfo {
   agent_id: string;
@@ -120,17 +129,19 @@ function registerAgentWithId(
 
 /**
  * 处理 Agent 心跳
+ * 连续在线心跳每 TRUST_SCORE_INCREMENT_INTERVAL 次自动增加 1 点 trust_score（上限 TRUST_SCORE_MAX）
  * @returns 更新后的状态
  */
 export function heartbeat(agentId: string): {
   success: boolean;
   status: "online" | "offline";
   last_heartbeat: number;
+  trust_score?: number;
   error?: string;
 } {
   // 检查 Agent 是否存在
   const agent = db
-    .prepare(`SELECT agent_id FROM agents WHERE agent_id=?`)
+    .prepare(`SELECT agent_id, trust_score FROM agents WHERE agent_id=?`)
     .get(agentId) as any;
 
   if (!agent) {
@@ -143,7 +154,20 @@ export function heartbeat(agentId: string): {
     `UPDATE agents SET status='online', last_heartbeat=? WHERE agent_id=?`
   ).run(now, agentId);
 
-  return { success: true, status: "online", last_heartbeat: now };
+  // Phase 1.2: 连续心跳信任分增长
+  const counter = (heartbeatCounters.get(agentId) ?? 0) + 1;
+  heartbeatCounters.set(agentId, counter);
+
+  if (counter % HEARTBEAT_CONFIG.TRUST_SCORE_INCREMENT_INTERVAL === 0) {
+    // 每 3 次连续心跳 +1 trust_score
+    db.prepare(
+      `UPDATE agents SET trust_score = MIN(trust_score + 1, ?) WHERE agent_id = ?`
+    ).run(HEARTBEAT_CONFIG.TRUST_SCORE_MAX, agentId);
+  }
+
+  const newTrustScore = (db.prepare(`SELECT trust_score FROM agents WHERE agent_id=?`).get(agentId) as any)?.trust_score ?? 50;
+
+  return { success: true, status: "online", last_heartbeat: now, trust_score: newTrustScore };
 }
 
 // ─── 查询 Agent ──────────────────────────────────────────
@@ -261,6 +285,9 @@ export function startHeartbeatMonitor(onAgentOffline?: (agentId: string) => void
         db.prepare(
           `UPDATE agents SET status='offline' WHERE agent_id=?`
         ).run(agent.agent_id);
+
+        // Phase 1.2: 重置连续心跳计数器
+        heartbeatCounters.delete(agent.agent_id);
 
         logger.info("agent_offline_marked", {
           module: "heartbeat",

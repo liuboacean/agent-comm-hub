@@ -32,6 +32,7 @@ import { startHeartbeatMonitor, clearOfflineNotification, stopHeartbeatMonitor }
 import { startDedupCleanup, stopDedupCleanup } from "./dedup.js";
 import { rebuildFtsIndex } from "./memory.js";
 import { logger, logError } from "./logger.js";
+import { join } from "path";
 import {
   getMetricsOutput,
   trackHttpRequest,
@@ -58,6 +59,8 @@ const config = {
   dedupTTL:                  parseInt(process.env.DEDUP_TTL ?? "900", 10) * 1000,
   dedupCleanupInterval:      parseInt(process.env.DEDUP_CLEANUP_INTERVAL ?? "60000", 10),
   tokenExpireDays:           parseInt(process.env.TOKEN_EXPIRE_DAYS ?? "90", 10),
+  uploadDir:                 process.env.UPLOAD_DIR || join(process.cwd(), "uploads"),
+  maxFileSize:               parseInt(process.env.MAX_FILE_SIZE ?? "10485760", 10),  // 10MB
 };
 
 const app = express();

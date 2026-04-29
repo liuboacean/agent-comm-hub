@@ -7,3 +7,9 @@ comm_hub.db-wal
 .DS_Store
 uploads/
 .env
+__pycache__/
+*.pyc
+.codebuddy/
+.workbuddy/
+project-specs/
+tests/

@@ -6,7 +6,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { randomUUID } from "crypto";
-import { type Message, type Task, type ConsumedEntry, db } from "./db.js";
+import { type Message, type Task, type ConsumedEntry, type Attachment, attachStmt, db } from "./db.js";
 import { messageRepo, taskRepo, consumedRepo } from "./repo/sqlite-impl.js";
 import { pushToAgent, onlineAgents } from "./sse.js";
 import {
@@ -65,6 +65,8 @@ import {
 } from "./orchestrator.js";
 import { logError } from "./logger.js";
 import { incrementMcpCall } from "./metrics.js";
+import { existsSync, mkdirSync, writeFileSync, readFileSync, unlinkSync } from "fs";
+import { join as pathJoin } from "path";
 
 // ─── 通用工具：带指数退避的重试 ──────────────────────────
 async function withRetry<T>(
@@ -161,7 +163,7 @@ export function registerTools(server: McpServer, authContext?: AuthContext): voi
   // ────────────────────────────────────────────────────
   server.tool(
     "heartbeat",
-    "上报 Agent 心跳，维持在线状态。Agent 上线后应每 30 秒调用一次。超过 90 秒无心跳将自动标记为离线。",
+    "上报 Agent 心跳，维持在线状态并累积信任分。Agent 上线后应每 30 秒调用一次。超过 90 秒无心跳将自动标记为离线。连续在线心跳每 3 次自动增加 1 点 trust_score（上限 100）。",
     {
       agent_id: z.string().describe("Agent ID（注册时返回的 agent_id）"),
     },
@@ -2230,6 +2232,273 @@ export function registerTools(server: McpServer, authContext?: AuthContext): voi
             text: JSON.stringify({ success: false, error: err.message }),
           }],
         };
+      }
+    }
+  );
+
+  // ────────────────────────────────────────────────────
+  // Tool: batch_acknowledge_messages (Phase 1.3)
+  // 批量确认消息
+  // ────────────────────────────────────────────────────
+  server.tool(
+    "batch_acknowledge_messages",
+    "批量确认消息为已处理。可按 agent_id 和时间范围筛选，将匹配的未确认消息全部标记为 acknowledged。用于清理消息积压。",
+    {
+      agent_id: z.string().describe("目标 Agent ID（消息接收方），即要清理谁的未读消息"),
+      from_agent: z.string().optional().describe("发送方 Agent ID 过滤（可选），只确认来自特定发送方的消息"),
+      before: z.number().optional().describe("时间戳上限（毫秒），只确认此时间之前的消息"),
+      after: z.number().optional().describe("时间戳下限（毫秒），只确认此时间之后的消息"),
+      status: z.enum(["unread", "delivered"]).optional().default("unread").describe("要确认的消息状态，默认 unread"),
+      limit: z.number().int().min(1).max(500).default(100).describe("最多确认的消息数量，默认 100，上限 500"),
+    },
+    async ({ agent_id, from_agent, before, after, status, limit }) => {
+      const ctx = requireAuth(authContext, "batch_acknowledge_messages");
+
+      try {
+        // 构建查询条件
+        const conditions: string[] = ["to_agent = ?"];
+        const params: any[] = [agent_id];
+
+        if (from_agent) {
+          conditions.push("from_agent = ?");
+          params.push(from_agent);
+        }
+        if (before !== undefined) {
+          conditions.push("created_at < ?");
+          params.push(before);
+        }
+        if (after !== undefined) {
+          conditions.push("created_at > ?");
+          params.push(after);
+        }
+
+        // 只确认非 acknowledged 状态的消息
+        if (status === "delivered") {
+          conditions.push("status = 'delivered'");
+        } else {
+          conditions.push("status IN ('unread', 'delivered')");
+        }
+
+        const whereClause = conditions.join(" AND ");
+
+        // 先查询匹配的消息数量
+        const countResult = db.prepare(
+          `SELECT COUNT(*) as cnt FROM messages WHERE ${whereClause}`
+        ).get(...params) as any;
+
+        const totalCount = countResult?.cnt ?? 0;
+        const actualLimit = Math.min(limit, totalCount);
+
+        if (actualLimit === 0) {
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                success: true,
+                agent_id,
+                acknowledged_count: 0,
+                total_matching: 0,
+                filters: { from_agent, before, after, status },
+                note: "没有匹配的未确认消息",
+              }, null, 2),
+            }],
+          };
+        }
+
+        // 批量更新：使用子查询限制更新行数
+        const updateResult = db.prepare(
+          `UPDATE messages SET status = 'acknowledged' WHERE ${whereClause} AND rowid IN (
+            SELECT rowid FROM messages WHERE ${whereClause} LIMIT ?
+          )`
+        ).run(...params, ...params, actualLimit);
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              success: true,
+              agent_id,
+              acknowledged_count: updateResult.changes,
+              total_matching: totalCount,
+              filters: { from_agent, before, after, status },
+              note: updateResult.changes < totalCount
+                ? `已确认 ${updateResult.changes} 条（达到 limit ${limit} 上限），可再次调用继续清理`
+                : `全部 ${totalCount} 条匹配消息已确认`,
+            }, null, 2),
+          }],
+        };
+      } catch (err: any) {
+        logError("batch_acknowledge_messages_error", err);
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({ success: false, error: err.message }),
+          }],
+        };
+      }
+    }
+  );
+
+  // ═══════════════════════════════════════════════════════════════
+  // v2.3 Phase 1.1: 文件传输工具（3 个）
+  // ═══════════════════════════════════════════════════════════════
+
+  // --- Tool: upload_file ---
+  // 上传文件附件并关联到消息 — member 及以上
+  server.tool(
+    "upload_file",
+    "上传文件附件并关联到消息。文件以 Base64 编码传入，服务端解码后存储到本地磁盘。",
+    {
+      message_id:     z.string().describe("关联的消息 ID"),
+      filename:       z.string().describe("文件名（含扩展名）"),
+      content_base64: z.string().describe("文件内容的 Base64 编码"),
+      mime_type:      z.string().default("application/octet-stream").describe("MIME 类型"),
+    },
+    async ({ message_id, filename, content_base64, mime_type }) => {
+      const ctx = requireAuth(authContext, "upload_file");
+      try {
+        // 验证消息存在
+        const msg = messageRepo.getById(message_id);
+        if (!msg) {
+          return { content: [{ type: "text", text: JSON.stringify({ error: `Message ${message_id} not found` }) }] };
+        }
+
+        // Base64 解码
+        const buffer = Buffer.from(content_base64, "base64");
+        const fileSize = buffer.length;
+
+        // 检查文件大小（10MB 限制）
+        if (fileSize > 10 * 1024 * 1024) {
+          return { content: [{ type: "text", text: JSON.stringify({ error: "File too large, max 10MB" }) }] };
+        }
+
+        // 生成存储路径
+        const id = randomUUID();
+        const uploadDir = process.env.UPLOAD_DIR || pathJoin(process.cwd(), "uploads");
+        if (!existsSync(uploadDir)) mkdirSync(uploadDir, { recursive: true });
+        const storagePath = pathJoin(uploadDir, id);
+
+        // 写入文件
+        writeFileSync(storagePath, buffer);
+
+        // 存入数据库
+        attachStmt.insert.run({
+          id,
+          message_id,
+          filename,
+          mime_type,
+          file_size: fileSize,
+          storage_path: storagePath,
+          uploaded_by: ctx.agentId,
+          created_at: Date.now(),
+        });
+
+        // SSE 通知接收方
+        pushToAgent(msg.to_agent, {
+          type: "file_attached",
+          attachment_id: id,
+          message_id,
+          filename,
+          mime_type,
+          file_size: fileSize,
+          uploaded_by: ctx.agentId,
+          created_at: Date.now(),
+        });
+
+        incrementMcpCall("upload_file", "success", ctx.role);
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              success: true,
+              attachment_id: id,
+              filename,
+              file_size: fileSize,
+              message_id,
+            }, null, 2),
+          }],
+        };
+      } catch (err: any) {
+        logError("upload_file_error", err);
+        return { content: [{ type: "text", text: JSON.stringify({ success: false, error: err.message }) }] };
+      }
+    }
+  );
+
+  // --- Tool: download_file ---
+  // 下载附件，返回 Base64 编码 — member 及以上
+  server.tool(
+    "download_file",
+    "下载附件，返回 Base64 编码的文件内容。",
+    {
+      attachment_id: z.string().describe("附件 ID"),
+    },
+    async ({ attachment_id }) => {
+      const ctx = requireAuth(authContext, "download_file");
+      try {
+        const attach = attachStmt.getById.get(attachment_id) as Attachment | undefined;
+        if (!attach) {
+          return { content: [{ type: "text", text: JSON.stringify({ error: `Attachment ${attachment_id} not found` }) }] };
+        }
+        if (!existsSync(attach.storage_path)) {
+          return { content: [{ type: "text", text: JSON.stringify({ error: "File not found on disk" }) }] };
+        }
+        const buffer = readFileSync(attach.storage_path);
+        incrementMcpCall("download_file", "success", ctx.role);
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              success: true,
+              attachment_id: attach.id,
+              filename: attach.filename,
+              mime_type: attach.mime_type,
+              file_size: attach.file_size,
+              content_base64: buffer.toString("base64"),
+              message_id: attach.message_id,
+            }, null, 2),
+          }],
+        };
+      } catch (err: any) {
+        logError("download_file_error", err);
+        return { content: [{ type: "text", text: JSON.stringify({ success: false, error: err.message }) }] };
+      }
+    }
+  );
+
+  // --- Tool: list_attachments ---
+  // 列出消息的附件列表 — member 及以上
+  server.tool(
+    "list_attachments",
+    "列出消息的所有附件列表。",
+    {
+      message_id: z.string().describe("消息 ID"),
+    },
+    async ({ message_id }) => {
+      const ctx = requireAuth(authContext, "list_attachments");
+      try {
+        const attachments = attachStmt.listByMessage.all(message_id) as Attachment[];
+        incrementMcpCall("list_attachments", "success", ctx.role);
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              message_id,
+              attachments: attachments.map(a => ({
+                id: a.id,
+                filename: a.filename,
+                mime_type: a.mime_type,
+                file_size: a.file_size,
+                uploaded_by: a.uploaded_by,
+                created_at: a.created_at,
+              })),
+              count: attachments.length,
+            }, null, 2),
+          }],
+        };
+      } catch (err: any) {
+        logError("list_attachments_error", err);
+        return { content: [{ type: "text", text: JSON.stringify({ success: false, error: err.message }) }] };
       }
     }
   );

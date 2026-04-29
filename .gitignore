@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.js.map
+comm_hub.db
+comm_hub.db-shm
+comm_hub.db-wal
+.DS_Store
+uploads/
+.env

@@ -1,11 +1,11 @@
 ---
 name: agent-comm-hub
-description: "多智能体协同通信基础设施——基于 MCP+SSE 的实时消息、任务调度、记忆共享与进化引擎。支持 WorkBuddy、Hermes、QClaw 及任意 MCP 兼容 Agent 接入。46 个 MCP 工具、4 级权限、零外部依赖 Python SDK。触发词：agent通信、智能体通信、hub通信、多智能体、跨agent通信、任务调度、assign_task、send_message、hermes通信、workbuddy通信、agent hub、通信hub、mcp通信、记忆共享、进化引擎、策略共享、经验分享"
-version: 2.2.2
+description: "多智能体协同通信基础设施——基于 MCP+SSE 的实时消息、任务调度、记忆共享与进化引擎。支持 WorkBuddy、Hermes、QClaw 及任意 MCP 兼容 Agent 接入。51 个 MCP 工具、4 级权限、零外部依赖 Python SDK。触发词：agent通信、智能体通信、hub通信、多智能体、跨agent通信、任务调度、assign_task、send_message、hermes通信、workbuddy通信、agent hub、通信hub、mcp通信、记忆共享、进化引擎、策略共享、经验分享"
+version: 2.3.0
 category: autonomous-ai-agents
 ---
 
-# Agent Communication Hub v2.2.2
+# Agent Communication Hub v2.3.0
 
 > 多智能体实时通信、任务编排、记忆共享与协同进化基础设施
 > 
@@ -18,7 +18,7 @@ category: autonomous-ai-agents
 ```
 ┌──────────────┐         ┌──────────────────────────┐         ┌──────────────┐
 │   Agent A    │  SSE    │   Agent Communication     │  SSE    │   Agent B    │
-│  (Hermes)    │◄───────►│         Hub v2.2          │◄───────►│  (WorkBuddy) │
+│  (Hermes)    │◄───────►│         Hub v2.3          │◄───────►│  (WorkBuddy) │
 │              │  MCP    │    (localhost:3100)        │  MCP    │              │
 └──────────────┘◄───────►│                          │◄───────►└──────────────┘
                        └──────────┬───────────────┘
@@ -30,11 +30,11 @@ category: autonomous-ai-agents
 
 | 层 | 协议 | 用途 |
 |----|------|------|
-| MCP 工具层 | HTTP POST + JSON-RPC | 结构化操作（46 个工具） |
+| MCP 工具层 | HTTP POST + JSON-RPC | 结构化操作（51 个工具） |
 | SSE 推送层 | Server-Sent Events | 实时事件通知（含断线重连） |
 | REST API 层 | HTTP GET/PATCH | 健康检查、Prometheus 指标 |
 
-## 46 个 MCP 工具一览
+## 51 个 MCP 工具一览
 
 ### 1. Identity 身份管理（6 个）
 
@@ -47,15 +47,19 @@ category: autonomous-ai-agents
 | `set_agent_role` | admin | 任命/撤销角色（admin/member/group_admin） |
 | `recalculate_trust_scores` | admin | 手动触发信任分重算 |
 
-### 2. Message 消息（5 个）
+### 2. Message 消息（9 个）
 
 | 工具 | 权限 | 功能 |
 |------|------|------|
-| `send_message` | member | 点对点消息，自动去重 + SSE 推送 |
+| `send_message` | member | 点对点消息，自动去重 + SSE 推送，支持 from/to 别名解析 |
 | `broadcast_message` | member | 群发消息给多个 Agent |
 | `acknowledge_message` | member | 确认已读 |
+| `batch_acknowledge_messages` | member | 批量确认消息（支持 agent/时间/状态过滤） |
 | `search_messages` | member | FTS5 全文搜索消息 |
 | `mark_consumed` / `check_consumed` | member | 消费水位线，防重复处理 |
+| `upload_file` | member | 文件上传并关联消息（Base64 编码，10MB 上限） |
+| `download_file` | member | 下载附件（按 attachment_id） |
+| `list_attachments` | member | 列出消息的所有附件元数据 |
 
 ### 3. Task 任务（4 个）
 
@@ -76,7 +80,7 @@ category: autonomous-ai-agents
 | `search_memories` | member | 全文搜索记忆 |
 | `delete_memory` | member | 删除指定记忆 |
 
-### 5. Evolution 进化引擎（11 个）
+### 5. Evolution 进化引擎（12 个）
 
 | 工具 | 权限 | 功能 |
 |------|------|------|
@@ -88,8 +92,9 @@ category: autonomous-ai-agents
 | `veto_strategy` | admin | 否决策略 |
 | `list_strategies` | member | 列出策略 |
 | `search_strategies` | member | 搜索策略 |
-| `apply_strategy` | member | 采纳策略 |
+| `apply_strategy` | member | 采纳策略（采纳后自动创建反馈提醒） |
 | `feedback_strategy` | member | 策略反馈（防刷） |
+| `score_applied_strategies` | admin | 自动评分：7 天无反馈的采纳策略降为 negative |
 | `get_evolution_status` | member | 进化引擎状态统计 |
 
 ### 6. Orchestration 编排（10 个）
@@ -204,7 +209,20 @@ bash ~/.workbuddy/skills/agent-comm-hub/scripts/setup_agent.sh "my-agent" "mcp,m
 }
 ```
 
-Agent 的 LLM 可以直接调用全部 46 个工具。
+**stdio 模式**（适用于 command-based MCP 客户端）：
+```json
+{
+  "mcpServers": {
+    "agent-comm-hub": {
+      "command": "node",
+      "args": ["/path/to/agent-comm-hub/src/stdio.js"],
+      "env": { "HUB_AUTH_TOKEN": "<api-token>" }
+    }
+  }
+}
+```
+
+Agent 的 LLM 可以直接调用全部 51 个工具。
 
 ### 4. SDK 接入（可选）
 
@@ -253,11 +271,11 @@ agent-comm-hub/                    # Skill 目录（轻量，< 1MB）
 │   ├── install.sh                 # 一键安装 Hub 服务器
 │   └── setup_agent.sh             # Agent 注册 + 认证自动化
 ├── client-sdk/
-│   ├── hub_client.py              # Python SDK（39 个 async 方法，零依赖）
+│   ├── hub_client.py              # Python SDK（39 个 async 方法，零依赖 + 文件传输）
 │   ├── agent-client.ts            # TypeScript SDK（35 个公开方法）
 │   └── agent-client.js            # 编译后的 JS
 ├── docs/
-│   ├── API_REFERENCE.md           # 完整 API 文档 v2.2
+│   ├── API_REFERENCE.md           # 完整 API 文档 v2.3
 │   ├── SETUP_GUIDE.md             # 详细部署指南
 │   ├── orchestrator-guide.md      # 进阶编排指南
 │   ├── evolution-guide.md         # 进化引擎指南

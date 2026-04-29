@@ -39,6 +39,7 @@ import {
   setGauge,
   incrementGauge,
   decrementGauge,
+  collectHubMetrics,
 } from "./metrics.js";
 
 // ═══════════════════════════════════════════════════════════════
@@ -255,7 +256,10 @@ app.get("/health", (_req: Request, res: Response) => {
 // ═══════════════════════════════════════════════════════════════
 app.get("/metrics", (_req: Request, res: Response) => {
   res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
-  res.send(getMetricsOutput());
+  // Phase 3.1: 拼接 Hub 数据库指标（agents / messages / trust_scores）
+  const hubMetrics = collectHubMetrics(db);
+  const output = getMetricsOutput() + hubMetrics;
+  res.send(output);
 });
 
 // ═══════════════════════════════════════════════════════════════

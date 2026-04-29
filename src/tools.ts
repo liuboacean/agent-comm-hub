@@ -6,7 +6,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { randomUUID } from "crypto";
-import { type Message, type Task, type ConsumedEntry, type Attachment, attachStmt, db } from "./db.js";
+import { type Message, type Task, type ConsumedEntry, type Attachment, attachStmt, db,
+  getEnhancedDbStats, archiveOldMessages, archiveOldAuditLogs, vacuumDatabase, getDbSize } from "./db.js";
 import { messageRepo, taskRepo, consumedRepo } from "./repo/sqlite-impl.js";
 import { pushToAgent, onlineAgents } from "./sse.js";
 import {
@@ -2578,6 +2579,108 @@ export function registerTools(server: McpServer, authContext?: AuthContext): voi
       } catch (err: any) {
         logError("list_attachments_error", err);
         return { content: [{ type: "text", text: JSON.stringify({ success: false, error: err.message }) }] };
+      }
+    }
+  );
+
+  // ────────────────────────────────────────────────────
+  // v2.3 Phase 3.2: 数据库维护工具（admin only）
+  // ────────────────────────────────────────────────────
+
+  // Tool DB1: get_db_stats — admin only
+  server.tool(
+    "get_db_stats",
+    "获取数据库统计信息。包括各表行数、数据库文件大小、WAL 大小、最后归档时间等。仅 admin 可调用。",
+    {},
+    async () => {
+      requireAuth(authContext, "get_db_stats");
+
+      try {
+        const stats = getEnhancedDbStats();
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              success: true,
+              ...stats,
+              note: stats.database_size_mb > 100
+                ? "⚠️ 数据库超过 100MB，建议执行 VACUUM 或归档旧数据"
+                : "数据库状态正常",
+            }, null, 2),
+          }],
+        };
+      } catch (err: any) {
+        logError("get_db_stats_error", err);
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({ success: false, error: err.message }),
+          }],
+        };
+      }
+    }
+  );
+
+  // Tool DB2: archive_data — admin only
+  server.tool(
+    "archive_data",
+    "手动触发数据归档。将指定天数之前的记录从主表移入归档表，以减少主表体积。可归档 messages（默认 30 天前）或 audit_log（默认 90 天前）。仅 admin 可调用。",
+    {
+      type: z.enum(["messages", "audit_log"]).describe("要归档的数据类型"),
+      days: z.number().int().min(1).max(365).optional()
+            .describe("归档多少天前的数据（messages 默认 30 天，audit_log 默认 90 天）"),
+      vacuum: z.boolean().optional().default(false)
+              .describe("归档后是否执行 VACUUM 压缩数据库文件"),
+    },
+    async ({ type, days, vacuum }) => {
+      requireAuth(authContext, "archive_data");
+
+      try {
+        const daysForType = days ?? (type === "messages" ? 30 : 90);
+
+        let archivedCount = 0;
+        if (type === "messages") {
+          archivedCount = archiveOldMessages(daysForType);
+        } else {
+          archivedCount = archiveOldAuditLogs(daysForType);
+        }
+
+        // VACUUM（可选，低峰期调用）
+        if (vacuum) {
+          vacuumDatabase();
+        }
+
+        const dbSize = getDbSize();
+
+        auditLog("tool_archive_data", authContext!.agentId,
+          `type=${type}, days=${daysForType}, archived=${archivedCount}, vacuum=${vacuum}`);
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              success: true,
+              type,
+              days: daysForType,
+              archived_count: archivedCount,
+              vacuum_executed: vacuum ?? false,
+              database_size_bytes: dbSize,
+              database_size_mb: Math.round((dbSize / 1024 / 1024) * 100) / 100,
+              note: archivedCount > 0
+                ? `已归档 ${archivedCount} 条 ${type} 记录`
+                : `没有需要归档的 ${type} 记录`,
+            }, null, 2),
+          }],
+        };
+      } catch (err: any) {
+        logError("archive_data_error", err);
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({ success: false, error: err.message }),
+          }],
+        };
       }
     }
   );

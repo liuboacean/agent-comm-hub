@@ -24,7 +24,7 @@ import { startDedupCleanup, stopDedupCleanup } from "./dedup.js";
 import { rebuildFtsIndex } from "./memory.js";
 import { logger, logError } from "./logger.js";
 import { join } from "path";
-import { getMetricsOutput, trackHttpRequest, incrementGauge, decrementGauge, } from "./metrics.js";
+import { getMetricsOutput, trackHttpRequest, incrementGauge, decrementGauge, collectHubMetrics, } from "./metrics.js";
 // ═══════════════════════════════════════════════════════════════
 // Phase 6: 配置外部化（零依赖，所有配置有默认值）
 // ═══════════════════════════════════════════════════════════════
@@ -204,7 +204,7 @@ app.get("/health", (_req, res) => {
     catch { }
     res.json({
         status: "ok",
-        version: "2.3.0",
+        version: "2.3.1",
         uptime: process.uptime(),
         timestamp: Date.now(),
         memory: {
@@ -227,7 +227,10 @@ app.get("/health", (_req, res) => {
 // ═══════════════════════════════════════════════════════════════
 app.get("/metrics", (_req, res) => {
     res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
-    res.send(getMetricsOutput());
+    // Phase 3.1: 拼接 Hub 数据库指标（agents / messages / trust_scores）
+    const hubMetrics = collectHubMetrics(db);
+    const output = getMetricsOutput() + hubMetrics;
+    res.send(output);
 });
 // ═══════════════════════════════════════════════════════════════
 // 管理端点：/admin/invite/generate — 生成邀请码
@@ -351,7 +354,7 @@ app.get("/api/consumed", authMiddleware, (req, res) => {
 function createMcpServer(authContext) {
     const server = new McpServer({
         name: "agent-comm-hub",
-        version: "2.3.0",
+        version: "2.3.1",
     });
     registerTools(server, authContext);
     return server;
@@ -523,7 +526,7 @@ process.on("unhandledRejection", (reason) => {
 httpServer = app.listen(config.port, () => {
     logger.info("server_started", {
         module: "server",
-        version: "2.3.0",
+        version: "2.3.1",
         port: config.port,
         phase: "5b",
     });

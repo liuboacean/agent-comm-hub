@@ -107,8 +107,9 @@ export const TOOL_PERMISSIONS = {
     upload_file: "member",
     download_file: "member",
     list_attachments: "member",
-    // v2.3 Phase 1.3: 消息批量确认
-    batch_acknowledge_messages: "member",
+    // v2.3 Phase 3.2: 数据库维护
+    get_db_stats: "admin",
+    archive_data: "admin",
 };
 /**
  * 检查工具调用权限

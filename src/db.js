@@ -568,6 +568,42 @@ export const attachStmt = {
     listByMessage: db.prepare(`SELECT id,filename,mime_type,file_size,uploaded_by,created_at FROM attachments WHERE message_id=? ORDER BY created_at ASC`),
     deleteById: db.prepare(`DELETE FROM attachments WHERE id=?`),
 };
+// ═══════════════════════════════════════════════════════════════
+// v2.3 Phase 3.2: 数据库归档表（messages + audit_log）
+// ═══════════════════════════════════════════════════════════════
+db.exec(`
+  CREATE TABLE IF NOT EXISTS messages_archive (
+    id           TEXT PRIMARY KEY,
+    from_agent   TEXT NOT NULL,
+    to_agent     TEXT NOT NULL,
+    content      TEXT NOT NULL,
+    type         TEXT NOT NULL DEFAULT 'message',
+    metadata     TEXT,
+    status       TEXT NOT NULL DEFAULT 'unread',
+    created_at   INTEGER NOT NULL,
+    archived_at   INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_messages_archive_created ON messages_archive(created_at);
+  CREATE INDEX IF NOT EXISTS idx_messages_archive_to_agent ON messages_archive(to_agent);
+`);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS audit_log_archive (
+    id           TEXT PRIMARY KEY,
+    action       TEXT NOT NULL,
+    agent_id     TEXT,
+    target       TEXT,
+    details      TEXT,
+    ip_address   TEXT,
+    created_at   INTEGER NOT NULL,
+    prev_hash    TEXT,
+    record_hash  TEXT,
+    archived_at   INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_audit_archive_timestamp ON audit_log_archive(created_at);
+  CREATE INDEX IF NOT EXISTS idx_audit_archive_agent    ON audit_log_archive(agent_id);
+`);
 // ─── DB 统计信息（调试用） ────────────────────────────────
 export function getDbStats() {
     const tables = [
@@ -577,7 +613,8 @@ export function getDbStats() {
         "strategies", "strategy_feedback", "strategy_applications",
         "pipelines", "pipeline_tasks",
         "task_dependencies", "quality_gates",
-        "sender_nonces", "attachments",
+        "attachments",
+        "messages_archive", "audit_log_archive",
     ];
     const stats = {};
     for (const t of tables) {
@@ -590,6 +627,109 @@ export function getDbStats() {
         }
     }
     return stats;
+}
+// ─── Phase 3.2: 归档方法 ──────────────────────────────────
+/**
+ * 归档 N 天前的消息（从 messages 移到 messages_archive）
+ * @returns 归档的记录数
+ */
+export function archiveOldMessages(days = 30) {
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    // 插入到归档表
+    const insertSql = `
+    INSERT OR IGNORE INTO messages_archive (id, from_agent, to_agent, content, type, metadata, status, created_at)
+    SELECT id, from_agent, to_agent, content, type, metadata, status, created_at
+    FROM messages WHERE created_at < ? AND id NOT IN (SELECT id FROM messages_archive)
+  `;
+    const insertResult = db.prepare(insertSql).run(cutoff);
+    // 删除已归档的原始记录
+    db.prepare(`DELETE FROM messages WHERE created_at < ? AND id IN (SELECT id FROM messages_archive)`).run(cutoff);
+    return insertResult.changes;
+}
+/**
+ * 归档 N 天前的审计日志（从 audit_log 移到 audit_log_archive）
+ * @returns 归档的记录数
+ */
+export function archiveOldAuditLogs(days = 90) {
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    // 插入到归档表
+    const insertSql = `
+    INSERT OR IGNORE INTO audit_log_archive (id, action, agent_id, target, details, ip_address, created_at, prev_hash, record_hash)
+    SELECT id, action, agent_id, target, details, ip_address, created_at, prev_hash, record_hash
+    FROM audit_log WHERE created_at < ? AND id NOT IN (SELECT id FROM audit_log_archive)
+  `;
+    const insertResult = db.prepare(insertSql).run(cutoff);
+    // 删除已归档的原始记录
+    // audit_log 有 BEFORE DELETE 触发器保护，需临时删除触发器再执行删除
+    db.exec(`DROP TRIGGER IF EXISTS audit_log_no_delete`);
+    db.exec(`DELETE FROM audit_log WHERE created_at < ? AND id IN (SELECT id FROM audit_log_archive)`);
+    db.exec(`
+    CREATE TRIGGER IF NOT EXISTS audit_log_no_delete BEFORE DELETE ON audit_log
+      BEGIN SELECT RAISE(ABORT, 'audit log is immutable'); END;
+  `);
+    return insertResult.changes;
+}
+/**
+ * 执行数据库 VACUUM（释放空闲页面，紧缩数据库文件）
+ * 建议在低峰期调用（如凌晨 3-5 点）
+ */
+export function vacuumDatabase() {
+    // 先执行 WAL 检查点（TRUNCATE 模式释放 WAL 文件空间）
+    db.pragma(`wal_checkpoint(TRUNCATE)`);
+    // 执行 VACUUM
+    db.exec(`VACUUM`);
+    logger.info("db_vacuum_executed", { module: "db" });
+}
+/**
+ * 获取数据库文件大小（字节）
+ */
+export function getDbSize() {
+    const fs = require("fs");
+    try {
+        const stats = fs.statSync(DB_PATH);
+        return stats.size;
+    }
+    catch {
+        return 0;
+    }
+}
+/**
+ * 获取增强版数据库统计信息（用于 MCP 工具 get_db_stats）
+ */
+export function getEnhancedDbStats() {
+    const tableCounts = getDbStats();
+    const dbSize = getDbSize();
+    // WAL 大小
+    let walSize = 0;
+    const walPath = DB_PATH + "-wal";
+    try {
+        const fs = require("fs");
+        if (fs.existsSync(walPath)) {
+            walSize = fs.statSync(walPath).size;
+        }
+    }
+    catch { /* ignore */ }
+    // 最后归档时间
+    let lastMsgArchive = null;
+    let lastAuditArchive = null;
+    try {
+        const msgRow = db.prepare(`SELECT MAX(archived_at) as ts FROM messages_archive`).get();
+        lastMsgArchive = msgRow?.ts ? new Date(msgRow.ts).toISOString() : null;
+    }
+    catch { /* ignore */ }
+    try {
+        const auditRow = db.prepare(`SELECT MAX(archived_at) as ts FROM audit_log_archive`).get();
+        lastAuditArchive = auditRow?.ts ? new Date(auditRow.ts).toISOString() : null;
+    }
+    catch { /* ignore */ }
+    return {
+        table_counts: tableCounts,
+        database_size_bytes: dbSize,
+        database_size_mb: Math.round((dbSize / 1024 / 1024) * 100) / 100,
+        wal_size_bytes: walSize,
+        last_messages_archive: lastMsgArchive,
+        last_audit_log_archive: lastAuditArchive,
+    };
 }
 // ═══════════════════════════════════════════════════════════════
 // Phase 6 — 定时清理过期数据

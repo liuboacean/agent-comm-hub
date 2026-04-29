@@ -81,6 +81,36 @@ export interface Attachment {
 export declare const attachStmt: Record<string, Statement>;
 export declare function getDbStats(): Record<string, number>;
 /**
+ * 归档 N 天前的消息（从 messages 移到 messages_archive）
+ * @returns 归档的记录数
+ */
+export declare function archiveOldMessages(days?: number): number;
+/**
+ * 归档 N 天前的审计日志（从 audit_log 移到 audit_log_archive）
+ * @returns 归档的记录数
+ */
+export declare function archiveOldAuditLogs(days?: number): number;
+/**
+ * 执行数据库 VACUUM（释放空闲页面，紧缩数据库文件）
+ * 建议在低峰期调用（如凌晨 3-5 点）
+ */
+export declare function vacuumDatabase(): void;
+/**
+ * 获取数据库文件大小（字节）
+ */
+export declare function getDbSize(): number;
+/**
+ * 获取增强版数据库统计信息（用于 MCP 工具 get_db_stats）
+ */
+export declare function getEnhancedDbStats(): {
+    table_counts: Record<string, number>;
+    database_size_bytes: number;
+    database_size_mb: number;
+    wal_size_bytes: number;
+    last_messages_archive: string | null;
+    last_audit_log_archive: string | null;
+};
+/**
  * 定时清理过期数据（每小时执行一次）
  * - 过期的 API Token（token_type='api_token'）
  * - 过期的去重缓存（超过 dedupTTL 秒）

@@ -216,3 +216,29 @@ export declare function proposeStrategyTiered(title: string, content: string, ca
     ok: false;
     error: string;
 };
+/**
+ * 提供反馈（UPSERT 版本）— 用于自动创建反馈占位和后续更新
+ * 与 feedbackStrategy 不同：使用 ON CONFLICT DO UPDATE 而非拒绝重复
+ */
+export declare function provideFeedback(params: {
+    strategyId: number;
+    agentId: string;
+    feedback: string;
+    comment?: string;
+    applied?: number;
+}): {
+    id: number;
+};
+/**
+ * 自动评分已采纳策略
+ * 将 7 天内仍为 neutral 反馈的策略降为 negative（无实际效果证据）
+ * 应由 cron 或清理任务定期调用
+ */
+export declare function scoreAppliedStrategies(): {
+    scored: number;
+    details: Array<{
+        strategyId: number;
+        title: string;
+        action: string;
+    }>;
+};

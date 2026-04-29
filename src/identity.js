@@ -19,6 +19,13 @@ import { logger } from "./logger.js";
 const HEARTBEAT_ONLINE_THRESHOLD = parseInt(process.env.HEARTBEAT_ONLINE_THRESHOLD ?? "90000", 10); // 90s → offline
 const HEARTBEAT_NOTIFY_THRESHOLD = parseInt(process.env.HEARTBEAT_NOTIFY_THRESHOLD ?? "300000", 10); // 5min → 通知
 const HEARTBEAT_CHECK_INTERVAL = parseInt(process.env.HEARTBEAT_CHECK_INTERVAL ?? "30000", 10); // 30s 检查一次
+// Phase 1.2: 连续心跳信任分增长配置
+export const HEARTBEAT_CONFIG = {
+    TRUST_SCORE_INCREMENT_INTERVAL: 3, // 每 3 次连续心跳 +1 分
+    TRUST_SCORE_MAX: 100, // trust_score 上限
+};
+// 连续心跳计数器：agentId → 连续在线心跳次数
+const heartbeatCounters = new Map();
 // ─── Agent 注册 ──────────────────────────────────────────
 /**
  * 注册新 Agent
@@ -68,19 +75,28 @@ function registerAgentWithId(agentId, name, role, capabilities, now) {
 // ─── 心跳 ────────────────────────────────────────────────
 /**
  * 处理 Agent 心跳
+ * 连续在线心跳每 TRUST_SCORE_INCREMENT_INTERVAL 次自动增加 1 点 trust_score（上限 TRUST_SCORE_MAX）
  * @returns 更新后的状态
  */
 export function heartbeat(agentId) {
     // 检查 Agent 是否存在
     const agent = db
-        .prepare(`SELECT agent_id FROM agents WHERE agent_id=?`)
+        .prepare(`SELECT agent_id, trust_score FROM agents WHERE agent_id=?`)
         .get(agentId);
     if (!agent) {
         return { success: false, status: "offline", last_heartbeat: 0, error: "Agent not found" };
     }
     const now = Date.now();
     db.prepare(`UPDATE agents SET status='online', last_heartbeat=? WHERE agent_id=?`).run(now, agentId);
-    return { success: true, status: "online", last_heartbeat: now };
+    // Phase 1.2: 连续心跳信任分增长
+    const counter = (heartbeatCounters.get(agentId) ?? 0) + 1;
+    heartbeatCounters.set(agentId, counter);
+    if (counter % HEARTBEAT_CONFIG.TRUST_SCORE_INCREMENT_INTERVAL === 0) {
+        // 每 3 次连续心跳 +1 trust_score
+        db.prepare(`UPDATE agents SET trust_score = MIN(trust_score + 1, ?) WHERE agent_id = ?`).run(HEARTBEAT_CONFIG.TRUST_SCORE_MAX, agentId);
+    }
+    const newTrustScore = db.prepare(`SELECT trust_score FROM agents WHERE agent_id=?`).get(agentId)?.trust_score ?? 50;
+    return { success: true, status: "online", last_heartbeat: now, trust_score: newTrustScore };
 }
 // ─── 查询 Agent ──────────────────────────────────────────
 /**
@@ -171,6 +187,8 @@ export function startHeartbeatMonitor(onAgentOffline) {
             // 90s → 标记 offline
             if (elapsed >= HEARTBEAT_ONLINE_THRESHOLD) {
                 db.prepare(`UPDATE agents SET status='offline' WHERE agent_id=?`).run(agent.agent_id);
+                // Phase 1.2: 重置连续心跳计数器
+                heartbeatCounters.delete(agent.agent_id);
                 logger.info("agent_offline_marked", {
                     module: "heartbeat",
                     agent_id: agent.agent_id,
@@ -314,5 +332,48 @@ export function getHeartbeatConfig() {
         notifyThreshold: HEARTBEAT_NOTIFY_THRESHOLD,
         checkInterval: HEARTBEAT_CHECK_INTERVAL,
     };
+}
+// ─────────────────────────────────────────────────────────
+// from_agent 格式规范化（Phase 2.1）
+// ─────────────────────────────────────────────────────────
+/**
+ * 已知的 Agent 别名映射（兼容历史消息格式）
+ * 规范化后不再需要，但用于迁移阶段
+ */
+const AGENT_ALIAS_MAP = {
+    'workbuddy': 'agent_workbuddy_a3f7c2e1_1777300825754',
+    'hermes': 'agent_hermes_54cfe58b_1777132066111',
+    'qclaw': 'agent_1c11a7bd_1777129814251',
+};
+/**
+ * 解析 Agent 标识符为完整 agent_id。
+ * 支持：
+ *   1. 完整 agent_id（已注册则返回）
+ *   2. 已知别名（workbuddy / hermes / qclaw，大小写不敏感）
+ *   3. agent_id 子串匹配（大小写不敏感）
+ * 返回完整 agent_id 或 null（未找到）
+ */
+export function resolveAgentId(input) {
+    const trimmed = input.trim();
+    if (!trimmed)
+        return null;
+    // 1. 直接以 agent_ 开头 → 验证是否存在于数据库
+    if (trimmed.startsWith('agent_')) {
+        return getAgent(trimmed) ? trimmed : null;
+    }
+    // 2. 已知别名映射
+    const aliasKey = trimmed.toLowerCase();
+    if (AGENT_ALIAS_MAP[aliasKey]) {
+        return getAgent(AGENT_ALIAS_MAP[aliasKey]) ? AGENT_ALIAS_MAP[aliasKey] : null;
+    }
+    // 3. 子串匹配（agent_id 包含输入，大小写不敏感）
+    const agents = queryAgents({});
+    const lower = trimmed.toLowerCase();
+    for (const agent of agents) {
+        if (agent.agent_id.toLowerCase().includes(lower)) {
+            return agent.agent_id;
+        }
+    }
+    return null;
 }
 //# sourceMappingURL=identity.js.map

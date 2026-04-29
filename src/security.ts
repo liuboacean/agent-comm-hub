@@ -138,6 +138,8 @@ export const TOOL_PERMISSIONS: Record<string, PermissionLevel> = {
   propose_strategy_tiered:  "member",
   check_veto_window:        "member",
   veto_strategy:            "admin",
+  // Phase 2.2: 策略采纳闭环
+  score_applied_strategies:  "admin",
   // v2.3 Phase 1.1: 文件传输
   upload_file:              "member",
   download_file:            "member",

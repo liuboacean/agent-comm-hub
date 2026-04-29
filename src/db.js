@@ -544,6 +544,30 @@ catch (e) {
 // ═══════════════════════════════════════════════════════════════
 // Phase 4a — Task Orchestrator（建表已在文件开头执行）
 // ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// v2.3 Phase 1.1 — 文件附件表
+// ═══════════════════════════════════════════════════════════════
+db.exec(`
+  CREATE TABLE IF NOT EXISTS attachments (
+    id           TEXT PRIMARY KEY,
+    message_id   TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    filename     TEXT NOT NULL,
+    mime_type    TEXT NOT NULL DEFAULT 'application/octet-stream',
+    file_size    INTEGER NOT NULL,
+    storage_path TEXT NOT NULL,
+    uploaded_by  TEXT NOT NULL,
+    created_at   INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_attachments_message ON attachments(message_id);
+  CREATE INDEX IF NOT EXISTS idx_attachments_uploader ON attachments(uploaded_by);
+`);
+export const attachStmt = {
+    insert: db.prepare(`INSERT INTO attachments VALUES (@id,@message_id,@filename,@mime_type,@file_size,@storage_path,@uploaded_by,@created_at)`),
+    getById: db.prepare(`SELECT * FROM attachments WHERE id=?`),
+    listByMessage: db.prepare(`SELECT id,filename,mime_type,file_size,uploaded_by,created_at FROM attachments WHERE message_id=? ORDER BY created_at ASC`),
+    deleteById: db.prepare(`DELETE FROM attachments WHERE id=?`),
+};
 // ─── DB 统计信息（调试用） ────────────────────────────────
 export function getDbStats() {
     const tables = [
@@ -553,7 +577,7 @@ export function getDbStats() {
         "strategies", "strategy_feedback", "strategy_applications",
         "pipelines", "pipeline_tasks",
         "task_dependencies", "quality_gates",
-        "sender_nonces",
+        "sender_nonces", "attachments",
     ];
     const stats = {};
     for (const t of tables) {

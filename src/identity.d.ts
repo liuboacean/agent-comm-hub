@@ -1,3 +1,7 @@
+export declare const HEARTBEAT_CONFIG: {
+    TRUST_SCORE_INCREMENT_INTERVAL: number;
+    TRUST_SCORE_MAX: number;
+};
 export interface AgentInfo {
     agent_id: string;
     name: string;
@@ -21,12 +25,14 @@ export declare function registerAgent(inviteCode: string, name: string, capabili
 };
 /**
  * 处理 Agent 心跳
+ * 连续在线心跳每 TRUST_SCORE_INCREMENT_INTERVAL 次自动增加 1 点 trust_score（上限 TRUST_SCORE_MAX）
  * @returns 更新后的状态
  */
 export declare function heartbeat(agentId: string): {
     success: boolean;
     status: "online" | "offline";
     last_heartbeat: number;
+    trust_score?: number;
     error?: string;
 };
 /**
@@ -100,3 +106,12 @@ export declare function getHeartbeatConfig(): {
     notifyThreshold: number;
     checkInterval: number;
 };
+/**
+ * 解析 Agent 标识符为完整 agent_id。
+ * 支持：
+ *   1. 完整 agent_id（已注册则返回）
+ *   2. 已知别名（workbuddy / hermes / qclaw，大小写不敏感）
+ *   3. agent_id 子串匹配（大小写不敏感）
+ * 返回完整 agent_id 或 null（未找到）
+ */
+export declare function resolveAgentId(input: string): string | null;

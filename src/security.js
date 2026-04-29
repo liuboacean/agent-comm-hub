@@ -101,6 +101,14 @@ export const TOOL_PERMISSIONS = {
     propose_strategy_tiered: "member",
     check_veto_window: "member",
     veto_strategy: "admin",
+    // Phase 2.2: 策略采纳闭环
+    score_applied_strategies: "admin",
+    // v2.3 Phase 1.1: 文件传输
+    upload_file: "member",
+    download_file: "member",
+    list_attachments: "member",
+    // v2.3 Phase 1.3: 消息批量确认
+    batch_acknowledge_messages: "member",
 };
 /**
  * 检查工具调用权限

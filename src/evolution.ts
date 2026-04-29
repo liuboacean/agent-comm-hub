@@ -856,3 +856,98 @@ function insertFtsEntry(strategy: Strategy): void {
     logError("evolution_fts_insert_error", err);
   }
 }
+
+// ─── Phase 2.2: 策略采纳闭环 ─────────────────────────────────
+
+/**
+ * 提供反馈（UPSERT 版本）— 用于自动创建反馈占位和后续更新
+ * 与 feedbackStrategy 不同：使用 ON CONFLICT DO UPDATE 而非拒绝重复
+ */
+export function provideFeedback(params: {
+  strategyId: number;
+  agentId: string;
+  feedback: string; // 'positive' | 'negative' | 'neutral'
+  comment?: string;
+  applied?: number;
+}): { id: number } {
+  const now = Date.now();
+  try {
+    const result = db.prepare(`
+      INSERT INTO strategy_feedback (strategy_id, agent_id, feedback, comment, applied, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(strategy_id, agent_id) DO UPDATE SET
+        feedback = excluded.feedback,
+        comment = excluded.comment,
+        applied = excluded.applied
+    `).run(
+      params.strategyId,
+      params.agentId,
+      params.feedback,
+      params.comment || null,
+      params.applied ?? 0,
+      now
+    );
+    return { id: result.lastInsertRowid as number };
+  } catch (err: any) {
+    throw new Error(`创建反馈失败: ${err.message}`);
+  }
+}
+
+/**
+ * 自动评分已采纳策略
+ * 将 7 天内仍为 neutral 反馈的策略降为 negative（无实际效果证据）
+ * 应由 cron 或清理任务定期调用
+ */
+export function scoreAppliedStrategies(): {
+  scored: number;
+  details: Array<{ strategyId: number; title: string; action: string }>;
+} {
+  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
+  // 查找 7 天前创建的 neutral 反馈
+  const staleFeedbacks = db.prepare(`
+    SELECT sf.strategy_id, sf.agent_id, sf.id as feedback_id, s.title
+    FROM strategy_feedback sf
+    JOIN strategies s ON s.id = sf.strategy_id
+    WHERE sf.feedback = 'neutral'
+      AND sf.created_at < ?
+      AND s.approved = 1
+  `).all(sevenDaysAgo) as Array<{
+    strategy_id: number;
+    agent_id: string;
+    feedback_id: number;
+    title: string;
+  }>;
+
+  const details: Array<{ strategyId: number; title: string; action: string }> = [];
+  let scored = 0;
+
+  for (const fb of staleFeedbacks) {
+    // 检查是否有其他 agent 给了非 neutral 反馈
+    const otherFeedback = db.prepare(`
+      SELECT feedback FROM strategy_feedback
+      WHERE strategy_id = ? AND agent_id != ? AND feedback != 'neutral'
+    `).all(fb.strategy_id, fb.agent_id);
+
+    if (otherFeedback.length === 0) {
+      // 无人提供有效反馈 → 降分为 negative
+      db.prepare(
+        `UPDATE strategy_feedback SET feedback = 'negative', comment = ? WHERE id = ?`
+      ).run("自动降分：采纳后 7 天内无实际效果反馈", fb.feedback_id);
+
+      // 同步减少 positive_count（如果之前因 neutral 未增加则无需操作）
+      details.push({
+        strategyId: fb.strategy_id,
+        title: fb.title,
+        action: "neutral→negative (7天无反馈)",
+      });
+      scored++;
+    }
+  }
+
+  if (scored > 0) {
+    logError("evolution_auto_score", new Error(`Auto-scored ${scored} stale feedbacks`));
+  }
+
+  return { scored, details };
+}

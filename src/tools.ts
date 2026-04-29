@@ -1387,6 +1387,33 @@ export function registerTools(server: McpServer, authContext?: AuthContext): voi
     }
   );
 
+  // Tool A3: score_applied_strategies — admin only (Phase 2.2)
+  server.tool(
+    "score_applied_strategies",
+    "自动评分已采纳策略：将 7 天前采纳但仍为 neutral 反馈的策略降为 negative。应定期调用。",
+    {},
+    async () => {
+      const ctx = requireAuth(authContext, "score_applied_strategies");
+
+      const result = scoreAppliedStrategies();
+
+      auditLog("tool_score_applied_strategies", ctx.agentId, `scored=${result.scored}`);
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            scored:  result.scored,
+            details: result.details,
+            note:    result.scored > 0
+              ? `已自动降分 ${result.scored} 条策略反馈（7 天内无实际效果反馈）`
+              : "所有策略反馈均正常，无需降分",
+          }, null, 2),
+        }],
+      };
+    }
+  );
+
   // ────────────────────────────────────────────────────
   // Phase 4b Day 2: 依赖链 + 并行组工具
   // ────────────────────────────────────────────────────

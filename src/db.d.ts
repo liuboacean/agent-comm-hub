@@ -68,6 +68,17 @@ export interface PipelineTask {
 }
 export declare const pipelineStmt: Record<string, Statement>;
 export declare const pipelineTaskStmt: Record<string, Statement>;
+export interface Attachment {
+    id: string;
+    message_id: string;
+    filename: string;
+    mime_type: string;
+    file_size: number;
+    storage_path: string;
+    uploaded_by: string;
+    created_at: number;
+}
+export declare const attachStmt: Record<string, Statement>;
 export declare function getDbStats(): Record<string, number>;
 /**
  * 定时清理过期数据（每小时执行一次）

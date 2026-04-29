@@ -8,6 +8,7 @@
     "build": "tsc",
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
+    "stdio": "node src/stdio.js",
     "test": "tsx scripts/test-e2e.ts"
   },
   "dependencies": {

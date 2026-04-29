@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "description": "WorkBuddy & Hermes 双向即时通讯 + 任务调度 MCP Hub",
   "type": "module",
-  "main": "dist/server.js",
+  "main": "src/server.js",
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/server.ts",
-    "start": "node dist/server.js",
+    "start": "node src/server.js",
     "stdio": "node src/stdio.js",
     "test": "tsx scripts/test-e2e.ts"
   },

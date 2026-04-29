@@ -1,7 +1,7 @@
-# API Reference — Agent Comm Hub v2.2
+# API Reference — Agent Comm Hub v2.3.0
 
-> **版本**：v2.2 | **日期**：2026-04-25
-> **MCP 工具总数**：40 个
+> **版本**：v2.3.0 | **日期**：2026-04-29
+> **MCP 工具总数**：51 个
 > **基础 URL**：`http://localhost:3100`
 
 ---
@@ -11,11 +11,13 @@
 | 分类 | 工具数 | 权限 | Phase |
 |------|--------|------|-------|
 | Identity 身份 | 6 | public + member + admin | 1 + 5a |
-| Message 消息 | 5 | member | 1 |
-| Task 任务 | 4 | member | 1 + 4a |
-| Memory 记忆 | 4 | member | 1 |
-| Evolution 进化 | 11 | member + admin | 3 + 4b |
-| Orchestration 编排 | 10 | member | 4b |
+| Message 消息 | 9 | member | 1 + Phase 2 |
+| Task 任务 | 3 | member | 1 + 4a |
+| Memory 记忆 | 5 | member | 1 + Phase 2 |
+| Evolution 进化 | 12 | member + admin | 3 + 4b + Phase 2 |
+| Orchestration 编排 | 12 | member | 4b |
+| Pipeline 流水线 | 4 | member | 4a |
+| Consume 消费水位线 | 2 | member | 1 |
 
 ---
 
@@ -726,7 +728,8 @@ Prometheus 兼容指标端点。
 | sender_nonces | 2 | 发送方 nonce |
 | task_dependencies | **4b** | 任务依赖关系 |
 | quality_gates | **4b** | Pipeline 质量门 |
+| attachments | **Phase 1** | 文件附件（Base64 存储，10MB 限制） |
 
 ---
 
-*文档版本：v2.2 | 最后更新：2026-04-25（Phase 5b 完结）*
+*文档版本：v2.3.0 | 最后更新：2026-04-29（Phase 2 完结：stdio transport + from_agent 规范化 + 策略闭环 + 51 工具）*

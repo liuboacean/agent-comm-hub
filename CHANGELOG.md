@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.3.0] - 2026-04-29
+
+### 新增功能
+- **文件传输**：新增 `upload_file`、`download_file`、`list_attachments` 3 个 MCP 工具，支持 Agent 间文件传输（Base64 编码，10MB 限制）
+- **消息格式校验**：`send_message` 工具新增 from/to 参数格式校验，支持完整 agent_id、别名映射（workbuddy/hermes/qclaw）、子串匹配
+- **策略反馈闭环**：`apply_strategy` 采纳后自动创建 neutral 反馈占位；新增 `score_applied_strategies` 管理工具，7 天无有效反馈自动降分为 negative
+- **批量消息确认**：新增 `batch_acknowledge_messages` 工具，支持按 agent/时间/状态批量确认消息
+- **心跳信任增长**：连续 3 次心跳 trust_score 自动 +1，上限 100；offline 时重置计数器
+- **stdio 模式**：新增 stdio transport 入口（`src/stdio.ts`），支持 command-based MCP 客户端直接接入
+
+### 技术变更
+- 新增 `attachments` 数据表（总 28 表）
+- MCP 工具 46 → 51 个
+- 代码 +1286 行（Phase 1 + Phase 2 合计，21 文件）
+- 历史消息 from_agent 格式迁移（43 条记录规范化）
+- `provideFeedback()` 使用 UPSERT 实现（ON CONFLICT DO UPDATE）
+
+### 迁移说明
+- 从 v2.2.2 升级：`npm run build`（自动建 attachments 表）
+- 可选迁移：`node scripts/migrate_from_agent.js`（清理历史消息 from_agent 格式）
+- stdio 模式需设置 `HUB_AUTH_TOKEN` 环境变量
+
+---
+
 ## [2.2.2] - 2026-04-28
 
 ### Fixed (QoderWork Round 2 Code Review)

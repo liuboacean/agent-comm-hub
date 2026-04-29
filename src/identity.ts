@@ -475,3 +475,52 @@ export function getHeartbeatConfig() {
     checkInterval:   HEARTBEAT_CHECK_INTERVAL,
   };
 }
+
+// ─────────────────────────────────────────────────────────
+// from_agent 格式规范化（Phase 2.1）
+// ─────────────────────────────────────────────────────────
+
+/**
+ * 已知的 Agent 别名映射（兼容历史消息格式）
+ * 规范化后不再需要，但用于迁移阶段
+ */
+const AGENT_ALIAS_MAP: Record<string, string> = {
+  'workbuddy': 'agent_workbuddy_a3f7c2e1_1777300825754',
+  'hermes':    'agent_hermes_54cfe58b_1777132066111',
+  'qclaw':     'agent_1c11a7bd_1777129814251',
+};
+
+/**
+ * 解析 Agent 标识符为完整 agent_id。
+ * 支持：
+ *   1. 完整 agent_id（已注册则返回）
+ *   2. 已知别名（workbuddy / hermes / qclaw，大小写不敏感）
+ *   3. agent_id 子串匹配（大小写不敏感）
+ * 返回完整 agent_id 或 null（未找到）
+ */
+export function resolveAgentId(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  // 1. 直接以 agent_ 开头 → 验证是否存在于数据库
+  if (trimmed.startsWith('agent_')) {
+    return getAgent(trimmed) ? trimmed : null;
+  }
+
+  // 2. 已知别名映射
+  const aliasKey = trimmed.toLowerCase();
+  if (AGENT_ALIAS_MAP[aliasKey]) {
+    return getAgent(AGENT_ALIAS_MAP[aliasKey]) ? AGENT_ALIAS_MAP[aliasKey] : null;
+  }
+
+  // 3. 子串匹配（agent_id 包含输入，大小写不敏感）
+  const agents = queryAgents({});
+  const lower = trimmed.toLowerCase();
+  for (const agent of agents) {
+    if (agent.agent_id.toLowerCase().includes(lower)) {
+      return agent.agent_id;
+    }
+  }
+
+  return null;
+}

@@ -26,6 +26,7 @@ import {
   getAgentTrustScore,
   updateAgentTrustScore,
   setAgentRole as setAgentRoleFromIdentity,
+  resolveAgentId,
 } from "./identity.js";
 import { dedupMessage, validateMessageBody } from "./dedup.js";
 import {
@@ -43,6 +44,8 @@ import {
   searchStrategies,
   applyStrategy,
   feedbackStrategy,
+  provideFeedback,
+  scoreAppliedStrategies,
   approveStrategy,
   getEvolutionStatus,
   checkVetoWindow,
@@ -333,6 +336,37 @@ export function registerTools(server: McpServer, authContext?: AuthContext): voi
     async ({ from, to, content, type, metadata }) => {
       const ctx = requireAuth(authContext, "send_message");
 
+      // ── from_agent 格式规范化（Phase 2.1） ────────────────
+      const resolvedFrom = resolveAgentId(from);
+      if (!resolvedFrom) {
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              success: false,
+              error: `无效的发件人标识: '${from}'。请使用完整的 agent_id 或已注册的 agent 名称。`,
+              code: "INVALID_FROM_AGENT",
+            }),
+          }],
+          isError: true,
+        };
+      }
+
+      const resolvedTo = resolveAgentId(to);
+      if (!resolvedTo) {
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              success: false,
+              error: `无效的收件人标识: '${to}'。请使用完整的 agent_id 或已注册的 agent 名称。`,
+              code: "INVALID_TO_AGENT",
+            }),
+          }],
+          isError: true,
+        };
+      }
+
       // 消息去重 + 完整性校验
       const dedupResult = dedupMessage(from, to, content);
       if (!dedupResult.ok) {
@@ -350,8 +384,8 @@ export function registerTools(server: McpServer, authContext?: AuthContext): voi
 
       const msg: Message = {
         id:         randomUUID(),
-        from_agent: from,
-        to_agent:   to,
+        from_agent: resolvedFrom,
+        to_agent:   resolvedTo,
         content,
         type,
         metadata:   metadata ? JSON.stringify(metadata) : null,
@@ -362,10 +396,10 @@ export function registerTools(server: McpServer, authContext?: AuthContext): voi
       messageRepo.insert(msg);
 
       // 审计日志
-      auditLog("tool_send_message", ctx.agentId, to,
+      auditLog("tool_send_message", ctx.agentId, resolvedTo,
         `msg_id=${msg.id}, hash=${dedupResult.msgHash.slice(0, 12)}, nonce=${dedupResult.nonce}`);
 
-      const delivered = pushToAgent(to, {
+      const delivered = pushToAgent(resolvedTo, {
         event:   "new_message",
         message: { ...msg, metadata, msg_hash: dedupResult.msgHash, nonce: dedupResult.nonce },
       });
@@ -382,8 +416,8 @@ export function registerTools(server: McpServer, authContext?: AuthContext): voi
             nonce:             dedupResult.nonce,
             delivered_realtime: delivered,
             note: delivered
-              ? `✅ ${to} 在线，已实时送达`
-              : `📦 ${to} 离线，消息已存储，上线后自动补发`,
+              ? `✅ ${resolvedTo} 在线，已实时送达`
+              : `📦 ${resolvedTo} 离线，消息已存储，上线后自动补发`,
           }, null, 2),
         }],
       };
@@ -1199,6 +1233,21 @@ export function registerTools(server: McpServer, authContext?: AuthContext): voi
 
       auditLog("tool_apply_strategy", ctx.agentId, String(strategy_id));
 
+      // Phase 2.2: 自动创建反馈占位（neutral），等待 7 天内更新
+      let feedbackCreated = false;
+      try {
+        provideFeedback({
+          strategyId: strategy_id,
+          agentId: ctx.agentId,
+          feedback: "neutral",
+          comment: `自动创建反馈占位 - 策略 ${strategy_id} 被 ${ctx.agentId} 采纳，等待实际效果反馈`,
+          applied: 1,
+        });
+        feedbackCreated = true;
+      } catch {
+        // Non-blocking — 不影响采纳成功
+      }
+
       return {
         content: [{
           type: "text",
@@ -1207,6 +1256,9 @@ export function registerTools(server: McpServer, authContext?: AuthContext): voi
             application_id:  result.application_id,
             strategy_id,
             note:            "策略已采纳，已记录应用历史",
+            feedback_reminder: feedbackCreated
+              ? "已自动创建反馈占位，请在 7 天内通过 feedback_strategy 工具更新实际效果"
+              : undefined,
           }, null, 2),
         }],
       };

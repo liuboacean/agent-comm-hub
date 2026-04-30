@@ -32,7 +32,7 @@ async function main(): Promise<void> {
   // Create MCP server — same config as HTTP transport
   const server = new McpServer({
     name: "agent-comm-hub",
-    version: "2.3.1",
+    version: "2.4.0",
   });
   registerTools(server, authContext);
 

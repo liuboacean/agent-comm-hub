@@ -233,7 +233,7 @@ app.get("/health", (_req: Request, res: Response) => {
 
   res.json({
     status: "ok",
-    version: "2.3.1",
+    version: "2.4.0",
     uptime: process.uptime(),
     timestamp: Date.now(),
     memory: {
@@ -396,7 +396,7 @@ app.get("/api/consumed", authMiddleware, (req: Request, res: Response) => {
 function createMcpServer(authContext: AuthContext | undefined): McpServer {
   const server = new McpServer({
     name: "agent-comm-hub",
-    version: "2.3.1",
+    version: "2.4.0",
   });
   registerTools(server, authContext);
   return server;
@@ -588,7 +588,7 @@ process.on("unhandledRejection", (reason: unknown) => {
 httpServer = app.listen(config.port, () => {
   logger.info("server_started", {
     module: "server",
-    version: "2.3.1",
+    version: "2.4.0",
     port: config.port,
     phase: "5b",
   });

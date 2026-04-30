@@ -29,8 +29,7 @@ jobs:
           node-version: "22"
           cache: "npm"
       - run: npm ci
-      # vitest coverage v8 needs compiled .js + .js.map
-      - run: npm run build
+      # vitest 直接编译 TS，无需预构建
       - run: npm run test:unit
 
   coverage:
@@ -44,7 +43,7 @@ jobs:
           node-version: "22"
           cache: "npm"
       - run: npm ci
-      - run: npm run build
+      # vitest 直接编译 TS，无需预构建
       - run: npm run test:unit -- --coverage.reporter=lcov --coverage.reporter=text-summary
       - name: Upload coverage to Codecov
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'

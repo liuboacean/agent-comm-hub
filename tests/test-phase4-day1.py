@@ -3,7 +3,7 @@
 Phase 4a Day 1 测试 — Schema + OrchestratorService 基础验证
 DB Schema 部分独立运行，功能部分需要 Hub 启动
 """
-import sys, json, sqlite3
+import sys, json, sqlite3, os
 
 passed = 0
 failed = 0
@@ -22,7 +22,8 @@ def test(name, condition, detail=""):
         print(msg)
         errors.append(name)
 
-DB_PATH = "/Users/liubo/WorkBuddy/20260416213415/agent-comm-hub/comm_hub.db"
+HUB_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB_PATH = os.path.join(HUB_DIR, "comm_hub.db")
 
 # ═══════════════════════════════════════════════════════════════
 print("=" * 60)
@@ -113,8 +114,7 @@ test("tsc --noEmit 零错误", True, "已在 CI 中验证")
 # ─── 3. 文件验证 ─────────────────────────────────────────────
 print("\n## 3. 文件验证")
 
-import os
-base = "/Users/liubo/WorkBuddy/20260416213415/agent-comm-hub/src"
+base = os.path.join(HUB_DIR, "src")
 test("orchestrator.ts 存在", os.path.isfile(f"{base}/orchestrator.ts"))
 
 # 检查导出的函数

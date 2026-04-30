@@ -3,7 +3,7 @@
 Week 2 Day 2 验收测试 — Memory Service + SSE 补发去重 + 权限矩阵
 """
 
-import requests, json, sys, time, uuid, hashlib, sqlite3
+import requests, json, sys, time, uuid, hashlib, sqlite3, os
 
 BASE = "http://127.0.0.1:3100"
 HEADERS = {
@@ -66,7 +66,8 @@ print("Week 2 Day 2 验收测试")
 print("=" * 60)
 
 print("\n[Setup] Bootstrap admin via DB...")
-DB_PATH = "/Users/liubo/WorkBuddy/20260416213415/agent-comm-hub/comm_hub.db"
+HUB_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB_PATH = os.path.join(HUB_DIR, "comm_hub.db")
 admin_id = f"admin_w2d2_{uuid.uuid4().hex[:8]}"
 admin_token_plain = f"tk_admin_w2d2_{uuid.uuid4().hex[:16]}"
 admin_token_hash = hashlib.sha256(admin_token_plain.encode()).hexdigest()

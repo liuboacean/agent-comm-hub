@@ -13,6 +13,7 @@ import sys
 import hashlib
 import urllib.request
 import urllib.error
+import os
 
 HUB = "http://localhost:3100"
 PASS = 0
@@ -111,7 +112,8 @@ def mcp_call(tool_name, params, token=None):
 
 # ─── SQLite 工具 ──────────────────────────────────────────
 
-DB_PATH = "/Users/liubo/WorkBuddy/20260416213415/agent-comm-hub/comm_hub.db"
+HUB_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB_PATH = os.path.join(HUB_DIR, "comm_hub.db")
 now_ms = int(time.time() * 1000)
 
 def db_create_invite(role="member"):

@@ -15,7 +15,7 @@ import sqlite3
 import os
 import sys
 
-HUB_DIR = "/Users/liubo/WorkBuddy/20260416213415/agent-comm-hub"
+HUB_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(HUB_DIR, "comm_hub.db")
 
 passed = 0

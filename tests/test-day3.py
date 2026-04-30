@@ -16,9 +16,11 @@ import sys
 import time
 import sqlite3
 import requests
+import os
 
 HUB_URL = "http://localhost:3100"
-DB_PATH = "/Users/liubo/WorkBuddy/20260416213415/agent-comm-hub/comm_hub.db"
+HUB_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB_PATH = os.path.join(HUB_DIR, "comm_hub.db")
 
 passed = 0
 failed = 0

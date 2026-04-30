@@ -12,4 +12,6 @@ __pycache__/
 .codebuddy/
 .workbuddy/
 project-specs/
-tests/
+tests/*.db
+tests/*.db-shm
+tests/*.db-wal

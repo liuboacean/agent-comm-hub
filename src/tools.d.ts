@@ -1,7 +1,6 @@
 /**
- * tools.ts — MCP 工具定义 (Phase 1)
- * 原有 9 个工具 + 新增 4 个工具（register_agent/heartbeat/query_agents/revoke_token）
- * 全部工具注册到 McpServer，带 authContext 权限检查
+ * tools.ts — MCP 工具注册入口
+ * Phase A 重构：原 2687 行拆分为 8 个模块 + 本入口（~50 行）
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { type AuthContext } from "./security.js";

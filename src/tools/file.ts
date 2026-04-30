@@ -13,7 +13,7 @@ import { logError } from "../logger.js";
 import { incrementMcpCall } from "../metrics.js";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
 import { join as pathJoin } from "path";
-import { withRetry, requireAuth } from "../utils.js";
+import { withRetry, requireAuth, mcpError } from "../utils.js";
 
 /**
  * 注册文件传输工具
@@ -99,9 +99,9 @@ export function registerFileTools(server: McpServer, authContext?: AuthContext):
             }, null, 2),
           }],
         };
-      } catch (err: any) {
+      } catch (err: unknown) {
         logError("upload_file_error", err);
-        return { content: [{ type: "text", text: JSON.stringify({ success: false, error: err.message }) }] };
+        return mcpError(err, "upload_file");
       }
     }
   );
@@ -140,9 +140,9 @@ export function registerFileTools(server: McpServer, authContext?: AuthContext):
             }, null, 2),
           }],
         };
-      } catch (err: any) {
+      } catch (err: unknown) {
         logError("download_file_error", err);
-        return { content: [{ type: "text", text: JSON.stringify({ success: false, error: err.message }) }] };
+        return mcpError(err, "download_file");
       }
     }
   );
@@ -177,9 +177,9 @@ export function registerFileTools(server: McpServer, authContext?: AuthContext):
             }, null, 2),
           }],
         };
-      } catch (err: any) {
+      } catch (err: unknown) {
         logError("list_attachments_error", err);
-        return { content: [{ type: "text", text: JSON.stringify({ success: false, error: err.message }) }] };
+        return mcpError(err, "list_attachments");
       }
     }
   );

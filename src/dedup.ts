@@ -17,6 +17,7 @@ import { createHash } from "crypto";
 import { db } from "./db.js";
 import { auditLog } from "./security.js";
 import { logError, logger } from "./logger.js";
+import { getErrorMessage } from "./types.js";
 
 // ─── 常量 ────────────────────────────────────────────────
 const DEDUP_TTL_MS = parseInt(process.env.DEDUP_TTL ?? "900", 10) * 1000; // 默认 15 分钟
@@ -122,7 +123,7 @@ export function isDuplicate(msgHash: string): boolean {
       .prepare(`SELECT msg_hash FROM dedup_cache WHERE msg_hash = ?`)
       .get(msgHash) as any;
     return !!row;
-  } catch (err: any) {
+  } catch (err: unknown) {
     logError("dedup_isDuplicate_error", err);
     return false; // 出错时允许通过（安全优先于阻断）
   }
@@ -142,7 +143,7 @@ export function recordHash(
       `INSERT OR IGNORE INTO dedup_cache (msg_hash, sender_id, nonce, created_at)
        VALUES (?, ?, ?, ?)`
     ).run(msgHash, senderId, nonce, now);
-  } catch (err: any) {
+  } catch (err: unknown) {
     logError("dedup_recordHash_error", err);
   }
 }
@@ -258,7 +259,7 @@ export function cleanupExpiredEntries(): number {
       auditLog("cleanup_dedup_cache", "system:dedup", `batch`, `deleted=${deleted}, ttl=${DEDUP_TTL_MS}ms`);
     }
     return deleted;
-  } catch (err: any) {
+  } catch (err: unknown) {
     logError("dedup_cleanup_error", err);
     return 0;
   }

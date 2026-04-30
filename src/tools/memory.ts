@@ -12,7 +12,7 @@ import {
   deleteMemory as deleteMemoryFromService,
 } from "../memory.js";
 import { auditLog, type AuthContext } from "../security.js";
-import { requireAuth } from "../utils.js";
+import { requireAuth, mcpFail, mcpError } from "../utils.js";
 
 export function registerMemoryTools(server: McpServer, authContext?: AuthContext): void {
 
@@ -46,12 +46,7 @@ export function registerMemoryTools(server: McpServer, authContext?: AuthContext
       });
 
       if (!result.ok) {
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({ success: false, error: result.error }),
-          }],
-        };
+        return mcpFail(result.error, "store_memory");
       }
 
       auditLog("tool_store_memory", ctx.agentId, result.memory.id,
@@ -183,12 +178,7 @@ export function registerMemoryTools(server: McpServer, authContext?: AuthContext
       const result = deleteMemoryFromService(memory_id, ctx.agentId, ctx.role);
 
       if (!result.ok) {
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({ success: false, error: result.error }),
-          }],
-        };
+        return mcpFail(result.error, "delete_memory");
       }
 
       auditLog("tool_delete_memory", ctx.agentId, memory_id);
@@ -263,13 +253,8 @@ export function registerMemoryTools(server: McpServer, authContext?: AuthContext
             }, null, 2),
           }],
         };
-      } catch (err: any) {
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({ success: false, error: err.message }),
-          }],
-        };
+      } catch (err: unknown) {
+        return mcpError(err, "search_memories");
       }
     }
   );

@@ -30,6 +30,7 @@ import {
 } from "./security.js";
 import { startHeartbeatMonitor, clearOfflineNotification, stopHeartbeatMonitor } from "./identity.js";
 import { startDedupCleanup, stopDedupCleanup } from "./dedup.js";
+import { getErrorMessage } from "./types.js";
 import { rebuildFtsIndex } from "./memory.js";
 import { logger, logError } from "./logger.js";
 import { join } from "path";
@@ -363,8 +364,8 @@ app.patch("/api/messages/:id/status", authMiddleware, (req: Request, res: Respon
   try {
     messageRepo.updateStatus(req.params.id, status);
     res.json({ success: true, message_id: req.params.id, status });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -519,8 +520,8 @@ app.use((req: Request, res: Response) => {
 // ═══════════════════════════════════════════════════════════════
 // Phase 5b: 全局错误处理中间件（放在所有路由之后）
 // ═══════════════════════════════════════════════════════════════
-app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
-  const traceId = (req as any).traceId;
+app.use((err: Error & { status?: number }, req: Request, res: Response, _next: NextFunction) => {
+  const traceId = (req as unknown as Record<string, unknown>).traceId as string | undefined;
   logError("unhandled_error", err, { traceId, path: req.path, method: req.method });
 
   if (res.headersSent) return;

@@ -23,6 +23,8 @@ import {
 } from "./security.js";
 import { pushToAgent, onlineAgents } from "./sse.js";
 import { logger } from "./logger.js";
+import type { AgentRow, AgentCapabilityRow } from "./types.js";
+import { getErrorMessage } from "./types.js";
 
 // ─── 常量 ────────────────────────────────────────────────
 const HEARTBEAT_ONLINE_THRESHOLD = parseInt(process.env.HEARTBEAT_ONLINE_THRESHOLD ?? "90000", 10);  // 90s → offline
@@ -42,7 +44,7 @@ const heartbeatCounters = new Map<string, number>();
 export interface AgentInfo {
   agent_id: string;
   name: string;
-  role: "admin" | "member" | "group_admin";
+  role: "admin" | "member" | "group_admin" | "superadmin";
   status: "online" | "offline";
   trust_score: number;
   last_heartbeat: number | null;
@@ -79,7 +81,7 @@ export function registerAgent(
       `INSERT INTO agents (agent_id, name, role, status, last_heartbeat, created_at)
        VALUES (?, ?, ?, 'offline', NULL, ?)`
     ).run(agentId, name, role, now);
-  } catch (err: any) {
+  } catch (err: unknown) {
     // 可能 agent_id 冲突（极低概率），重试一次
     const retryId = `agent_${randomBytes(4).toString("hex")}_${Date.now()}`;
     db.prepare(
@@ -142,7 +144,7 @@ export function heartbeat(agentId: string): {
   // 检查 Agent 是否存在
   const agent = db
     .prepare(`SELECT agent_id, trust_score FROM agents WHERE agent_id=?`)
-    .get(agentId) as any;
+    .get(agentId) as Pick<AgentRow, "agent_id" | "trust_score"> | undefined;
 
   if (!agent) {
     return { success: false, status: "offline", last_heartbeat: 0, error: "Agent not found" };
@@ -182,7 +184,7 @@ export function queryAgents(filters?: {
 }): AgentInfo[] {
   let sql = `SELECT DISTINCT a.agent_id, a.name, a.role, a.status, a.trust_score, a.last_heartbeat, a.created_at
              FROM agents a`;
-  const params: any[] = [];
+  const params: (string | number)[] = [];
 
   if (filters?.capability) {
     sql += ` LEFT JOIN agent_capabilities c ON a.agent_id = c.agent_id`;
@@ -208,7 +210,7 @@ export function queryAgents(filters?: {
 
   sql += " ORDER BY a.created_at ASC";
 
-  const rows = db.prepare(sql).all(...params) as any[];
+  const rows = db.prepare(sql).all(...params) as AgentRow[];
 
   return rows.map(row => ({
     agent_id:      row.agent_id,
@@ -216,7 +218,7 @@ export function queryAgents(filters?: {
     role:          row.role,
     status:        row.status,
     trust_score:   row.trust_score ?? 50,
-    last_heartbeat: row.last_heartbeat,
+    last_heartbeat: row.last_heartbeat ?? null,
     created_at:    row.created_at,
   }));
 }
@@ -227,14 +229,14 @@ export function queryAgents(filters?: {
 export function getAgent(agentId: string): AgentInfo | null {
   const row = db
     .prepare(`SELECT * FROM agents WHERE agent_id=?`)
-    .get(agentId) as any;
+    .get(agentId) as AgentRow | undefined;
 
   if (!row) return null;
 
   // 获取能力列表
   const caps = db
     .prepare(`SELECT capability FROM agent_capabilities WHERE agent_id=?`)
-    .all(agentId) as any[];
+    .all(agentId) as AgentCapabilityRow[];
 
   return {
     agent_id:      row.agent_id,
@@ -242,9 +244,9 @@ export function getAgent(agentId: string): AgentInfo | null {
     role:          row.role,
     status:        row.status,
     trust_score:   row.trust_score ?? 50,
-    last_heartbeat: row.last_heartbeat,
+    last_heartbeat: row.last_heartbeat ?? null,
     created_at:    row.created_at,
-    capabilities:  caps.map((c: any) => c.capability),
+    capabilities:  caps.map((c) => c.capability),
   };
 }
 

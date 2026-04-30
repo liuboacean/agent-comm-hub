@@ -23,7 +23,7 @@ import {
 } from "../identity.js";
 import { onlineAgents } from "../sse.js";
 import { db } from "../db.js";
-import { withRetry, requireAuth } from "../utils.js";
+import { withRetry, requireAuth, mcpFail } from "../utils.js";
 
 export function registerIdentityTools(server: McpServer, authContext?: AuthContext): void {
 
@@ -44,12 +44,7 @@ export function registerIdentityTools(server: McpServer, authContext?: AuthConte
       // public 工具，不需要权限检查
       const result = registerAgentFromIdentity(invite_code, name, capabilities || []);
       if (!result.success) {
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({ success: false, error: result.error }),
-          }],
-        };
+        return mcpFail(result.error ?? "Registration failed", "register_agent");
       }
 
       auditLog("tool_register_agent", result.agentId ?? null, name, `role=${result.role ?? 'unknown'}`);
@@ -200,12 +195,7 @@ export function registerIdentityTools(server: McpServer, authContext?: AuthConte
       const result = updateAgentTrustScore(agent_id, delta, ctx.agentId);
 
       if (!result.ok) {
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({ success: false, error: result.error }),
-          }],
-        };
+        return mcpFail(result.error, "set_trust_score");
       }
 
       return {

@@ -18,6 +18,8 @@ import { randomUUID } from "crypto";
 import { db } from "./db.js";
 import { buildFtsTokens, buildSearchQuery } from "./tokenizer.js";
 import { auditLog } from "./security.js";
+import type { MemoryRow } from "./types.js";
+import { getErrorMessage } from "./types.js";
 import { logError, logger } from "./logger.js";
 
 // ─── 常量 ────────────────────────────────────────────────
@@ -127,8 +129,8 @@ export function storeMemory(
     };
 
     return { ok: true, memory };
-  } catch (err: any) {
-    return { ok: false, error: `Failed to store memory: ${err.message}` };
+  } catch (err: unknown) {
+    return { ok: false, error: `Failed to store memory: ${getErrorMessage(err)}` };
   }
 }
 
@@ -171,7 +173,7 @@ export function recallMemory(
 
   try {
     let sql: string;
-    let params: any[];
+    let params: (string | number)[];
 
     if (scope === "all") {
       // 搜索所有可见的记忆（private 仅限本人 + group + collective）
@@ -228,7 +230,7 @@ export function recallMemory(
     }
 
     return db.prepare(sql).all(...params) as MemoryEntry[];
-  } catch (err: any) {
+  } catch (err: unknown) {
     logError("memory_recallMemory_error", err);
     return [];
   }
@@ -253,7 +255,7 @@ export function listMemories(
 
   try {
     let sql: string;
-    let params: any[];
+    let params: (string | number)[];
 
     if (scope === "all") {
       sql = `
@@ -289,7 +291,7 @@ export function listMemories(
     }
 
     return db.prepare(sql).all(...params) as MemoryEntry[];
-  } catch (err: any) {
+  } catch (err: unknown) {
     logError("memory_listMemories_error", err);
     return [];
   }
@@ -336,8 +338,8 @@ export function deleteMemory(
     auditLog("delete_memory_db", agentId, memoryId, `scope=${memory.scope}, agent=${memory.agent_id}`);
 
     return { ok: true, deleted: true };
-  } catch (err: any) {
-    return { ok: false, error: `Failed to delete memory: ${err.message}` };
+  } catch (err: unknown) {
+    return { ok: false, error: `Failed to delete memory: ${getErrorMessage(err)}` };
   }
 }
 
@@ -359,11 +361,11 @@ export function getMemoryStats(): MemoryStats {
 
     const byAgentRows = db.prepare(
       `SELECT agent_id, COUNT(*) as cnt FROM memories GROUP BY agent_id`
-    ).all() as any[];
+    ).all() as { agent_id: string; cnt: number }[];
 
     const byScopeRows = db.prepare(
       `SELECT scope, COUNT(*) as cnt FROM memories GROUP BY scope`
-    ).all() as any[];
+    ).all() as { scope: string; cnt: number }[];
 
     const byAgent: Record<string, number> = {};
     for (const row of byAgentRows) {
@@ -381,7 +383,7 @@ export function getMemoryStats(): MemoryStats {
       by_scope: byScope,
       fts_entries: ftsEntries,
     };
-  } catch (err: any) {
+  } catch (err: unknown) {
     logError("memory_getMemoryStats_error", err);
     return { total: 0, by_agent: {}, by_scope: {}, fts_entries: 0 };
   }
@@ -412,22 +414,22 @@ export function rebuildFtsIndex(): void {
 
     const memories = db.prepare(
       `SELECT id, title, content, tags, source_agent_id, source_task_id FROM memories`
-    ).all() as any[];
+    ).all() as Pick<MemoryRow, "id" | "title" | "content" | "tags" | "source_agent_id" | "source_task_id">[];
 
     const insertFts = db.prepare(
       `INSERT INTO memories_fts (title, content, tags, fts_tokens) VALUES (?, ?, ?, ?)`
     );
 
-    const rebuildBatch = db.transaction((mems: any[]) => {
+    const rebuildBatch = db.transaction((mems: Pick<MemoryRow, "id" | "title" | "content" | "tags" | "source_agent_id" | "source_task_id">[]) => {
       for (const m of mems) {
-        const tokens = buildFtsTokens(m.title, m.content);
-        insertFts.run(m.title, m.content, m.tags, tokens);
+        const tokens = buildFtsTokens(m.title ?? null, m.content);
+        insertFts.run(m.title, m.content, m.tags ?? null, tokens);
       }
     });
 
     rebuildBatch(memories);
     logger.info("memory_fts_rebuild_done", { module: "memory", entries: memories.length });
-  } catch (err: any) {
+  } catch (err: unknown) {
     logError("memory_rebuildFtsIndex_error", err);
   }
 }

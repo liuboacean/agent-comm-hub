@@ -6,6 +6,8 @@ import Database, { type Database as DatabaseType, type Statement } from "better-
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { logger, logError } from "./logger.js";
+import type { PragmaColumnInfo, CountRow, MaxTimestampRow } from "./types.js";
+import { getErrorMessage } from "./types.js";
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = join(__dir, "../comm_hub.db");
@@ -69,9 +71,9 @@ db.exec(`
 // ─── Phase 4a Migration: tasks 表新增字段 ──────────────
 // 必须在 taskStmt.insert 之前执行
 try {
-  const taskCols = db.pragma("table_info(tasks)") as any[];
+  const taskCols = db.pragma("table_info(tasks)") as PragmaColumnInfo[];
   if (taskCols.length > 0) {
-    const colNames = taskCols.map((c: any) => c.name);
+    const colNames = taskCols.map((c) => c.name);
     const migrations: [string, string][] = [
       ["pipeline_id", "ALTER TABLE tasks ADD COLUMN pipeline_id TEXT"],
       ["order_index", "ALTER TABLE tasks ADD COLUMN order_index INTEGER DEFAULT 0"],
@@ -88,8 +90,8 @@ try {
       }
     }
   }
-} catch (e: any) {
-  logger.warn("db_migration_warning", { module: "db", table: "tasks", phase: "4a", error: e.message });
+} catch (e: unknown) {
+  logger.warn("db_migration_warning", { module: "db", table: "tasks", phase: "4a", error: getErrorMessage(e) });
 }
 
 // ─── Phase 4a 新表：pipelines + pipeline_tasks ──────────
@@ -285,13 +287,13 @@ export const pipelineTaskStmt: Record<string, Statement> = {
 
 // Phase 2 Day 4 Migration: 先添加 trust_score 列（必须在建索引前）
 try {
-  const agentCols = db.pragma("table_info(agents)") as any[];
-  if (agentCols.length > 0 && !agentCols.some((c: any) => c.name === "trust_score")) {
+  const agentCols = db.pragma("table_info(agents)") as PragmaColumnInfo[];
+  if (agentCols.length > 0 && !agentCols.some((c) => c.name === "trust_score")) {
     db.exec(`ALTER TABLE agents ADD COLUMN trust_score INTEGER NOT NULL DEFAULT 50`);
     logger.info("db_migration", { module: "db", column: "trust_score", table: "agents" });
   }
-} catch (e: any) {
-  logger.warn("db_migration_warning", { module: "db", column: "trust_score", table: "agents", error: e.message });
+} catch (e: unknown) {
+  logger.warn("db_migration_warning", { module: "db", column: "trust_score", table: "agents", error: getErrorMessage(e) });
 }
 
 db.exec(`
@@ -313,13 +315,13 @@ db.exec(`
 
 // Phase 2 Day 4 Migration: 为已有 agents 表添加 trust_score 字段
 try {
-  const agentCols = db.pragma("table_info(agents)") as any[];
-  if (!agentCols.some((c: any) => c.name === "trust_score")) {
+  const agentCols = db.pragma("table_info(agents)") as PragmaColumnInfo[];
+  if (!agentCols.some((c) => c.name === "trust_score")) {
     db.exec(`ALTER TABLE agents ADD COLUMN trust_score INTEGER NOT NULL DEFAULT 50`);
     logger.info("db_migration", { module: "db", column: "trust_score", table: "agents", fallback: true });
   }
-} catch (e: any) {
-  logger.warn("db_migration_warning", { module: "db", column: "trust_score", table: "agents", error: e.message });
+} catch (e: unknown) {
+  logger.warn("db_migration_warning", { module: "db", column: "trust_score", table: "agents", error: getErrorMessage(e) });
 }
 
 // --- auth_tokens 表：邀请码 + API Token 管理 ---
@@ -357,19 +359,19 @@ db.exec(`
 
 // Phase 2 Day 4 Migration: 先添加溯源列（必须在建索引前）
 try {
-  const memCols = db.pragma("table_info(memories)") as any[];
+  const memCols = db.pragma("table_info(memories)") as PragmaColumnInfo[];
   if (memCols.length > 0) {
-    if (!memCols.some((c: any) => c.name === "source_agent_id")) {
+    if (!memCols.some((c) => c.name === "source_agent_id")) {
       db.exec(`ALTER TABLE memories ADD COLUMN source_agent_id TEXT`);
       logger.info("db_migration", { module: "db", column: "source_agent_id", table: "memories" });
     }
-    if (!memCols.some((c: any) => c.name === "source_task_id")) {
+    if (!memCols.some((c) => c.name === "source_task_id")) {
       db.exec(`ALTER TABLE memories ADD COLUMN source_task_id TEXT`);
       logger.info("db_migration", { module: "db", column: "source_task_id", table: "memories" });
     }
   }
-} catch (e: any) {
-  logger.warn("db_migration_warning", { module: "db", table: "memories", error: e.message });
+} catch (e: unknown) {
+  logger.warn("db_migration_warning", { module: "db", table: "memories", error: getErrorMessage(e) });
 }
 
 db.exec(`
@@ -394,14 +396,14 @@ db.exec(`
 
 // Phase 2 Migration: 为已有 memories 表添加 fts_tokens 列
 try {
-  const colInfo = db.pragma("table_info(memories)") as any[];
-  const hasFtsTokens = colInfo.some((c: any) => c.name === "fts_tokens");
+  const colInfo = db.pragma("table_info(memories)") as PragmaColumnInfo[];
+  const hasFtsTokens = colInfo.some((c) => c.name === "fts_tokens");
   if (!hasFtsTokens) {
     db.exec(`ALTER TABLE memories ADD COLUMN fts_tokens TEXT NOT NULL DEFAULT ''`);
     logger.info("db_migration", { module: "db", column: "fts_tokens", table: "memories" });
   }
-} catch (e: any) {
-  logger.warn("db_migration_warning", { module: "db", column: "fts_tokens", table: "memories", error: e.message });
+} catch (e: unknown) {
+  logger.warn("db_migration_warning", { module: "db", column: "fts_tokens", table: "memories", error: getErrorMessage(e) });
 }
 
 // FTS5 虚拟表（独立存储模式 + fts_tokens 列）
@@ -426,9 +428,9 @@ try {
       fts_tokens
     );
   `);
-} catch (e: any) {
-  if (!e.message.includes("already exists")) {
-    logger.warn("db_fts5_init_warning", { module: "db", error: e.message });
+} catch (e: unknown) {
+  if (!getErrorMessage(e).includes("already exists")) {
+    logger.warn("db_fts5_init_warning", { module: "db", error: getErrorMessage(e) });
   }
 }
 
@@ -542,9 +544,9 @@ try {
       title, content, category
     );
   `);
-} catch (e: any) {
-  if (!e.message.includes("already exists")) {
-    logger.warn("db_strategies_fts5_init_warning", { module: "db", error: e.message });
+} catch (e: unknown) {
+  if (!getErrorMessage(e).includes("already exists")) {
+    logger.warn("db_strategies_fts5_init_warning", { module: "db", error: getErrorMessage(e) });
   }
 }
 
@@ -554,9 +556,9 @@ try {
 
 // --- Phase 4b: tasks 表扩展列 ---
 try {
-  const taskCols = db.pragma("table_info(tasks)") as any[];
+  const taskCols = db.pragma("table_info(tasks)") as PragmaColumnInfo[];
   if (taskCols.length > 0) {
-    const colNames = taskCols.map((c: any) => c.name);
+    const colNames = taskCols.map((c) => c.name);
     const colMigrations: [string, string][] = [
       ["parallel_group", "ALTER TABLE tasks ADD COLUMN parallel_group TEXT DEFAULT NULL"],
       ["handoff_status", "ALTER TABLE tasks ADD COLUMN handoff_status TEXT DEFAULT 'none'"],
@@ -570,15 +572,15 @@ try {
       }
     }
   }
-} catch (e: any) {
-  logger.warn("db_migration_warning", { module: "db", table: "tasks", phase: "4b", error: e.message });
+} catch (e: unknown) {
+  logger.warn("db_migration_warning", { module: "db", table: "tasks", phase: "4b", error: getErrorMessage(e) });
 }
 
 // --- Phase 4b: strategies 表扩展列 ---
 try {
-  const stratCols = db.pragma("table_info(strategies)") as any[];
+  const stratCols = db.pragma("table_info(strategies)") as PragmaColumnInfo[];
   if (stratCols.length > 0) {
-    const colNames = stratCols.map((c: any) => c.name);
+    const colNames = stratCols.map((c) => c.name);
     const colMigrations: [string, string][] = [
       ["approval_tier", "ALTER TABLE strategies ADD COLUMN approval_tier TEXT DEFAULT 'admin'"],
       ["observation_start", "ALTER TABLE strategies ADD COLUMN observation_start INTEGER"],
@@ -591,8 +593,8 @@ try {
       }
     }
   }
-} catch (e: any) {
-  logger.warn("db_migration_warning", { module: "db", table: "strategies", phase: "4b", error: e.message });
+} catch (e: unknown) {
+  logger.warn("db_migration_warning", { module: "db", table: "strategies", phase: "4b", error: getErrorMessage(e) });
 }
 
 // --- Phase 4b: task_dependencies 表（依赖链） ---
@@ -637,9 +639,9 @@ db.exec(`
 
 // --- Phase 5a: agents 表扩展列（group_admin 支持） ---
 try {
-  const agentCols = db.pragma("table_info(agents)") as any[];
+  const agentCols = db.pragma("table_info(agents)") as PragmaColumnInfo[];
   if (agentCols.length > 0) {
-    const colNames = agentCols.map((c: any) => c.name);
+    const colNames = agentCols.map((c) => c.name);
     const colMigrations: [string, string][] = [
       ["managed_group_id", "ALTER TABLE agents ADD COLUMN managed_group_id TEXT"],
     ];
@@ -650,15 +652,15 @@ try {
       }
     }
   }
-} catch (e: any) {
-  logger.warn("db_migration_warning", { module: "db", table: "agents", phase: "5a", error: e.message });
+} catch (e: unknown) {
+  logger.warn("db_migration_warning", { module: "db", table: "agents", phase: "5a", error: getErrorMessage(e) });
 }
 
 // --- Phase 5a: audit_log 哈希链列 + 写保护触发器 ---
 try {
-  const auditCols = db.pragma("table_info(audit_log)") as any[];
+  const auditCols = db.pragma("table_info(audit_log)") as PragmaColumnInfo[];
   if (auditCols.length > 0) {
-    const colNames = auditCols.map((c: any) => c.name);
+    const colNames = auditCols.map((c) => c.name);
     const colMigrations: [string, string][] = [
       ["prev_hash", "ALTER TABLE audit_log ADD COLUMN prev_hash TEXT"],
       ["record_hash", "ALTER TABLE audit_log ADD COLUMN record_hash TEXT"],
@@ -681,8 +683,8 @@ try {
       BEGIN SELECT RAISE(ABORT, 'audit log is immutable'); END;
   `);
   logger.info("db_migration", { module: "db", detail: "audit_log write protection triggers ready", phase: "5a" });
-} catch (e: any) {
-  logger.warn("db_migration_warning", { module: "db", table: "audit_log", phase: "5a", error: e.message });
+} catch (e: unknown) {
+  logger.warn("db_migration_warning", { module: "db", table: "audit_log", phase: "5a", error: getErrorMessage(e) });
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -790,7 +792,7 @@ export function getDbStats(): Record<string, number> {
   const stats: Record<string, number> = {};
   for (const t of tables) {
     try {
-      const row = db.prepare(`SELECT COUNT(*) as cnt FROM ${t}`).get() as any;
+      const row = db.prepare(`SELECT COUNT(*) as cnt FROM ${t}`).get() as CountRow | undefined;
       stats[t] = row?.cnt ?? 0;
     } catch {
       stats[t] = -1; // 表不存在
@@ -902,11 +904,11 @@ export function getEnhancedDbStats(): {
   let lastMsgArchive: string | null = null;
   let lastAuditArchive: string | null = null;
   try {
-    const msgRow = db.prepare(`SELECT MAX(archived_at) as ts FROM messages_archive`).get() as any;
+    const msgRow = db.prepare(`SELECT MAX(archived_at) as ts FROM messages_archive`).get() as MaxTimestampRow | undefined;
     lastMsgArchive = msgRow?.ts ? new Date(msgRow.ts).toISOString() : null;
   } catch { /* ignore */ }
   try {
-    const auditRow = db.prepare(`SELECT MAX(archived_at) as ts FROM audit_log_archive`).get() as any;
+    const auditRow = db.prepare(`SELECT MAX(archived_at) as ts FROM audit_log_archive`).get() as MaxTimestampRow | undefined;
     lastAuditArchive = auditRow?.ts ? new Date(auditRow.ts).toISOString() : null;
   } catch { /* ignore */ }
 

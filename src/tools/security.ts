@@ -8,7 +8,7 @@ import { db, getEnhancedDbStats, archiveOldMessages, archiveOldAuditLogs, vacuum
 import { auditLog, recalculateTrustScore, recalculateAllTrustScores, type AuthContext } from "../security.js";
 import { setAgentRole as setAgentRoleFromIdentity } from "../identity.js";
 import { logError } from "../logger.js";
-import { withRetry, requireAuth } from "../utils.js";
+import { withRetry, requireAuth, mcpError, mcpFail } from "../utils.js";
 
 /**
  * 注册安全与维护工具
@@ -33,12 +33,7 @@ export function registerSecurityTools(server: McpServer, authContext?: AuthConte
       const result = setAgentRoleFromIdentity(agent_id, role, ctx.agentId, managed_group_id);
 
       if (!result.ok) {
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({ success: false, error: result.error }),
-          }],
-        };
+        return mcpFail(result.error, "set_agent_role");
       }
 
       return {
@@ -102,13 +97,8 @@ export function registerSecurityTools(server: McpServer, authContext?: AuthConte
             }],
           };
         }
-      } catch (err: any) {
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({ success: false, error: err.message }),
-          }],
-        };
+      } catch (err: unknown) {
+        return mcpError(err, "recalculate_trust_scores");
       }
     }
   );
@@ -140,14 +130,9 @@ export function registerSecurityTools(server: McpServer, authContext?: AuthConte
             }, null, 2),
           }],
         };
-      } catch (err: any) {
+      } catch (err: unknown) {
         logError("get_db_stats_error", err);
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({ success: false, error: err.message }),
-          }],
-        };
+        return mcpError(err, "get_db_stats");
       }
     }
   );
@@ -203,14 +188,9 @@ export function registerSecurityTools(server: McpServer, authContext?: AuthConte
             }, null, 2),
           }],
         };
-      } catch (err: any) {
+      } catch (err: unknown) {
         logError("archive_data_error", err);
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({ success: false, error: err.message }),
-          }],
-        };
+        return mcpError(err, "archive_data");
       }
     }
   );

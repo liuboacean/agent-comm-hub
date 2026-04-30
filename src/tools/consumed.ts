@@ -11,6 +11,7 @@ import { consumedRepo } from "../repo/sqlite-impl.js";
 import { type AuthContext } from "../security.js";
 import { logError } from "../logger.js";
 import { withRetry, requireAuth } from "../utils.js";
+import { getErrorMessage } from "../types.js";
 
 export function registerConsumedTools(server: McpServer, authContext?: AuthContext): void {
 
@@ -57,14 +58,14 @@ export function registerConsumedTools(server: McpServer, authContext?: AuthConte
             }, null, 2),
           }],
         };
-      } catch (err: any) {
+      } catch (err: unknown) {
         logError("mark_consumed_error", err);
         return {
           content: [{
             type: "text",
             text: JSON.stringify({
               success: false,
-              error: err.message,
+              error: getErrorMessage(err),
               fallback: "水位线记录失败，建议稍后重试或检查 Hub 服务状态",
             }),
           }],
@@ -116,7 +117,7 @@ export function registerConsumedTools(server: McpServer, authContext?: AuthConte
             }, null, 2),
           }],
         };
-      } catch (err: any) {
+      } catch (err: unknown) {
         logError("check_consumed_error", err);
         return {
           content: [{
@@ -124,7 +125,7 @@ export function registerConsumedTools(server: McpServer, authContext?: AuthConte
             text: JSON.stringify({
               consumed: false,
               resource,
-              warning: `水位线查询失败: ${err.message}`,
+              warning: `水位线查询失败: ${getErrorMessage(err)}`,
               advice:   "无法确认是否已处理（查询出错），建议继续处理并在完成后调用 mark_consumed",
             }, null, 2),
           }],

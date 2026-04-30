@@ -11,6 +11,7 @@ import { createHash, randomBytes } from "crypto";
 import type { Request, Response, NextFunction } from "express";
 import { db } from "./db.js";
 import { logError } from "./logger.js";
+import { getErrorMessage } from "./types.js";
 
 // ─── Express 类型扩展 ──────────────────────────────────
 declare global {
@@ -353,7 +354,7 @@ export function auditLog(action: string, agentId: string | null, target?: string
       `INSERT INTO audit_log (id, action, agent_id, target, details, prev_hash, record_hash, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(id, action, agentId, target || null, details || null, prevHash, recordHash, now);
-  } catch (err: any) {
+  } catch (err: unknown) {
     logError("audit_log_failed", err);
   }
 }

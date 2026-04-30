@@ -15,6 +15,7 @@ import { db } from "./db.js";
 import { buildFtsTokens, buildSearchQuery } from "./tokenizer.js";
 import { auditLog } from "./security.js";
 import { logError } from "./logger.js";
+import { getErrorMessage } from "./types.js";
 
 // ─── 常量 ────────────────────────────────────────────────
 const MAX_CONTENT_LENGTH = 5000;
@@ -141,8 +142,8 @@ export function shareExperience(
     insertFtsEntry(strategy);
 
     return { ok: true, strategy };
-  } catch (err: any) {
-    return { ok: false, error: `Failed to share experience: ${err.message}` };
+  } catch (err: unknown) {
+    return { ok: false, error: `Failed to share experience: ${getErrorMessage(err)}` };
   }
 }
 
@@ -185,8 +186,8 @@ export function proposeStrategy(
     }
 
     return { ok: true, strategy, sensitivity };
-  } catch (err: any) {
-    return { ok: false, error: `Failed to propose strategy: ${err.message}` };
+  } catch (err: unknown) {
+    return { ok: false, error: `Failed to propose strategy: ${getErrorMessage(err)}` };
   }
 }
 
@@ -201,7 +202,7 @@ export function listStrategies(options?: {
 }): Strategy[] {
   const limit = Math.min(options?.limit ?? 50, 50);
   const conditions: string[] = [];
-  const params: any[] = [];
+  const params: (string | number)[] = [];
 
   if (options?.status && options.status !== "all") {
     conditions.push("s.status = ?");
@@ -223,7 +224,7 @@ export function listStrategies(options?: {
     return db.prepare(
       `SELECT s.* FROM strategies s ${where} ORDER BY s.proposed_at DESC LIMIT ?`
     ).all(...params) as Strategy[];
-  } catch (err: any) {
+  } catch (err: unknown) {
     logError("evolution_listStrategies_error", err);
     return [];
   }
@@ -245,7 +246,7 @@ export function searchStrategies(
 
   try {
     const conditions: string[] = [`strategies_fts MATCH ?`, `s.status = 'approved'`];
-    const params: any[] = [safeQuery];
+    const params: (string | number)[] = [safeQuery];
 
     if (options?.category) {
       conditions.push("s.category = ?");
@@ -260,7 +261,7 @@ export function searchStrategies(
        WHERE ${conditions.join(" AND ")}
        ORDER BY rank LIMIT ?`
     ).all(...params) as Strategy[];
-  } catch (err: any) {
+  } catch (err: unknown) {
     logError("evolution_searchStrategies_error", err);
     return [];
   }
@@ -295,8 +296,8 @@ export function applyStrategy(
     db.prepare(`UPDATE strategies SET apply_count = apply_count + 1 WHERE id = ?`).run(strategyId);
 
     return { ok: true, application_id: result.lastInsertRowid as number };
-  } catch (err: any) {
-    return { ok: false, error: `Failed to apply strategy: ${err.message}` };
+  } catch (err: unknown) {
+    return { ok: false, error: `Failed to apply strategy: ${getErrorMessage(err)}` };
   }
 }
 
@@ -332,12 +333,12 @@ export function feedbackStrategy(
     ).run(feedback, strategyId);
 
     return { ok: true, feedback_id: result.lastInsertRowid as number };
-  } catch (err: any) {
+  } catch (err: unknown) {
     // UNIQUE 约束冲突 = 重复反馈
-    if (err.message.includes("UNIQUE")) {
+    if (err instanceof Error && err.message.includes("UNIQUE")) {
       return { ok: false, error: "You have already provided feedback for this strategy" };
     }
-    return { ok: false, error: `Failed to submit feedback: ${err.message}` };
+    return { ok: false, error: `Failed to submit feedback: ${getErrorMessage(err)}` };
   }
 }
 
@@ -380,8 +381,8 @@ export function approveStrategy(
 
     const updated = getStrategyById(strategyId);
     return { ok: true, strategy: updated! };
-  } catch (err: any) {
-    return { ok: false, error: `Failed to approve/reject strategy: ${err.message}` };
+  } catch (err: unknown) {
+    return { ok: false, error: `Failed to approve/reject strategy: ${getErrorMessage(err)}` };
   }
 }
 
@@ -452,7 +453,7 @@ export function getEvolutionStatus(): EvolutionStats {
       top_contributors: contributors,
       recent_approved: recentApproved,
     };
-  } catch (err: any) {
+  } catch (err: unknown) {
     logError("evolution_getEvolutionStatus_error", err);
     return {
       total_experiences: 0, total_strategies: 0, pending_approval: 0,
@@ -811,8 +812,8 @@ export function proposeStrategyTiered(
       auto_approved: autoApproved,
       veto_deadline: vetoDeadline,
     };
-  } catch (err: any) {
-    return { ok: false, error: `Failed to propose strategy: ${err.message}` };
+  } catch (err: unknown) {
+    return { ok: false, error: `Failed to propose strategy: ${getErrorMessage(err)}` };
   }
 }
 
@@ -852,7 +853,7 @@ function insertFtsEntry(strategy: Strategy): void {
     db.prepare(
       `INSERT INTO strategies_fts (rowid, title, content, category) VALUES (?, ?, ?, ?)`
     ).run(strategy.id, strategy.title, tokens, strategy.category);
-  } catch (err: any) {
+  } catch (err: unknown) {
     logError("evolution_fts_insert_error", err);
   }
 }
@@ -888,8 +889,8 @@ export function provideFeedback(params: {
       now
     );
     return { id: result.lastInsertRowid as number };
-  } catch (err: any) {
-    throw new Error(`创建反馈失败: ${err.message}`);
+  } catch (err: unknown) {
+    throw new Error(`创建反馈失败: ${getErrorMessage(err)}`);
   }
 }
 

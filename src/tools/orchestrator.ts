@@ -30,7 +30,7 @@ import {
   getPipelineStatus,
   addTaskToPipeline,
 } from "../orchestrator.js";
-import { requireAuth } from "../utils.js";
+import { requireAuth, mcpError } from "../utils.js";
 
 /**
  * 注册 Task Orchestrator 相关工具（16 个）
@@ -227,13 +227,8 @@ export function registerOrchestratorTools(server: McpServer, authContext?: AuthC
             }, null, 2),
           }],
         };
-      } catch (err: any) {
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({ success: false, error: err.message }),
-          }],
-        };
+      } catch (err: unknown) {
+        return mcpError(err, "add_dependency");
       }
     }
   );
@@ -270,13 +265,8 @@ export function registerOrchestratorTools(server: McpServer, authContext?: AuthC
             }, null, 2),
           }],
         };
-      } catch (err: any) {
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({ success: false, error: err.message }),
-          }],
-        };
+      } catch (err: unknown) {
+        return mcpError(err, "remove_dependency");
       }
     }
   );
@@ -308,13 +298,8 @@ export function registerOrchestratorTools(server: McpServer, authContext?: AuthC
             }, null, 2),
           }],
         };
-      } catch (err: any) {
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({ success: false, error: err.message }),
-          }],
-        };
+      } catch (err: unknown) {
+        return mcpError(err, "get_task_dependencies");
       }
     }
   );
@@ -348,13 +333,8 @@ export function registerOrchestratorTools(server: McpServer, authContext?: AuthC
             }, null, 2),
           }],
         };
-      } catch (err: any) {
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({ success: false, error: err.message }),
-          }],
-        };
+      } catch (err: unknown) {
+        return mcpError(err, "create_parallel_group");
       }
     }
   );
@@ -390,13 +370,8 @@ export function registerOrchestratorTools(server: McpServer, authContext?: AuthC
             }, null, 2),
           }],
         };
-      } catch (err: any) {
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({ success: false, error: err.message }),
-          }],
-        };
+      } catch (err: unknown) {
+        return mcpError(err, "request_handoff");
       }
     }
   );
@@ -425,13 +400,8 @@ export function registerOrchestratorTools(server: McpServer, authContext?: AuthC
             }, null, 2),
           }],
         };
-      } catch (err: any) {
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({ success: false, error: err.message }),
-          }],
-        };
+      } catch (err: unknown) {
+        return mcpError(err, "accept_handoff");
       }
     }
   );
@@ -461,13 +431,8 @@ export function registerOrchestratorTools(server: McpServer, authContext?: AuthC
             }, null, 2),
           }],
         };
-      } catch (err: any) {
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({ success: false, error: err.message }),
-          }],
-        };
+      } catch (err: unknown) {
+        return mcpError(err, "reject_handoff");
       }
     }
   );
@@ -506,13 +471,8 @@ export function registerOrchestratorTools(server: McpServer, authContext?: AuthC
             }, null, 2),
           }],
         };
-      } catch (err: any) {
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({ success: false, error: err.message }),
-          }],
-        };
+      } catch (err: unknown) {
+        return mcpError(err, "add_quality_gate");
       }
     }
   );
@@ -548,13 +508,8 @@ export function registerOrchestratorTools(server: McpServer, authContext?: AuthC
             }, null, 2),
           }],
         };
-      } catch (err: any) {
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({ success: false, error: err.message }),
-          }],
-        };
+      } catch (err: unknown) {
+        return mcpError(err, "evaluate_quality_gate");
       }
     }
   );
@@ -593,13 +548,8 @@ export function registerOrchestratorTools(server: McpServer, authContext?: AuthC
             }, null, 2),
           }],
         };
-      } catch (err: any) {
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({ success: false, error: err.message }),
-          }],
-        };
+      } catch (err: unknown) {
+        return mcpError(err, "create_pipeline");
       }
     }
   );
@@ -635,13 +585,8 @@ export function registerOrchestratorTools(server: McpServer, authContext?: AuthC
             }, null, 2),
           }],
         };
-      } catch (err: any) {
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({ success: false, error: err.message }),
-          }],
-        };
+      } catch (err: unknown) {
+        return mcpError(err, "get_pipeline");
       }
     }
   );
@@ -661,7 +606,7 @@ export function registerOrchestratorTools(server: McpServer, authContext?: AuthC
 
       try {
         const conditions: string[] = [];
-        const params: any[] = [];
+        const params: (string | number)[] = [];
 
         if (status !== "all") {
           conditions.push("status = ?");
@@ -691,13 +636,8 @@ export function registerOrchestratorTools(server: McpServer, authContext?: AuthC
             }, null, 2),
           }],
         };
-      } catch (err: any) {
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({ success: false, error: err.message }),
-          }],
-        };
+      } catch (err: unknown) {
+        return mcpError(err, "list_pipelines");
       }
     }
   );
@@ -733,13 +673,8 @@ export function registerOrchestratorTools(server: McpServer, authContext?: AuthC
             }, null, 2),
           }],
         };
-      } catch (err: any) {
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({ success: false, error: err.message }),
-          }],
-        };
+      } catch (err: unknown) {
+        return mcpError(err, "add_task_to_pipeline");
       }
     }
   );

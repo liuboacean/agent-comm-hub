@@ -13,7 +13,8 @@ import { auditLog, type AuthContext } from "../security.js";
 import { resolveAgentId } from "../identity.js";
 import { dedupMessage, validateMessageBody } from "../dedup.js";
 import { logError } from "../logger.js";
-import { withRetry, requireAuth } from "../utils.js";
+import { withRetry, requireAuth, mcpError } from "../utils.js";
+import { getErrorMessage } from "../types.js";
 
 export function registerMessageTools(server: McpServer, authContext?: AuthContext): void {
 
@@ -249,14 +250,14 @@ export function registerMessageTools(server: McpServer, authContext?: AuthContex
             }, null, 2),
           }],
         };
-      } catch (err: any) {
+      } catch (err: unknown) {
         logError("acknowledge_message_error", err);
         return {
           content: [{
             type: "text",
             text: JSON.stringify({
               success: false,
-              error: err.message,
+              error: getErrorMessage(err),
               fallback: "标记失败，消息仍为当前状态，请稍后重试",
             }),
           }],
@@ -281,7 +282,7 @@ export function registerMessageTools(server: McpServer, authContext?: AuthContex
 
       try {
         const conditions: string[] = ["content LIKE ?"];
-        const params: any[] = [`%${query}%`];
+        const params: (string | number)[] = [`%${query}%`];
 
         if (agent_id) {
           conditions.push("(from_agent = ? OR to_agent = ?)");
@@ -315,13 +316,8 @@ export function registerMessageTools(server: McpServer, authContext?: AuthContex
             }, null, 2),
           }],
         };
-      } catch (err: any) {
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({ success: false, error: err.message }),
-          }],
-        };
+      } catch (err: unknown) {
+        return mcpError(err, "search_messages");
       }
     }
   );
@@ -347,7 +343,7 @@ export function registerMessageTools(server: McpServer, authContext?: AuthContex
       try {
         // 构建查询条件
         const conditions: string[] = ["to_agent = ?"];
-        const params: any[] = [agent_id];
+        const params: (string | number)[] = [agent_id];
 
         if (from_agent) {
           conditions.push("from_agent = ?");
@@ -417,14 +413,9 @@ export function registerMessageTools(server: McpServer, authContext?: AuthContex
             }, null, 2),
           }],
         };
-      } catch (err: any) {
+      } catch (err: unknown) {
         logError("batch_acknowledge_messages_error", err);
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({ success: false, error: err.message }),
-          }],
-        };
+        return mcpError(err, "batch_acknowledge_messages");
       }
     }
   );

@@ -25,7 +25,7 @@ import {
   checkVetoWindow,
   vetoStrategy as vetoStrategyFromEvolution,
 } from "../evolution.js";
-import { requireAuth } from "../utils.js";
+import { requireAuth, mcpFail } from "../utils.js";
 
 /**
  * 注册 Evolution Engine 相关工具（12 个）
@@ -52,9 +52,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
       const result = shareExperience(title, content, ctx.agentId, { task_id });
 
       if (!result.ok) {
-        return {
-          content: [{ type: "text", text: JSON.stringify({ success: false, error: result.error }) }],
-        };
+        return mcpFail(result.error, "share_experience");
       }
 
       auditLog("tool_share_experience", ctx.agentId, String(result.strategy.id),
@@ -92,9 +90,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
       const result = proposeStrategy(title, content, category, ctx.agentId, { task_id });
 
       if (!result.ok) {
-        return {
-          content: [{ type: "text", text: JSON.stringify({ success: false, error: result.error }) }],
-        };
+        return mcpFail(result.error, "propose_strategy");
       }
 
       auditLog("tool_propose_strategy", ctx.agentId, String(result.strategy.id),
@@ -210,9 +206,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
       const result = applyStrategy(strategy_id, ctx.agentId, { context });
 
       if (!result.ok) {
-        return {
-          content: [{ type: "text", text: JSON.stringify({ success: false, error: result.error }) }],
-        };
+        return mcpFail(result.error, "apply_strategy");
       }
 
       auditLog("tool_apply_strategy", ctx.agentId, String(strategy_id));
@@ -265,9 +259,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
       const result = feedbackStrategy(strategy_id, ctx.agentId, feedback, { comment, applied });
 
       if (!result.ok) {
-        return {
-          content: [{ type: "text", text: JSON.stringify({ success: false, error: result.error }) }],
-        };
+        return mcpFail(result.error, "feedback_strategy");
       }
 
       auditLog("tool_feedback_strategy", ctx.agentId, String(strategy_id), `feedback=${feedback}`);
@@ -305,9 +297,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
       const result = approveStrategy(strategy_id, ctx.agentId, action, reason);
 
       if (!result.ok) {
-        return {
-          content: [{ type: "text", text: JSON.stringify({ success: false, error: result.error }) }],
-        };
+        return mcpFail(result.error, "approve_strategy");
       }
 
       auditLog("tool_approve_strategy", ctx.agentId, String(strategy_id),
@@ -416,9 +406,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
       const result = proposeStrategyTiered(title, content, category, ctx.agentId, { task_id });
 
       if (!result.ok) {
-        return {
-          content: [{ type: "text", text: JSON.stringify({ success: false, error: result.error }) }],
-        };
+        return mcpFail(result.error, "propose_strategy_tiered");
       }
 
       auditLog("tool_propose_strategy_tiered", ctx.agentId, String(result.strategy.id),
@@ -492,9 +480,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
       const result = vetoStrategyFromEvolution(strategy_id, ctx.agentId, reason);
 
       if (!result.ok) {
-        return {
-          content: [{ type: "text", text: JSON.stringify({ success: false, error: result.error }) }],
-        };
+        return mcpFail(result.error, "veto_strategy");
       }
 
       return {

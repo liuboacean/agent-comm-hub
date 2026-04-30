@@ -258,7 +258,7 @@ agent-comm-hub/
 │   ├── dedup.ts                      # 消息去重（sha256）
 │   └── tokenizer.ts                  # N-gram 分词器（FTS5）
 │
-├── client-sdk/                       # TypeScript 客户端 SDK（35 方法）
+├── client-sdk/                       # SDK（Python 68 方法 + TypeScript 35 方法）
 │
 ├── deploy/                           # 部署配置
 │   ├── docker-compose.yml            # Prometheus + Grafana 监控栈
@@ -272,7 +272,7 @@ agent-comm-hub/
 │   ├── migrate_from_agent.js         # 历史数据迁移（from_agent 规范化）
 │   └── migrate_evolution_db.py       # Evolution DB 迁移
 │
-├── tests/                            # 测试套件（100 用例）
+├── tests/                            # 单元测试（vitest 100 用例）+ Python 集成测试
 │
 └── docs/
     ├── SETUP_GUIDE.md               # 详细配置指南
@@ -297,7 +297,7 @@ agent-comm-hub/
 | Phase | 内容 | 变更 |
 |-------|------|------|
 | **A** | tools.ts 拆分 | 2687 行 → 8 模块 + 30 行入口 + utils.ts |
-| **B** | 单元测试 | 100 用例，security >= 70% / dedup 100% / utils 100% |
+| **B** | 单元测试 | 100 用例，security >= 70% / dedup branches≥60, functions≥70 / utils 100% |
 | **C** | CI/CD | GitHub Actions：typecheck + test + coverage 3 Jobs |
 | **D** | 类型安全 | any 归零 + HubError 统一错误码 + MCP 返回格式标准化 |
 

@@ -1,6 +1,6 @@
 {
   "name": "agent-comm-hub",
-  "version": "1.0.0",
+  "version": "2.4.0",
   "description": "WorkBuddy & Hermes 双向即时通讯 + 任务调度 MCP Hub",
   "type": "module",
   "main": "src/server.js",

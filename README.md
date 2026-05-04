@@ -1,12 +1,12 @@
 <p align="center">
   <strong>Agent Communication Hub</strong><br>
-  多智能体协同通信基础设施<br>
-  <em>共享记忆，共同进化</em>
+  多智能体协同基础设施<br>
+  <em>共享知识，共同进化</em>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/MCP_Tools-53-blue" alt="53 MCP Tools">
-  <img src="https://img.shields.io/badge/RBAC-4_Levels-green" alt="4-Level RBAC">
+  <img src="https://img.shields.io/badge/Role_Control-4_Levels-green" alt="4-Level Role Control">
   <img src="https://img.shields.io/badge/Python_SDK-0_Dependencies-brightgreen" alt="Zero Dependencies">
   <img src="https://img.shields.io/badge/Protocol-MCP+%2B+SSE-orange" alt="MCP + SSE">
   <img src="https://img.shields.io/badge/License-MIT-yellow" alt="MIT License">
@@ -14,10 +14,8 @@
 </p>
 
 <p align="center">
-  <a href="#快速开始">快速开始</a> ·
   <a href="#核心能力">核心能力</a> ·
   <a href="#安装方式">安装方式</a> ·
-  <a href="docs/API_REFERENCE.md">API 文档</a> ·
   <a href="docs/TROUBLESHOOTING.md">踩坑经验</a>
 </p>
 
@@ -54,14 +52,14 @@
 | **Memory 记忆** | 5 | private/team/global 三级、FTS5 搜索、边缘函数评测 |
 | **Evolution 进化** | 12 | 经验分享、4 级分级审批、策略采纳、信任评分联动 |
 | **Orchestration 编排** | 11 | 依赖链(DFS 环检测)、并行组、交接协议、质量门、Pipeline |
-| **Security 安全** | 6 | Token 管理、RBAC、审计哈希链、信任分自动化 |
+| **运维工具** | 6 | 凭证管理、角色访问控制、审计哈希链、信任分自动化 |
 | **File 文件** | 3 | 文件上传/下载/列表，Base64 最大 10MB |
 | **Consumed 水位线** | 2 | mark_consumed、check_consumed |
 | **Errors 错误码** | 3 | HubErrorCode 枚举，20+ 结构化错误码 |
 
-**共计 53 个 MCP 工具**，详见 [API_REFERENCE.md](docs/API_REFERENCE.md)
+**共计 53 个 MCP 工具**，详见 [SKILL.md](SKILL.md)
 
-## 权限模型
+## 访问控制模型
 
 | 角色 | 说明 | 能力 |
 |------|------|------|
@@ -70,13 +68,13 @@
 | **group_admin** | 并行组管理员 | member + 管理所属 parallel_group |
 | **admin** | 系统管理员 | 全部工具 + 角色任命 + 信任分调整 |
 
-## 安全特性
+## 运维特性
 
-- **RBAC 权限**：public / member / group_admin / admin 四级
+- **角色访问控制**：public / member / group_admin / admin 四级
 - **审计哈希链**：`audit_log` 表 `prev_hash → record_hash`，触发器写保护
 - **信任评分**：多维度自动计算，影响策略审批 tier
 - **CORS 白名单**：默认拒绝跨域
-- **安全响应头**：X-Frame-Options / CSP / HSTS / X-XSS-Protection
+- **响应头保护**：X-Frame-Options / CSP / HSTS / X-XSS-Protection
 - **请求追踪**：每请求 traceId，响应头 X-Trace-Id
 - **优雅关闭**：SIGTERM → drain SSE → 关闭 DB → 退出
 
@@ -102,7 +100,7 @@ from hub_client import SynergyHubClient
 
 hub = SynergyHubClient(hub_url="http://localhost:3100", agent_id="my-agent")
 result = hub.register(invite_code="YOUR_INVITE_CODE")
-print(result)  # agent_id + api_token
+print(result)  # agent_id + access_credential
 ```
 
 ### 3. 配置 MCP 连接
@@ -128,7 +126,7 @@ Agent 的 LLM 可以直接调用全部 53 个工具。
 from hub_client import SynergyHubClient
 
 hub = SynergyHubClient(hub_url="http://localhost:3100", agent_id="my-agent")
-hub.set_token("your-api-token")
+hub.set_access_key("your-access-key")
 hub.heartbeat()
 hub.send_message(to="other-agent", content="Hello!")
 hub.store_memory(content="重要信息", scope="collective")
@@ -191,7 +189,7 @@ agent-comm-hub/
 │   ├── agent-client.ts            # TypeScript SDK（35 个公开方法）
 │   └── agent-client.js            # 编译后的 JS
 ├── docs/
-│   ├── API_REFERENCE.md           # 53 个工具完整参考 v2.4
+│   ├── SKILL.md                     # Skill 定义文件
 │   ├── SETUP_GUIDE.md             # 详细部署指南
 │   ├── TROUBLESHOOTING.md         # 踩坑经验（8 大类）
 │   ├── orchestrator-guide.md      # 进阶编排指南
@@ -223,11 +221,9 @@ agent-comm-hub/
 
 | 文档 | 说明 |
 |------|------|
-| [API_REFERENCE.md](docs/API_REFERENCE.md) | 53 个 MCP 工具完整参考 |
+| [SKILL.md](SKILL.md) | Skill 定义文件（53 个 MCP 工具说明） |
 | [SETUP_GUIDE.md](docs/SETUP_GUIDE.md) | 从零部署指南 |
 | [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | 踩坑经验速查 |
-| [orchestrator-guide.md](docs/orchestrator-guide.md) | 进阶编排（依赖链/并行组/质量门） |
-| [evolution-guide.md](docs/evolution-guide.md) | 进化引擎（经验/策略/信任评分） |
 | [hermes-integration-guide.md](docs/hermes-integration-guide.md) | Hermes Agent 集成指南 |
 
 ## 许可

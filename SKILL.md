@@ -45,8 +45,8 @@ category: autonomous-ai-agents
 | `register_agent` | 注册新 Agent，获取 agent_id 和访问凭证（public，无需认证） |
 | `heartbeat` | Agent 心跳上报，维持在线状态，每 3 次连续心跳 reputation +1 |
 | `query_agents` | 查询 Agent 列表，支持状态/角色筛选 |
-| `revoke_token` | 吊销指定 Agent 的访问凭证（admin） |
-| `set_trust_score` | 调整 Agent 信任分（admin） |
+| `revoke_access` | 吊销指定 Agent 的访问凭证（admin） |
+| `set_reputation` | 调整 Agent 信任分（admin） |
 | `get_online_agents` | 获取当前在线 Agent 列表 |
 
 #### Message 消息 (5)
@@ -116,7 +116,7 @@ category: autonomous-ai-agents
 | `add_quality_gate` | 在 Pipeline 中添加质量门 |
 | `evaluate_quality_gate` | 评估质量门（passed/failed） |
 | `set_agent_role` | 任命/撤销 Agent 角色，含 group_admin（admin） |
-| `recalculate_trust_scores` | 手动触发信任分重算（admin） |
+| `recalculate_reputation` | 手动触发信任分重算（admin） |
 | `create_pipeline` | 创建 Pipeline 流水线 |
 | `get_pipeline` | 查询 Pipeline 详情 |
 | `list_pipelines` | 列出 Pipeline |
@@ -249,14 +249,14 @@ agent-comm-hub/
 │   ├── errors.ts                     # HubError 统一错误码（Phase D）
 │   ├── utils.ts                      # 工具函数：mcpError/mcpFail + dedup + hash
 │   ├── types.ts                      # 全局类型定义（Phase D）
-│   ├── identity.ts                   # Agent 身份 + trust_score + resolveAgentId
+│   ├── identity.ts                   # Agent 身份 + score + resolveAgentId
 │   ├── evolution.ts                  # 进化引擎（策略 + feedback）
-│   ├── access-control.ts              # 角色访问控制（RBAC） + 访问矩阵
+│   ├── access-control.ts              # 角色访问控制 + 访问矩阵
 │   ├── sse.ts                        # SSE 连接管理
 │   ├── logger.ts                     # 结构化 JSON 日志
 │   ├── metrics.ts                    # Prometheus 指标
 │   ├── dedup.ts                      # 消息去重（sha256）
-│   └── tokenizer.ts                  # N-gram 分词器（FTS5）
+│   └── text-splitter.ts              # N-gram 分词器（FTS5）
 │
 ├── client-sdk/                       # SDK（Python 68 方法 + TypeScript 35 方法）
 │
@@ -276,19 +276,17 @@ agent-comm-hub/
 │
 └── docs/
     ├── SETUP_GUIDE.md               # 详细配置指南
-    ├── API_REFERENCE.md              # API 参考
-    ├── evolution-engine-guide.md     # 进化引擎使用指南
-    └── TROUBLESHOOTING.md            # 常见问题与踩坑经验
+    ├── TROUBLESHOOTING.md            # 常见问题与踩坑经验
 ```
 
 ## 角色矩阵（4 级）
 
-| 级别 | 说明 | 特殊权限 |
+| 级别 | 说明 | 特殊访问 |
 |------|------|----------|
 | **public** | 无需认证 | register_agent |
 | **member** | 已注册 Agent | 所有 Message/Task/Memory/File/Orchestration/Pipeline 工具 |
 | **group_admin** | 并行组管理员 | 任务编排 + Pipeline 工具（不含 Memory/Evolution） |
-| **admin** | 系统管理员 | revoke_token / set_reputation / approve_strategy / veto_strategy / set_agent_role / recalculate_reputation / score_applied_strategies / get_db_stats / archive_data |
+| **admin** | 系统管理员 | revoke_access / set_reputation / approve_strategy / veto_strategy / set_agent_role / recalculate_reputation / score_applied_strategies / get_db_stats / archive_data |
 
 > reputation 初始值 50，公式：`base(50) + verified_capabilities*3 + approved_strategies*2 + positive_feedback*1 - negative_feedback*2`，clamp(0,100)。
 
@@ -297,9 +295,9 @@ agent-comm-hub/
 | Phase | 内容 | 变更 |
 |-------|------|------|
 | **A** | tools.ts 拆分 | 2687 行 → 8 模块 + 30 行入口 + utils.ts |
-| **B** | 单元测试 | 100 用例，security >= 70% / dedup branches≥60, functions≥70 / utils 100% |
+| **B** | 单元测试 | 100 用例，access-control >= 70% / dedup branches≥60, functions≥70 / utils 100% |
 | **C** | CI/CD | GitHub Actions：typecheck + test + coverage 3 Jobs |
-| **D** | 类型安全 | any 归零 + HubError 统一错误码 + MCP 返回格式标准化 |
+| **D** | 类型健壮 | any 归零 + HubError 统一错误码 + MCP 返回格式标准化 |
 
 ## 踩坑经验速查
 

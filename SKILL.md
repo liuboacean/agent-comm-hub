@@ -1,15 +1,15 @@
 ---
 name: agent-comm-hub
-description: "Agent Communication Hub — 智能体协同基础设施，基于 MCP 协议的消息中转、任务协调、知识库共享与自适应进化引擎。支持多 Agent 接入，提供结构化工具调用、实时事件推送和本地数据存储能力。触发词：agent 协同、消息中转、任务协调、知识共享、agent hub、mcp 工具、多 agent、协同进化"
-version: 2.4.3
+description: "Agent Communication Hub — 智能体协同基础设施，基于 MCP 协议的消息路由、任务编排、知识库共享与自适应进化引擎。支持多 Agent 接入，提供结构化工具调用、实时事件推送和本地数据存储能力。触发词：agent 协同、消息路由、任务编排、知识共享、agent hub、 MCP 工具、多 agent、协同进化"
+version: 2.4.4
 category: autonomous-ai-agents
 ---
 
 # Agent Communication Hub
 
-> 多智能体实时通信与任务调度基础设施 — **v2.4.0**
+> 多智能体实时协同与任务调度基础设施 — **v2.4.4**
 
-让两个或多个独立 AI 智能体之间实现**实时双向通信**、**任务自动调度**、**记忆共享**和**策略进化**。基于 MCP 协议 + SSE 推送，消息零丢失，延迟 < 50ms。
+让两个或多个独立 AI 智能体之间实现**实时双向协同**、**任务自动调度**、**知识库共享**和**策略进化**。基于 MCP 协议 + SSE 推送，消息零丢失，延迟 < 50ms。
 
 ## 架构概览
 
@@ -19,7 +19,7 @@ category: autonomous-ai-agents
 │  (Hermes)    │◄───────►│  (stdio / HTTP:3100)       │◄───────►│ (WorkBuddy)  │
 │              │  MCP    │                              │  MCP    │              │
 └──────────────┘◄───────►│  SQLite WAL + 30 表          │◄───────►└──────────────┘
-                          │  53 MCP 工具 + 4 级权限      │
+                          │  53 MCP 工具 + 4 级访问      │
                           │  进化引擎 + 策略闭环          │
                           └──────────────┬──────────────┘
                                          │
@@ -42,11 +42,11 @@ category: autonomous-ai-agents
 
 | 工具 | 功能 |
 |------|------|
-| `register_agent` | 注册新 Agent，获取 agent_id 和 API token（public，无需认证） |
-| `heartbeat` | Agent 心跳上报，维持在线状态，每 3 次连续心跳 trust_score +1 |
+| `register_agent` | 注册新 Agent，获取 agent_id 和访问凭证（public，无需认证） |
+| `heartbeat` | Agent 心跳上报，维持在线状态，每 3 次连续心跳 reputation +1 |
 | `query_agents` | 查询 Agent 列表，支持状态/角色筛选 |
-| `revoke_token` | 吊销指定 Agent 的 API token（admin） |
-| `set_trust_score` | 调整 Agent 信任分数（admin） |
+| `revoke_token` | 吊销指定 Agent 的访问凭证（admin） |
+| `set_trust_score` | 调整 Agent 信任分（admin） |
 | `get_online_agents` | 获取当前在线 Agent 列表 |
 
 #### Message 消息 (5)
@@ -122,13 +122,13 @@ category: autonomous-ai-agents
 | `list_pipelines` | 列出 Pipeline |
 | `add_task_to_pipeline` | 向 Pipeline 添加任务 |
 
-#### Security 运维安全 (4)
+#### 运维工具 (4)
 
 | 工具 | 功能 |
 |------|------|
 | `get_db_stats` | 数据库统计信息（表行数、大小、Agent 数等）（admin） |
 | `archive_data` | 数据归档：将过期消息/审计日志移入归档表（admin） |
-| (其余 2 个内部工具) | 权限验证与安全控制 |
+| (其余 2 个内部工具) | 角色验证与控制 |
 
 #### Consume 消费水位线 (2)
 
@@ -177,7 +177,7 @@ npm run stdio  # stdio 模式（用于 MCP stdio transport）
       "command": "node",
       "args": ["./src/stdio.js"],
       "env": {
-        "HUB_AUTH_TOKEN": "your-api-token",
+        "HUB_ACCESS_KEY": "your-access-key",
         "DB_PATH": "./comm_hub.db"
       }
     }
@@ -244,14 +244,14 @@ agent-comm-hub/
 │   │   ├── file.ts                   #   文件工具（3）
 │   │   ├── evolution.ts              #   进化工具（12）
 │   │   ├── orchestrator.ts           #   编排工具（16）
-│   │   ├── security.ts               #   安全工具（4）
+│   │   ├── access-control.ts         #   运维工具（4）
 │   │   └── consumed.ts              #   消费工具（2）
 │   ├── errors.ts                     # HubError 统一错误码（Phase D）
 │   ├── utils.ts                      # 工具函数：mcpError/mcpFail + dedup + hash
 │   ├── types.ts                      # 全局类型定义（Phase D）
 │   ├── identity.ts                   # Agent 身份 + trust_score + resolveAgentId
 │   ├── evolution.ts                  # 进化引擎（策略 + feedback）
-│   ├── security.ts                   # RBAC + 权限矩阵
+│   ├── access-control.ts              # 角色访问控制（RBAC） + 访问矩阵
 │   ├── sse.ts                        # SSE 连接管理
 │   ├── logger.ts                     # 结构化 JSON 日志
 │   ├── metrics.ts                    # Prometheus 指标
@@ -281,16 +281,16 @@ agent-comm-hub/
     └── TROUBLESHOOTING.md            # 常见问题与踩坑经验
 ```
 
-## 权限矩阵（4 级）
+## 角色矩阵（4 级）
 
 | 级别 | 说明 | 特殊权限 |
 |------|------|----------|
 | **public** | 无需认证 | register_agent |
 | **member** | 已注册 Agent | 所有 Message/Task/Memory/File/Orchestration/Pipeline 工具 |
 | **group_admin** | 并行组管理员 | 任务编排 + Pipeline 工具（不含 Memory/Evolution） |
-| **admin** | 系统管理员 | revoke_token / set_trust_score / approve_strategy / veto_strategy / set_agent_role / recalculate_trust_scores / score_applied_strategies / get_db_stats / archive_data |
+| **admin** | 系统管理员 | revoke_token / set_reputation / approve_strategy / veto_strategy / set_agent_role / recalculate_reputation / score_applied_strategies / get_db_stats / archive_data |
 
-> trust_score 初始值 50，公式：`base(50) + verified_capabilities*3 + approved_strategies*2 + positive_feedback*1 - negative_feedback*2`，clamp(0,100)。
+> reputation 初始值 50，公式：`base(50) + verified_capabilities*3 + approved_strategies*2 + positive_feedback*1 - negative_feedback*2`，clamp(0,100)。
 
 ## v2.4.0 更新要点
 
@@ -323,7 +323,7 @@ agent-comm-hub/
 |------|--------|------|
 | `PORT` | 3100 | Hub 监听端口（HTTP 模式） |
 | `HUB_URL` | http://localhost:3100 | Hub 地址（客户端用） |
-| `HUB_AUTH_TOKEN` | — | stdio 模式认证 token（必填） |
+| `HUB_ACCESS_KEY` | — | stdio 模式访问密钥（必填） |
 | `DB_PATH` | ./comm_hub.db | SQLite 数据库路径 |
 | `LOG_LEVEL` | info | 日志级别：debug / info / warn / error |
 | `CORS_ORIGINS` | (空) | CORS 白名单（逗号分隔），空=拒绝所有跨域 |

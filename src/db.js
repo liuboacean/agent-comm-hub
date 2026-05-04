@@ -6,6 +6,7 @@ import Database from "better-sqlite3";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { logger, logError } from "./logger.js";
+import { getErrorMessage } from "./types.js";
 const __dir = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = join(__dir, "../comm_hub.db");
 export const db = new Database(DB_PATH);
@@ -85,7 +86,7 @@ try {
     }
 }
 catch (e) {
-    logger.warn("db_migration_warning", { module: "db", table: "tasks", phase: "4a", error: e.message });
+    logger.warn("db_migration_warning", { module: "db", table: "tasks", phase: "4a", error: getErrorMessage(e) });
 }
 // ─── Phase 4a 新表：pipelines + pipeline_tasks ──────────
 // 必须在 pipelineStmt 和 taskStmt.listByPipeline 之前创建
@@ -164,7 +165,7 @@ try {
     }
 }
 catch (e) {
-    logger.warn("db_migration_warning", { module: "db", column: "trust_score", table: "agents", error: e.message });
+    logger.warn("db_migration_warning", { module: "db", column: "trust_score", table: "agents", error: getErrorMessage(e) });
 }
 db.exec(`
   CREATE TABLE IF NOT EXISTS agents (
@@ -191,7 +192,7 @@ try {
     }
 }
 catch (e) {
-    logger.warn("db_migration_warning", { module: "db", column: "trust_score", table: "agents", error: e.message });
+    logger.warn("db_migration_warning", { module: "db", column: "trust_score", table: "agents", error: getErrorMessage(e) });
 }
 // --- auth_tokens 表：邀请码 + API Token 管理 ---
 db.exec(`
@@ -238,7 +239,7 @@ try {
     }
 }
 catch (e) {
-    logger.warn("db_migration_warning", { module: "db", table: "memories", error: e.message });
+    logger.warn("db_migration_warning", { module: "db", table: "memories", error: getErrorMessage(e) });
 }
 db.exec(`
   CREATE TABLE IF NOT EXISTS memories (
@@ -269,7 +270,7 @@ try {
     }
 }
 catch (e) {
-    logger.warn("db_migration_warning", { module: "db", column: "fts_tokens", table: "memories", error: e.message });
+    logger.warn("db_migration_warning", { module: "db", column: "fts_tokens", table: "memories", error: getErrorMessage(e) });
 }
 // FTS5 虚拟表（独立存储模式 + fts_tokens 列）
 try {
@@ -295,8 +296,8 @@ try {
   `);
 }
 catch (e) {
-    if (!e.message.includes("already exists")) {
-        logger.warn("db_fts5_init_warning", { module: "db", error: e.message });
+    if (!getErrorMessage(e).includes("already exists")) {
+        logger.warn("db_fts5_init_warning", { module: "db", error: getErrorMessage(e) });
     }
 }
 // --- agents_capabilities 表 ---
@@ -405,8 +406,8 @@ try {
   `);
 }
 catch (e) {
-    if (!e.message.includes("already exists")) {
-        logger.warn("db_strategies_fts5_init_warning", { module: "db", error: e.message });
+    if (!getErrorMessage(e).includes("already exists")) {
+        logger.warn("db_strategies_fts5_init_warning", { module: "db", error: getErrorMessage(e) });
     }
 }
 // ═══════════════════════════════════════════════════════════════
@@ -432,7 +433,7 @@ try {
     }
 }
 catch (e) {
-    logger.warn("db_migration_warning", { module: "db", table: "tasks", phase: "4b", error: e.message });
+    logger.warn("db_migration_warning", { module: "db", table: "tasks", phase: "4b", error: getErrorMessage(e) });
 }
 // --- Phase 4b: strategies 表扩展列 ---
 try {
@@ -453,7 +454,7 @@ try {
     }
 }
 catch (e) {
-    logger.warn("db_migration_warning", { module: "db", table: "strategies", phase: "4b", error: e.message });
+    logger.warn("db_migration_warning", { module: "db", table: "strategies", phase: "4b", error: getErrorMessage(e) });
 }
 // --- Phase 4b: task_dependencies 表（依赖链） ---
 db.exec(`
@@ -509,7 +510,7 @@ try {
     }
 }
 catch (e) {
-    logger.warn("db_migration_warning", { module: "db", table: "agents", phase: "5a", error: e.message });
+    logger.warn("db_migration_warning", { module: "db", table: "agents", phase: "5a", error: getErrorMessage(e) });
 }
 // --- Phase 5a: audit_log 哈希链列 + 写保护触发器 ---
 try {
@@ -539,7 +540,7 @@ try {
     logger.info("db_migration", { module: "db", detail: "audit_log write protection triggers ready", phase: "5a" });
 }
 catch (e) {
-    logger.warn("db_migration_warning", { module: "db", table: "audit_log", phase: "5a", error: e.message });
+    logger.warn("db_migration_warning", { module: "db", table: "audit_log", phase: "5a", error: getErrorMessage(e) });
 }
 // ═══════════════════════════════════════════════════════════════
 // Phase 4a — Task Orchestrator（建表已在文件开头执行）

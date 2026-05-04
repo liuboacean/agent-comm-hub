@@ -3,7 +3,7 @@ import { auditLog, revokeToken as revokeTokenFromSecurity, recalculateTrustScore
 import { registerAgent as registerAgentFromIdentity, heartbeat as heartbeatFromIdentity, queryAgents as queryAgentsFromIdentity, clearOfflineNotification, updateAgentTrustScore, } from "../identity.js";
 import { onlineAgents } from "../sse.js";
 import { db } from "../db.js";
-import { requireAuth } from "../utils.js";
+import { requireAuth, mcpFail } from "../utils.js";
 export function registerIdentityTools(server, authContext) {
     // ────────────────────────────────────────────────────
     // NEW Tool 1: register_agent (Phase 1)
@@ -18,12 +18,7 @@ export function registerIdentityTools(server, authContext) {
         // public 工具，不需要权限检查
         const result = registerAgentFromIdentity(invite_code, name, capabilities || []);
         if (!result.success) {
-            return {
-                content: [{
-                        type: "text",
-                        text: JSON.stringify({ success: false, error: result.error }),
-                    }],
-            };
+            return mcpFail(result.error ?? "Registration failed", "register_agent");
         }
         auditLog("tool_register_agent", result.agentId ?? null, name, `role=${result.role ?? 'unknown'}`);
         return {
@@ -139,12 +134,7 @@ export function registerIdentityTools(server, authContext) {
         const ctx = requireAuth(authContext, "set_trust_score");
         const result = updateAgentTrustScore(agent_id, delta, ctx.agentId);
         if (!result.ok) {
-            return {
-                content: [{
-                        type: "text",
-                        text: JSON.stringify({ success: false, error: result.error }),
-                    }],
-            };
+            return mcpFail(result.error, "set_trust_score");
         }
         return {
             content: [{

@@ -5,7 +5,7 @@ import { taskRepo } from "../repo/sqlite-impl.js";
 import { pushToAgent } from "../sse.js";
 import { auditLog } from "../security.js";
 import { addDependency as addDep, removeDependency as removeDep, getDependencies as getDeps, checkDependenciesSatisfied as checkDepsSatisfied, createParallelGroup, requestHandoff, acceptHandoff, rejectHandoff, addQualityGate as addQGate, evaluateQualityGate as evalQGate, createPipeline, getPipelineStatus, addTaskToPipeline, } from "../orchestrator.js";
-import { requireAuth } from "../utils.js";
+import { requireAuth, mcpError } from "../utils.js";
 /**
  * 注册 Task Orchestrator 相关工具（16 个）
  */
@@ -166,12 +166,7 @@ export function registerOrchestratorTools(server, authContext) {
             };
         }
         catch (err) {
-            return {
-                content: [{
-                        type: "text",
-                        text: JSON.stringify({ success: false, error: err.message }),
-                    }],
-            };
+            return mcpError(err, "add_dependency");
         }
     });
     // Tool D2: remove_dependency — member 及以上
@@ -200,12 +195,7 @@ export function registerOrchestratorTools(server, authContext) {
             };
         }
         catch (err) {
-            return {
-                content: [{
-                        type: "text",
-                        text: JSON.stringify({ success: false, error: err.message }),
-                    }],
-            };
+            return mcpError(err, "remove_dependency");
         }
     });
     // Tool D3: get_task_dependencies — member 及以上
@@ -231,12 +221,7 @@ export function registerOrchestratorTools(server, authContext) {
             };
         }
         catch (err) {
-            return {
-                content: [{
-                        type: "text",
-                        text: JSON.stringify({ success: false, error: err.message }),
-                    }],
-            };
+            return mcpError(err, "get_task_dependencies");
         }
     });
     // Tool D4: create_parallel_group — member 及以上
@@ -262,12 +247,7 @@ export function registerOrchestratorTools(server, authContext) {
             };
         }
         catch (err) {
-            return {
-                content: [{
-                        type: "text",
-                        text: JSON.stringify({ success: false, error: err.message }),
-                    }],
-            };
+            return mcpError(err, "create_parallel_group");
         }
     });
     // ────────────────────────────────────────────────────
@@ -296,12 +276,7 @@ export function registerOrchestratorTools(server, authContext) {
             };
         }
         catch (err) {
-            return {
-                content: [{
-                        type: "text",
-                        text: JSON.stringify({ success: false, error: err.message }),
-                    }],
-            };
+            return mcpError(err, "request_handoff");
         }
     });
     // Tool H2: accept_handoff — member 及以上
@@ -324,12 +299,7 @@ export function registerOrchestratorTools(server, authContext) {
             };
         }
         catch (err) {
-            return {
-                content: [{
-                        type: "text",
-                        text: JSON.stringify({ success: false, error: err.message }),
-                    }],
-            };
+            return mcpError(err, "accept_handoff");
         }
     });
     // Tool H3: reject_handoff — member 及以上
@@ -353,12 +323,7 @@ export function registerOrchestratorTools(server, authContext) {
             };
         }
         catch (err) {
-            return {
-                content: [{
-                        type: "text",
-                        text: JSON.stringify({ success: false, error: err.message }),
-                    }],
-            };
+            return mcpError(err, "reject_handoff");
         }
     });
     // ────────────────────────────────────────────────────
@@ -390,12 +355,7 @@ export function registerOrchestratorTools(server, authContext) {
             };
         }
         catch (err) {
-            return {
-                content: [{
-                        type: "text",
-                        text: JSON.stringify({ success: false, error: err.message }),
-                    }],
-            };
+            return mcpError(err, "add_quality_gate");
         }
     });
     // Tool Q2: evaluate_quality_gate — member 及以上
@@ -425,12 +385,7 @@ export function registerOrchestratorTools(server, authContext) {
             };
         }
         catch (err) {
-            return {
-                content: [{
-                        type: "text",
-                        text: JSON.stringify({ success: false, error: err.message }),
-                    }],
-            };
+            return mcpError(err, "evaluate_quality_gate");
         }
     });
     // ────────────────────────────────────────────────────
@@ -462,12 +417,7 @@ export function registerOrchestratorTools(server, authContext) {
             };
         }
         catch (err) {
-            return {
-                content: [{
-                        type: "text",
-                        text: JSON.stringify({ success: false, error: err.message }),
-                    }],
-            };
+            return mcpError(err, "create_pipeline");
         }
     });
     // Tool P2: get_pipeline — member 及以上
@@ -497,12 +447,7 @@ export function registerOrchestratorTools(server, authContext) {
             };
         }
         catch (err) {
-            return {
-                content: [{
-                        type: "text",
-                        text: JSON.stringify({ success: false, error: err.message }),
-                    }],
-            };
+            return mcpError(err, "get_pipeline");
         }
     });
     // Tool P3: list_pipelines — member 及以上
@@ -542,12 +487,7 @@ export function registerOrchestratorTools(server, authContext) {
             };
         }
         catch (err) {
-            return {
-                content: [{
-                        type: "text",
-                        text: JSON.stringify({ success: false, error: err.message }),
-                    }],
-            };
+            return mcpError(err, "list_pipelines");
         }
     });
     // Tool P4: add_task_to_pipeline — member 及以上
@@ -575,12 +515,7 @@ export function registerOrchestratorTools(server, authContext) {
             };
         }
         catch (err) {
-            return {
-                content: [{
-                        type: "text",
-                        text: JSON.stringify({ success: false, error: err.message }),
-                    }],
-            };
+            return mcpError(err, "add_task_to_pipeline");
         }
     });
 }

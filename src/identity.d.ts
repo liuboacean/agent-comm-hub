@@ -5,7 +5,7 @@ export declare const HEARTBEAT_CONFIG: {
 export interface AgentInfo {
     agent_id: string;
     name: string;
-    role: "admin" | "member" | "group_admin";
+    role: "admin" | "member" | "group_admin" | "superadmin";
     status: "online" | "offline";
     trust_score: number;
     last_heartbeat: number | null;

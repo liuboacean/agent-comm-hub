@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { consumedRepo } from "../repo/sqlite-impl.js";
 import { logError } from "../logger.js";
 import { withRetry, requireAuth } from "../utils.js";
+import { getErrorMessage } from "../types.js";
 export function registerConsumedTools(server, authContext) {
     // ────────────────────────────────────────────────────
     // Tool 12: mark_consumed (原有，添加权限检查)
@@ -47,7 +48,7 @@ export function registerConsumedTools(server, authContext) {
                         type: "text",
                         text: JSON.stringify({
                             success: false,
-                            error: err.message,
+                            error: getErrorMessage(err),
                             fallback: "水位线记录失败，建议稍后重试或检查 Hub 服务状态",
                         }),
                     }],
@@ -98,7 +99,7 @@ export function registerConsumedTools(server, authContext) {
                         text: JSON.stringify({
                             consumed: false,
                             resource,
-                            warning: `水位线查询失败: ${err.message}`,
+                            warning: `水位线查询失败: ${getErrorMessage(err)}`,
                             advice: "无法确认是否已处理（查询出错），建议继续处理并在完成后调用 mark_consumed",
                         }, null, 2),
                     }],

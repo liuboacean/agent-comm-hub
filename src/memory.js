@@ -18,6 +18,7 @@ import { randomUUID } from "crypto";
 import { db } from "./db.js";
 import { buildFtsTokens, buildSearchQuery } from "./tokenizer.js";
 import { auditLog } from "./security.js";
+import { getErrorMessage } from "./types.js";
 import { logError, logger } from "./logger.js";
 // ─── 常量 ────────────────────────────────────────────────
 const MAX_CONTENT_LENGTH = 10000;
@@ -81,7 +82,7 @@ export function storeMemory(agentId, content, options) {
         return { ok: true, memory };
     }
     catch (err) {
-        return { ok: false, error: `Failed to store memory: ${err.message}` };
+        return { ok: false, error: `Failed to store memory: ${getErrorMessage(err)}` };
     }
 }
 // ─── 召回记忆（FTS5 全文搜索） ──────────────────────────
@@ -258,7 +259,7 @@ export function deleteMemory(memoryId, agentId, role) {
         return { ok: true, deleted: true };
     }
     catch (err) {
-        return { ok: false, error: `Failed to delete memory: ${err.message}` };
+        return { ok: false, error: `Failed to delete memory: ${getErrorMessage(err)}` };
     }
 }
 // ─── 记忆统计 ────────────────────────────────────────────
@@ -322,8 +323,8 @@ export function rebuildFtsIndex() {
         const insertFts = db.prepare(`INSERT INTO memories_fts (title, content, tags, fts_tokens) VALUES (?, ?, ?, ?)`);
         const rebuildBatch = db.transaction((mems) => {
             for (const m of mems) {
-                const tokens = buildFtsTokens(m.title, m.content);
-                insertFts.run(m.title, m.content, m.tags, tokens);
+                const tokens = buildFtsTokens(m.title ?? null, m.content);
+                insertFts.run(m.title, m.content, m.tags ?? null, tokens);
             }
         });
         rebuildBatch(memories);

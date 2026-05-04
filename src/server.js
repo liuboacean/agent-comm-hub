@@ -204,7 +204,7 @@ app.get("/health", (_req, res) => {
     catch { }
     res.json({
         status: "ok",
-        version: "2.3.1",
+        version: "2.4.0",
         uptime: process.uptime(),
         timestamp: Date.now(),
         memory: {
@@ -325,7 +325,7 @@ app.patch("/api/messages/:id/status", authMiddleware, (req, res) => {
         res.json({ success: true, message_id: req.params.id, status });
     }
     catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
 });
 // GET /api/consumed?agent_id=hermes&resource=feedback/xxx.json
@@ -354,7 +354,7 @@ app.get("/api/consumed", authMiddleware, (req, res) => {
 function createMcpServer(authContext) {
     const server = new McpServer({
         name: "agent-comm-hub",
-        version: "2.3.1",
+        version: "2.4.0",
     });
     registerTools(server, authContext);
     return server;
@@ -526,7 +526,7 @@ process.on("unhandledRejection", (reason) => {
 httpServer = app.listen(config.port, () => {
     logger.info("server_started", {
         module: "server",
-        version: "2.3.1",
+        version: "2.4.0",
         port: config.port,
         phase: "5b",
     });

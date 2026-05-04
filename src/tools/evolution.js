@@ -2,7 +2,7 @@ import { z } from "zod";
 import { pushToAgent } from "../sse.js";
 import { auditLog, recalculateTrustScore } from "../security.js";
 import { shareExperience, proposeStrategy, proposeStrategyTiered, listStrategies, searchStrategies, applyStrategy, feedbackStrategy, provideFeedback, scoreAppliedStrategies, approveStrategy, getEvolutionStatus, checkVetoWindow, vetoStrategy as vetoStrategyFromEvolution, } from "../evolution.js";
-import { requireAuth } from "../utils.js";
+import { requireAuth, mcpFail } from "../utils.js";
 /**
  * 注册 Evolution Engine 相关工具（12 个）
  */
@@ -20,9 +20,7 @@ export function registerEvolutionTools(server, authContext) {
         const ctx = requireAuth(authContext, "share_experience");
         const result = shareExperience(title, content, ctx.agentId, { task_id });
         if (!result.ok) {
-            return {
-                content: [{ type: "text", text: JSON.stringify({ success: false, error: result.error }) }],
-            };
+            return mcpFail(result.error, "share_experience");
         }
         auditLog("tool_share_experience", ctx.agentId, String(result.strategy.id), `title=${title.slice(0, 50)}, tags=${tags ? JSON.stringify(tags) : "none"}`);
         return {
@@ -49,9 +47,7 @@ export function registerEvolutionTools(server, authContext) {
         const ctx = requireAuth(authContext, "propose_strategy");
         const result = proposeStrategy(title, content, category, ctx.agentId, { task_id });
         if (!result.ok) {
-            return {
-                content: [{ type: "text", text: JSON.stringify({ success: false, error: result.error }) }],
-            };
+            return mcpFail(result.error, "propose_strategy");
         }
         auditLog("tool_propose_strategy", ctx.agentId, String(result.strategy.id), `category=${category}, sensitivity=${result.sensitivity}`);
         return {
@@ -140,9 +136,7 @@ export function registerEvolutionTools(server, authContext) {
         const ctx = requireAuth(authContext, "apply_strategy");
         const result = applyStrategy(strategy_id, ctx.agentId, { context });
         if (!result.ok) {
-            return {
-                content: [{ type: "text", text: JSON.stringify({ success: false, error: result.error }) }],
-            };
+            return mcpFail(result.error, "apply_strategy");
         }
         auditLog("tool_apply_strategy", ctx.agentId, String(strategy_id));
         // Phase 2.2: 自动创建反馈占位（neutral），等待 7 天内更新
@@ -185,9 +179,7 @@ export function registerEvolutionTools(server, authContext) {
         const ctx = requireAuth(authContext, "feedback_strategy");
         const result = feedbackStrategy(strategy_id, ctx.agentId, feedback, { comment, applied });
         if (!result.ok) {
-            return {
-                content: [{ type: "text", text: JSON.stringify({ success: false, error: result.error }) }],
-            };
+            return mcpFail(result.error, "feedback_strategy");
         }
         auditLog("tool_feedback_strategy", ctx.agentId, String(strategy_id), `feedback=${feedback}`);
         // Phase 5a Day 2: 反馈影响信任评分
@@ -217,9 +209,7 @@ export function registerEvolutionTools(server, authContext) {
         const ctx = requireAuth(authContext, "approve_strategy");
         const result = approveStrategy(strategy_id, ctx.agentId, action, reason);
         if (!result.ok) {
-            return {
-                content: [{ type: "text", text: JSON.stringify({ success: false, error: result.error }) }],
-            };
+            return mcpFail(result.error, "approve_strategy");
         }
         auditLog("tool_approve_strategy", ctx.agentId, String(strategy_id), `action=${action}, status=${result.strategy.status}`);
         // SSE 通知提议者（直接使用顶层 import 的 pushToAgent）
@@ -298,9 +288,7 @@ export function registerEvolutionTools(server, authContext) {
         const ctx = requireAuth(authContext, "propose_strategy_tiered");
         const result = proposeStrategyTiered(title, content, category, ctx.agentId, { task_id });
         if (!result.ok) {
-            return {
-                content: [{ type: "text", text: JSON.stringify({ success: false, error: result.error }) }],
-            };
+            return mcpFail(result.error, "propose_strategy_tiered");
         }
         auditLog("tool_propose_strategy_tiered", ctx.agentId, String(result.strategy.id), `tier=${result.tier}, sensitivity=${result.sensitivity}, auto_approved=${result.auto_approved}`);
         return {
@@ -355,9 +343,7 @@ export function registerEvolutionTools(server, authContext) {
         const ctx = requireAuth(authContext, "veto_strategy");
         const result = vetoStrategyFromEvolution(strategy_id, ctx.agentId, reason);
         if (!result.ok) {
-            return {
-                content: [{ type: "text", text: JSON.stringify({ success: false, error: result.error }) }],
-            };
+            return mcpFail(result.error, "veto_strategy");
         }
         return {
             content: [{

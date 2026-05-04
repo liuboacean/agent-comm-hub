@@ -7,7 +7,7 @@ import { logError } from "../logger.js";
 import { incrementMcpCall } from "../metrics.js";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
 import { join as pathJoin } from "path";
-import { requireAuth } from "../utils.js";
+import { requireAuth, mcpError } from "../utils.js";
 /**
  * 注册文件传输工具
  */
@@ -83,7 +83,7 @@ export function registerFileTools(server, authContext) {
         }
         catch (err) {
             logError("upload_file_error", err);
-            return { content: [{ type: "text", text: JSON.stringify({ success: false, error: err.message }) }] };
+            return mcpError(err, "upload_file");
         }
     });
     // --- Tool: download_file ---
@@ -119,7 +119,7 @@ export function registerFileTools(server, authContext) {
         }
         catch (err) {
             logError("download_file_error", err);
-            return { content: [{ type: "text", text: JSON.stringify({ success: false, error: err.message }) }] };
+            return mcpError(err, "download_file");
         }
     });
     // --- Tool: list_attachments ---
@@ -151,7 +151,7 @@ export function registerFileTools(server, authContext) {
         }
         catch (err) {
             logError("list_attachments_error", err);
-            return { content: [{ type: "text", text: JSON.stringify({ success: false, error: err.message }) }] };
+            return mcpError(err, "list_attachments");
         }
     });
 }

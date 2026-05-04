@@ -7,7 +7,8 @@ import { auditLog } from "../security.js";
 import { resolveAgentId } from "../identity.js";
 import { dedupMessage, validateMessageBody } from "../dedup.js";
 import { logError } from "../logger.js";
-import { withRetry, requireAuth } from "../utils.js";
+import { withRetry, requireAuth, mcpError } from "../utils.js";
+import { getErrorMessage } from "../types.js";
 export function registerMessageTools(server, authContext) {
     // ────────────────────────────────────────────────────
     // Tool 5: send_message (原有，添加权限检查)
@@ -210,7 +211,7 @@ export function registerMessageTools(server, authContext) {
                         type: "text",
                         text: JSON.stringify({
                             success: false,
-                            error: err.message,
+                            error: getErrorMessage(err),
                             fallback: "标记失败，消息仍为当前状态，请稍后重试",
                         }),
                     }],
@@ -259,12 +260,7 @@ export function registerMessageTools(server, authContext) {
             };
         }
         catch (err) {
-            return {
-                content: [{
-                        type: "text",
-                        text: JSON.stringify({ success: false, error: err.message }),
-                    }],
-            };
+            return mcpError(err, "search_messages");
         }
     });
     // ────────────────────────────────────────────────────
@@ -345,12 +341,7 @@ export function registerMessageTools(server, authContext) {
         }
         catch (err) {
             logError("batch_acknowledge_messages_error", err);
-            return {
-                content: [{
-                        type: "text",
-                        text: JSON.stringify({ success: false, error: err.message }),
-                    }],
-            };
+            return mcpError(err, "batch_acknowledge_messages");
         }
     });
 }

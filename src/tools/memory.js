@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { storeMemory as storeMemoryFromService, recallMemory, listMemories, deleteMemory as deleteMemoryFromService, } from "../memory.js";
 import { auditLog } from "../security.js";
-import { requireAuth } from "../utils.js";
+import { requireAuth, mcpFail, mcpError } from "../utils.js";
 export function registerMemoryTools(server, authContext) {
     // ────────────────────────────────────────────────────
     // Tool 14: store_memory (Phase 1 Week 2)
@@ -26,12 +26,7 @@ export function registerMemoryTools(server, authContext) {
             source_task_id,
         });
         if (!result.ok) {
-            return {
-                content: [{
-                        type: "text",
-                        text: JSON.stringify({ success: false, error: result.error }),
-                    }],
-            };
+            return mcpFail(result.error, "store_memory");
         }
         auditLog("tool_store_memory", ctx.agentId, result.memory.id, `scope=${scope}, source_agent=${sourceAgentId ?? "none"}, task=${source_task_id ?? "none"}, tags=${tags ? JSON.stringify(tags) : "none"}`);
         return {
@@ -136,12 +131,7 @@ export function registerMemoryTools(server, authContext) {
         const ctx = requireAuth(authContext, "delete_memory");
         const result = deleteMemoryFromService(memory_id, ctx.agentId, ctx.role);
         if (!result.ok) {
-            return {
-                content: [{
-                        type: "text",
-                        text: JSON.stringify({ success: false, error: result.error }),
-                    }],
-            };
+            return mcpFail(result.error, "delete_memory");
         }
         auditLog("tool_delete_memory", ctx.agentId, memory_id);
         return {
@@ -209,12 +199,7 @@ export function registerMemoryTools(server, authContext) {
             };
         }
         catch (err) {
-            return {
-                content: [{
-                        type: "text",
-                        text: JSON.stringify({ success: false, error: err.message }),
-                    }],
-            };
+            return mcpError(err, "search_memories");
         }
     });
 }

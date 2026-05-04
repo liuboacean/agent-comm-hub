@@ -15,6 +15,7 @@ import { db } from "./db.js";
 import { buildFtsTokens, buildSearchQuery } from "./tokenizer.js";
 import { auditLog } from "./security.js";
 import { logError } from "./logger.js";
+import { getErrorMessage } from "./types.js";
 // ─── 常量 ────────────────────────────────────────────────
 const MAX_CONTENT_LENGTH = 5000;
 const MAX_TITLE_LENGTH = 200;
@@ -73,7 +74,7 @@ export function shareExperience(title, content, proposerId, options) {
         return { ok: true, strategy };
     }
     catch (err) {
-        return { ok: false, error: `Failed to share experience: ${err.message}` };
+        return { ok: false, error: `Failed to share experience: ${getErrorMessage(err)}` };
     }
 }
 /**
@@ -105,7 +106,7 @@ export function proposeStrategy(title, content, category, proposerId, options) {
         return { ok: true, strategy, sensitivity };
     }
     catch (err) {
-        return { ok: false, error: `Failed to propose strategy: ${err.message}` };
+        return { ok: false, error: `Failed to propose strategy: ${getErrorMessage(err)}` };
     }
 }
 /**
@@ -186,7 +187,7 @@ export function applyStrategy(strategyId, agentId, options) {
         return { ok: true, application_id: result.lastInsertRowid };
     }
     catch (err) {
-        return { ok: false, error: `Failed to apply strategy: ${err.message}` };
+        return { ok: false, error: `Failed to apply strategy: ${getErrorMessage(err)}` };
     }
 }
 /**
@@ -211,10 +212,10 @@ export function feedbackStrategy(strategyId, agentId, feedback, options) {
     }
     catch (err) {
         // UNIQUE 约束冲突 = 重复反馈
-        if (err.message.includes("UNIQUE")) {
+        if (err instanceof Error && err.message.includes("UNIQUE")) {
             return { ok: false, error: "You have already provided feedback for this strategy" };
         }
-        return { ok: false, error: `Failed to submit feedback: ${err.message}` };
+        return { ok: false, error: `Failed to submit feedback: ${getErrorMessage(err)}` };
     }
 }
 /**
@@ -246,7 +247,7 @@ export function approveStrategy(strategyId, adminId, action, reason) {
         return { ok: true, strategy: updated };
     }
     catch (err) {
-        return { ok: false, error: `Failed to approve/reject strategy: ${err.message}` };
+        return { ok: false, error: `Failed to approve/reject strategy: ${getErrorMessage(err)}` };
     }
 }
 /**
@@ -529,7 +530,7 @@ export function proposeStrategyTiered(title, content, category, proposerId, opti
         };
     }
     catch (err) {
-        return { ok: false, error: `Failed to propose strategy: ${err.message}` };
+        return { ok: false, error: `Failed to propose strategy: ${getErrorMessage(err)}` };
     }
 }
 // ─── 内部辅助函数 ────────────────────────────────────────
@@ -585,7 +586,7 @@ export function provideFeedback(params) {
         return { id: result.lastInsertRowid };
     }
     catch (err) {
-        throw new Error(`创建反馈失败: ${err.message}`);
+        throw new Error(`创建反馈失败: ${getErrorMessage(err)}`);
     }
 }
 /**

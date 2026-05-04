@@ -1,8 +1,9 @@
 {
   "name": "agent-comm-hub",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "description": "WorkBuddy & Hermes 双向即时通讯 + 任务调度 MCP Hub",
   "type": "module",
+  "license": "MIT",
   "main": "src/server.js",
   "scripts": {
     "build": "tsc",

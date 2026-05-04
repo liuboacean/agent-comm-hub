@@ -133,7 +133,7 @@ export function queryAgents(filters) {
         role: row.role,
         status: row.status,
         trust_score: row.trust_score ?? 50,
-        last_heartbeat: row.last_heartbeat,
+        last_heartbeat: row.last_heartbeat ?? null,
         created_at: row.created_at,
     }));
 }
@@ -156,7 +156,7 @@ export function getAgent(agentId) {
         role: row.role,
         status: row.status,
         trust_score: row.trust_score ?? 50,
-        last_heartbeat: row.last_heartbeat,
+        last_heartbeat: row.last_heartbeat ?? null,
         created_at: row.created_at,
         capabilities: caps.map((c) => c.capability),
     };

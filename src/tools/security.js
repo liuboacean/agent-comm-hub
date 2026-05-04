@@ -3,7 +3,7 @@ import { getEnhancedDbStats, archiveOldMessages, archiveOldAuditLogs, vacuumData
 import { auditLog, recalculateTrustScore, recalculateAllTrustScores } from "../security.js";
 import { setAgentRole as setAgentRoleFromIdentity } from "../identity.js";
 import { logError } from "../logger.js";
-import { requireAuth } from "../utils.js";
+import { requireAuth, mcpError, mcpFail } from "../utils.js";
 /**
  * 注册安全与维护工具
  */
@@ -20,12 +20,7 @@ export function registerSecurityTools(server, authContext) {
         const ctx = requireAuth(authContext, "set_agent_role");
         const result = setAgentRoleFromIdentity(agent_id, role, ctx.agentId, managed_group_id);
         if (!result.ok) {
-            return {
-                content: [{
-                        type: "text",
-                        text: JSON.stringify({ success: false, error: result.error }),
-                    }],
-            };
+            return mcpFail(result.error, "set_agent_role");
         }
         return {
             content: [{
@@ -84,12 +79,7 @@ export function registerSecurityTools(server, authContext) {
             }
         }
         catch (err) {
-            return {
-                content: [{
-                        type: "text",
-                        text: JSON.stringify({ success: false, error: err.message }),
-                    }],
-            };
+            return mcpError(err, "recalculate_trust_scores");
         }
     });
     // ────────────────────────────────────────────────────
@@ -115,12 +105,7 @@ export function registerSecurityTools(server, authContext) {
         }
         catch (err) {
             logError("get_db_stats_error", err);
-            return {
-                content: [{
-                        type: "text",
-                        text: JSON.stringify({ success: false, error: err.message }),
-                    }],
-            };
+            return mcpError(err, "get_db_stats");
         }
     });
     // Tool DB2: archive_data — admin only
@@ -167,12 +152,7 @@ export function registerSecurityTools(server, authContext) {
         }
         catch (err) {
             logError("archive_data_error", err);
-            return {
-                content: [{
-                        type: "text",
-                        text: JSON.stringify({ success: false, error: err.message }),
-                    }],
-            };
+            return mcpError(err, "archive_data");
         }
     });
 }

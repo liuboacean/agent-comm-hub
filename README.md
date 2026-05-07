@@ -5,6 +5,7 @@
   <img src="https://img.shields.io/badge/License-MIT-yellow" alt="MIT License">
   <img src="https://img.shields.io/badge/TypeScript-SDK-blue?logo=typescript" alt="TypeScript SDK">
   <img src="https://img.shields.io/badge/Python_SDK-Zero_Dependencies-brightgreen?logo=python" alt="Zero Dependencies">
+  <a href="demo/index.html"><img src="https://img.shields.io/badge/Live_Demo-7f77dd?logo=github" alt="Live Demo"></a>
 </p>
 
 <h1 align="center">Agent Communication Hub</h1>

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Communication Hub — Interactive Demo</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+  .card{background:#fff;border-radius:16px;border:1px solid rgba(0,0,0,.08);overflow:hidden;max-width:640px;width:100%;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+  .header{display:flex;align-items:center;gap:10px;padding:14px 16px 12px;border-bottom:1px solid rgba(0,0,0,.06)}
+  .dots{display:flex;gap:6px}
+  .dot{width:10px;height:10px;border-radius:50%}
+  .title{font-size:13px;font-weight:600;color:#666}
+  .step-badge{font-size:11px;color:#999;padding:2px 8px;background:#f5f5f5;border-radius:20px;margin-left:auto}
+  .terminal{background:#1a1a2e;padding:16px 18px;min-height:280px;font-family:'SF Mono','Fira Code','Courier New',monospace;font-size:13px;line-height:1.7;color:#c5c8d4;overflow-x:auto}
+  .terminal .prompt{color:#7f77dd}
+  .terminal .cmd{color:#e8e8e8}
+  .terminal .success{color:#639922}
+  .terminal .info{color:#7f77dd}
+  .terminal .comment{color:#666}
+  .terminal .line{opacity:0;transition:opacity .4s}
+  .controls{display:flex;gap:6px;padding:10px 16px;border-top:1px solid rgba(0,0,0,.06);background:#fafafa;justify-content:center;flex-wrap:wrap}
+  .btn{background:#fff;border:1px solid rgba(0,0,0,.12);border-radius:8px;padding:6px 14px;font-size:12px;cursor:pointer;color:#333;font-family:inherit;transition:all .15s}
+  .btn:hover{background:#f0f0f0}
+  .btn:disabled{opacity:.4;pointer-events:none}
+  .btn-reset{background:transparent;color:#999}
+  .btn-reset:hover{background:transparent;color:#666}
+  .cursor{display:none;width:2px;height:15px;background:#7f77dd;margin-left:2px;vertical-align:text-bottom;animation:blink 1s infinite}
+  .cursor.active{display:inline-block}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+  .footer{text-align:center;margin-top:16px;font-size:12px;color:#999}
+  .footer a{color:#7f77dd;text-decoration:none}
+  .footer a:hover{text-decoration:underline}
+  @media(prefers-color-scheme:dark){
+    body{background:#1a1a1a}
+    .card{background:#2a2a2a;border-color:rgba(255,255,255,.08)}
+    .header{border-color:rgba(255,255,255,.06)}
+    .title{color:#aaa}
+    .step-badge{background:#333;color:#aaa}
+    .controls{background:#222;border-color:rgba(255,255,255,.06)}
+    .btn{background:#333;border-color:rgba(255,255,255,.12);color:#ddd}
+    .btn:hover{background:#444}
+    .btn-reset{color:#888;background:transparent}
+    .footer{color:#888}
+  }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="header">
+    <div class="dots">
+      <div class="dot" style="background:#E24B4A"></div>
+      <div class="dot" style="background:#EF9F27"></div>
+      <div class="dot" style="background:#639922"></div>
+    </div>
+    <div class="title">agent-comm-hub — interactive demo</div>
+    <span class="step-badge" id="stepIndicator">step 0 / 3</span>
+  </div>
+
+  <div class="terminal">
+    <div class="line" id="l1"><span class="prompt">$</span> <span class="cmd">docker pull ghcr.io/liuboacean/agent-comm-hub:v2.4.5</span></div>
+    <div class="line" id="l1a"><span class="success">  ✓ v2.4.5: Pulling from liuboacean/agent-comm-hub</span></div>
+    <div class="line" id="l1b"><span class="success">  ✓ 18kb — ghcr.io/liuboacean/agent-comm-hub</span></div>
+
+    <div class="line" id="l2" style="margin-top:8px"><span class="prompt">$</span> <span class="cmd">docker run -d -p 3100:3100 --name ach ghcr.io/liuboacean/agent-comm-hub:v2.4.5</span></div>
+    <div class="line" id="l2a"><span class="success">  ✓ 4a36f881ec10 — container running</span></div>
+
+    <div class="line" id="l3" style="margin-top:8px"><span class="prompt">$</span> <span class="cmd">curl http://localhost:3100/health</span></div>
+    <div class="line" id="l3a"><span class="info">  {"status":"ok","version":"2.4.0","uptime":4.11}</span></div>
+
+    <div class="line" id="l4" style="margin-top:12px;border-top:1px solid rgba(255,255,255,.06);padding-top:10px"><span class="prompt">$</span> <span class="cmd">python3 -c "from hub_client import SynergyHubClient; c=SynergyHubClient('http://localhost:3100'); print(c.register('INVITE-001'))"</span></div>
+    <div class="line" id="l4a"><span class="success">  ✓ agent registered: agent_workbuddy_a3f7c2e1</span></div>
+    <div class="line" id="l4b"><span class="success">  ✓ token: ah_7e8d... (store securely)</span></div>
+
+    <div class="line" id="l5" style="margin-top:8px"><span class="prompt">$</span> <span class="cmd">python3 -c "from hub_client import SynergyHubClient; c=SynergyHubClient('http://localhost:3100'); c.set_token('ah_7e8d...'); c.send_message(to='hermes', content='hello from workbuddy!')"</span></div>
+    <div class="line" id="l5a"><span class="success">  ✓ message sent (msg_id: 370024b7-8007)</span></div>
+    <div class="line" id="l5b"><span class="success">  ✓ delivered to agent_hermes (real-time sse)</span></div>
+
+    <div class="line" id="l6" style="margin-top:10px"><span class="comment">  # 53 mcp tools ready · &lt;50ms latency · sqlite wal persistence</span></div>
+    <div class="cursor" id="cursor"></div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="btn1" onclick="runStep(1)">1. start hub</button>
+    <button class="btn" id="btn2" onclick="runStep(2)" disabled>2. register agent</button>
+    <button class="btn" id="btn3" onclick="runStep(3)" disabled>3. send message</button>
+    <button class="btn btn-reset" onclick="resetDemo()">⟳ reset</button>
+  </div>
+</div>
+
+<div class="footer">
+  <a href="https://github.com/liuboacean/agent-comm-hub">github.com/liuboacean/agent-comm-hub</a> &middot; v2.4.5 &middot; mit license
+</div>
+
+<script>
+var step=0;
+function show(id){document.getElementById(id).style.opacity=1}
+function runStep(n){
+  if(n===1&&step<1){
+    show('l1');setTimeout(function(){show('l1a')},400);setTimeout(function(){show('l1b')},800);
+    setTimeout(function(){show('l2')},1200);setTimeout(function(){show('l2a')},1600);
+    setTimeout(function(){show('l3')},2000);setTimeout(function(){show('l3a')},2400);
+    step=1;document.getElementById('stepIndicator').textContent='step 1 / 3';
+    document.getElementById('btn1').disabled=true;document.getElementById('btn2').disabled=false
+  }else if(n===2&&step===1){
+    show('l4');setTimeout(function(){show('l4a')},500);setTimeout(function(){show('l4b')},1000);
+    step=2;document.getElementById('stepIndicator').textContent='step 2 / 3';
+    document.getElementById('btn2').disabled=true;document.getElementById('btn3').disabled=false
+  }else if(n===3&&step===2){
+    show('l5');setTimeout(function(){show('l5a')},500);setTimeout(function(){show('l5b')},1000);setTimeout(function(){show('l6')},1500);
+    step=3;document.getElementById('stepIndicator').textContent='step 3 / 3 \u2705';
+    document.getElementById('btn3').disabled=true;document.getElementById('cursor').classList.add('active')
+  }
+}
+function resetDemo(){
+  step=0;
+  var ids=['l1','l1a','l1b','l2','l2a','l3','l3a','l4','l4a','l4b','l5','l5a','l5b','l6'];
+  ids.forEach(function(id){document.getElementById(id).style.opacity=0});
+  document.getElementById('cursor').classList.remove('active');
+  document.getElementById('stepIndicator').textContent='step 0 / 3';
+  document.getElementById('btn1').disabled=false;document.getElementById('btn2').disabled=true;document.getElementById('btn3').disabled=true
+}
+</script>
+
+</body>
+</html>

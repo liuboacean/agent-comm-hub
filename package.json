@@ -1,15 +1,15 @@
 {
   "name": "agent-comm-hub",
   "version": "2.4.1",
-  "description": "WorkBuddy & Hermes 双向即时通讯 + 任务调度 MCP Hub",
+  "description": "Production-grade multi-agent communication infrastructure via MCP + SSE",
   "type": "module",
   "license": "MIT",
-  "main": "src/server.js",
+  "main": "dist/src/server.js",
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/server.ts",
-    "start": "node src/server.js",
-    "stdio": "node src/stdio.js",
+    "start": "node dist/src/server.js",
+    "stdio": "node dist/src/stdio.js",
     "test": "tsx scripts/test-e2e.ts",
     "test:unit": "vitest run --coverage",
     "test:unit:watch": "vitest"

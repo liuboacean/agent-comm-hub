@@ -1,6 +1,6 @@
 {
   "name": "agent-comm-hub",
-  "version": "2.4.1",
+  "version": "2.4.5",
   "description": "Production-grade multi-agent communication infrastructure via MCP + SSE",
   "type": "module",
   "license": "MIT",

@@ -11,64 +11,64 @@
 <h1 align="center">Agent Communication Hub</h1>
 
 <p align="center">
-  Build production-grade <strong>multi-agent communication infrastructure</strong> in minutes.<br>
-  Real-time messaging, task scheduling, shared memory, and trust-based evolution — all via MCP + SSE.
+  生产级<strong>多智能体通信基础设施</strong>——实时消息、任务调度、共享记忆、信任进化<br>
+  基于 MCP + SSE 协议，53 个工具，零外部依赖
 </p>
 
 <p align="center">
-  <a href="#readme">English</a> | <a href="docs/README_CN.md">中文</a>
+  <a href="#readme">中文</a> | <a href="docs/README_EN.md">English</a>
 </p>
 
 ---
 
-## What problem does it solve?
+## 它能解决什么问题？
 
-When you run multiple AI agents (Claude Code, OpenClaw, WorkBuddy, custom agents…), they operate in silos. They can't:
+多个 AI Agent（Claude Code、OpenClaw、WorkBuddy 等）天然是信息孤岛：
 
-- **Talk to each other** without brittle webhooks or shared databases
-- **Schedule tasks** across agent boundaries
-- **Share context** beyond one-shot prompts
-- **Evolve together** as a team based on past experience
+- 无法**互相通信**（需要脆弱的 webhook 或共享数据库）
+- 无法**跨 Agent 调度任务**
+- 无法**共享上下文**（超出单次 prompt）
+- 无法**共同进化**（基于团队经验）
 
-**Agent Communication Hub** gives every MCP-compatible agent a shared nervous system — message bus, task queue, memory layer, and evolution engine — so agents collaborate instead of isolation.
+**Agent Communication Hub** 为每个 MCP 兼容的 Agent 提供共享神经中枢——消息总线、任务队列、记忆层和进化引擎，让 Agent 协同工作，而非各自为战。
 
 ---
 
-## Try it in 3 lines
+## 三步上手
 
 ```bash
-# 1. Start the Hub
+# 1. 启动 Hub
 docker run -d -p 3100:3100 --name ach liuboacean/agent-comm-hub
 
-# 2. Register an agent
+# 2. 注册 Agent
 python3 -c "from hub_client import SynergyHubClient; print(SynergyHubClient('http://localhost:3100').register('YOUR_INVITE_CODE'))"
 
-# 3. Send a message
+# 3. 发消息
 python3 -c "from hub_client import SynergyHubClient; c=SynergyHubClient('http://localhost:3100'); c.set_token('YOUR_TOKEN'); c.send_message(to='other-agent', content='Hello!')"
 ```
 
-No config files. No external services. Works locally.
+零配置文件，零外部服务，本地即用。
 
 ---
 
-## Features at a glance
+## 核心特性
 
-| Category | Tools | What it does |
-|---|---|---|
-| **Identity** | 6 | Register agents, heartbeat, RBAC roles, trust scoring |
-| **Messaging** | 5 | P2P / broadcast, FTS5 search, deduplication |
-| **Task Scheduling** | 8 | 7-state machine, pipelines, parallel groups, auto-retry |
-| **Memory** | 5 | private / team / collective scopes, edge function scoring |
-| **Orchestration** | 11 | Dependency chains (DFS cycle detection), quality gates, handover protocols |
-| **Evolution** | 12 | Experience sharing, 4-tier strategy approval, trust-score feedback loop |
-| **Security** | 6 | Token auth, 4-level RBAC, audit hash chain, CORS whitelist |
-| **Files** | 3 | Upload / download / list, up to 10MB Base64 |
+| 类别 | 工具数 | 说明 |
+|------|:-----:|------|
+| 身份认证 | 6 | 注册、心跳、RBAC 角色权限、信任评分 |
+| 消息通信 | 5 | P2P / 广播、FTS5 全文搜索、去重 |
+| 任务调度 | 8 | 7 状态机、Pipeline、并行组、自动重试 |
+| 共享记忆 | 5 | private / team / collective 三级作用域 |
+| 编排协调 | 11 | 依赖链（DFS 环检测）、质检门、交接协议 |
+| 进化引擎 | 12 | 经验共享、4 级策略审批、信任反馈闭环 |
+| 安全审计 | 6 | Token 认证、4 级 RBAC、审计哈希链、CORS 白名单 |
+| 文件传输 | 3 | 上传 / 下载 / 列表，Base64 10MB 限制 |
 
-**53 MCP tools** · SQLite WAL (zero message loss) · SSE push latency < 50ms
+**53 个 MCP 工具** · SQLite WAL（零消息丢失） · SSE 推送延迟 < 50ms
 
 ---
 
-## Architecture
+## 架构
 
 ```
 ┌──────────────┐          ┌──────────────────────────┐          ┌──────────────┐
@@ -89,13 +89,13 @@ No config files. No external services. Works locally.
                                    SQLite (WAL)
 ```
 
-Any MCP-compatible agent can connect: Claude Code, OpenClaw, WorkBuddy, Hermes, custom agents, etc.
+任何 MCP 兼容的 Agent 都可以连接：Claude Code、OpenClaw、WorkBuddy、自定义 Agent 等。
 
 ---
 
-## SDK Examples
+## SDK 示例
 
-### Python — zero dependencies
+### Python（零依赖）
 
 ```python
 from hub_client import SynergyHubClient
@@ -103,24 +103,24 @@ from hub_client import SynergyHubClient
 hub = SynergyHubClient(hub_url="http://localhost:3100", agent_id="my-agent")
 hub.set_token("your-api-token")
 
-# Send a message
-hub.send_message(to="workbuddy", content="Task completed, handing over.")
+# 发消息
+hub.send_message(to="other-agent", content="任务完成，交接。")
 
-# Store shared memory
-hub.store_memory(content="User prefers JSON responses", scope="collective")
+# 存储共享记忆
+hub.store_memory(content="用户偏好 JSON 响应", scope="collective")
 
-# Assign a task
-task = hub.create_task(title="Review PR #42", assignee="claude-code", priority=2)
+# 创建任务
+task = hub.create_task(title="评审 PR #42", assignee="claude-code", priority=2)
 
-# Share a lesson learned
-hub.share_experience(title="DB lock timeout fix", content="...", category="debug")
+# 共享经验
+hub.share_experience(title="DB 锁超时修复方案", content="...", category="debug")
 
-# Stream incoming events
-hub.on_message = lambda msg: print(f"Received: {msg}")
-hub.connect_sse()  # blocks — long-lived SSE connection
+# 实时监听
+hub.on_message = lambda msg: print(f"收到: {msg}")
+hub.connect_sse()  # 阻塞式 SSE 长连接
 ```
 
-### TypeScript — also zero external deps
+### TypeScript（零外部依赖）
 
 ```typescript
 import { AgentClient } from "./client-sdk/agent-client.js";
@@ -129,34 +129,34 @@ const client = new AgentClient({
   agentId: "my-agent",
   hubUrl: "http://localhost:3100",
   token: "your-api-token",
-  onMessage: async (msg) => { /* handle */ },
-  onTaskAssigned: async (task) => { /* handle */ },
+  onMessage: async (msg) => { /* 处理 */ },
+  onTaskAssigned: async (task) => { /* 处理 */ },
 });
 
 await client.start();
-await client.sendMessage({ to: "workbuddy", content: "Done!" });
+await client.sendMessage({ to: "other-agent", content: "完成！" });
 ```
 
 ---
 
-## Deployment
+## 部署
 
-### Docker (recommended)
+### Docker（推荐）
 
 ```bash
 docker run -d -p 3100:3100 --name ach liuboacean/agent-comm-hub
 ```
 
-### Docker Compose (with Prometheus + Grafana)
+### Docker Compose（含 Prometheus + Grafana）
 
 ```bash
 cd deploy && docker compose up -d
-# Hub:  http://localhost:3100
-# Grafana: http://localhost:3000 (admin/admin)
+# Hub:       http://localhost:3100
+# Grafana:   http://localhost:3000 (admin/admin)
 # Prometheus: http://localhost:9090
 ```
 
-### From source
+### 源码安装
 
 ```bash
 git clone https://github.com/liuboacean/agent-comm-hub.git
@@ -165,39 +165,40 @@ npm install && npm run build
 npm start
 ```
 
-### As a Skill
+### 作为 Skill 安装
 
 ```bash
 # ClawHub
 clawhub install liuboacean/agent-comm-hub
 
-# SkillHub (30+ platforms)
+# SkillHub（30+ 平台）
 npx skills add liuboacean/agent-comm-hub
 ```
 
 ---
 
-## MCP Configuration
+## MCP 配置
 
-After starting the Hub, add it to your agent's MCP config:
+启动 Hub 后，将其添加到 Agent 的 MCP 配置中：
 
-### Option 1: stdio (recommended)
+### 方式一：stdio（推荐）
 
 ```json
 {
   "mcpServers": {
     "agent-comm-hub": {
       "command": "node",
-      "args": ["<hub-install-path>/stdio.js"],
+      "args": ["<hub-install-path>/dist/src/stdio.js"],
       "env": {
-        "HUB_KEY": "your-connection-key"
+        "HUB_AUTH_TOKEN": "your-connection-key",
+        "DB_PATH": "/path/to/comm_hub.db"
       }
     }
   }
 }
 ```
 
-### Option 2: HTTP + SSE
+### 方式二：HTTP + SSE
 
 ```json
 {
@@ -209,74 +210,76 @@ After starting the Hub, add it to your agent's MCP config:
 }
 ```
 
-The agent's LLM can then call all 53 tools directly via natural language.
+配置完成后，Agent 的 LLM 可以直接通过自然语言调用全部 53 个工具。
 
 ---
 
-## Security
+## 安全
 
-| Feature | Detail |
-|---|---|
-| **RBAC** | 4 levels: public → member → group_admin → admin |
-| **Token auth** | SHA-256 agent tokens, stored as hash in DB |
-| **Audit hash chain** | `prev_hash → record_hash` with DB triggers |
-| **Trust scoring** | Auto-calculated, affects strategy approval tiers |
-| **CORS** | Whitelist-only, default deny |
-| **Security headers** | X-Frame-Options, CSP, HSTS, X-XSS-Protection |
-| **Request tracing** | traceId on every request + response header |
+| 特性 | 说明 |
+|------|------|
+| **RBAC** | 4 级：public → member → group_admin → admin |
+| **Token 认证** | SHA-256 哈希存储，原始 token 不落库 |
+| **审计哈希链** | `prev_hash → record_hash`，DB 触发器保证完整性 |
+| **信任评分** | 自动计算，影响策略审批等级 |
+| **CORS** | 白名单制，默认拒绝 |
+| **安全头** | X-Frame-Options、CSP、HSTS、X-XSS-Protection |
+| **请求追踪** | 每个请求附带 traceId + 响应头 |
 
 ---
 
-## File Structure
+## 项目结构
 
 ```
 agent-comm-hub/
-├── src/                         # Hub server source (TypeScript)
-│   ├── server.ts                # Express + SSE + MCP entry point
-│   ├── db.ts                    # SQLite WAL schema + queries
-│   ├── identity.ts              # Registration, heartbeat, RBAC
-│   ├── memory.ts                # 3-scope memory with FTS5
-│   ├── task.ts                  # 7-state task scheduler
-│   ├── orchestrator.ts          # Dependency chains, pipelines
-│   ├── evolution.ts             # Strategy engine, trust scoring
-│   └── security.ts              # Auth, token, RBAC, audit
+├── src/                         # Hub 服务端源码（TypeScript）
+│   ├── server.ts                # Express + SSE + MCP 入口
+│   ├── stdio.ts                 # stdio MCP 传输入口
+│   ├── db.ts                    # SQLite WAL Schema + 查询
+│   ├── identity.ts              # 注册、心跳、RBAC
+│   ├── memory.ts                # 三级作用域记忆 + FTS5
+│   ├── task.ts                  # 7 状态任务调度器
+│   ├── orchestrator.ts          # 依赖链、Pipeline
+│   ├── evolution.ts             # 策略引擎、信任评分
+│   └── security.ts              # 认证、Token、RBAC、审计
 ├── client-sdk/
-│   ├── hub_client.py            # Python SDK (zero deps, 68 methods)
-│   └── agent-client.ts          # TypeScript SDK (35 public methods)
+│   ├── hub_client.py            # Python SDK（零依赖，68 方法）
+│   ├── agent-client.ts          # TypeScript SDK（35 公共方法）
+│   └── package.json             # npm 发布配置
 ├── deploy/
-│   ├── docker-compose.yml       # Prometheus + Grafana observability
-│   └── prometheus.yml           # Metrics scraping config
+│   ├── docker-compose.yml       # Prometheus + Grafana 可观测性
+│   └── prometheus.yml           # 指标采集配置
 ├── docs/
-│   ├── API_REFERENCE.md         # 53 tools complete reference
+│   ├── API_REFERENCE.md         # 53 工具完整参考
 │   ├── advanced-orchestration-guide.md
 │   ├── evolution-engine-guide.md
 │   └── hermes-integration-guide.md
 ├── scripts/
-│   ├── install.sh               # Hub server install script
-│   └── test-e2e.sh              # End-to-end test suite
-└── tests/                       # Integration + unit tests
+│   ├── install.sh               # Hub 服务安装脚本
+│   └── test-e2e.sh              # 端到端测试套件
+└── tests/                       # 集成 + 单元测试
 ```
 
 ---
 
-## Documentation
+## 文档
 
-| Doc | When to read |
-|---|---|
-| [API Reference](docs/API_REFERENCE.md) | Every tool signature + examples |
-| [Orchestration Guide](docs/advanced-orchestration-guide.md) | Pipelines, parallel groups, quality gates |
-| [Evolution Engine](docs/evolution-engine-guide.md) | Trust scoring, strategy approval workflow |
-| [Hermes Integration](docs/hermes-integration-guide.md) | Step-by-step Hermes agent setup |
-| [README.md (English)](README.md) | This page |
+| 文档 | 适用场景 |
+|------|---------|
+| [API 参考](docs/API_REFERENCE.md) | 全部 53 个工具签名 + 示例 |
+| [编排指南](docs/advanced-orchestration-guide.md) | Pipeline、并行组、质检门 |
+| [进化引擎](docs/evolution-engine-guide.md) | 信任评分、策略审批流程 |
+| [Hermes 集成](docs/hermes-integration-guide.md) | Hermes Agent 分步接入 |
+| [English README](docs/README_EN.md) | 英文版 |
 
 ---
 
-## License
+## 许可证
 
-MIT — use it freely in personal and commercial projects.
+MIT — 可自由用于个人和商业项目。
 
 ---
 
 <p align="center">
-  <em>Built with the MCP protocol + SSE. No external services. No vendor lock-in.</em>
+  <em>基于 MCP 协议 + SSE。零外部服务。零厂商锁定。</em>
 </p>

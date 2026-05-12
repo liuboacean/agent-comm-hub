@@ -341,9 +341,9 @@ export function getHeartbeatConfig() {
  * 规范化后不再需要，但用于迁移阶段
  */
 const AGENT_ALIAS_MAP = {
-    'workbuddy': 'agent_workbuddy_a3f7c2e1_1777300825754',
-    'hermes': 'agent_hermes_54cfe58b_1777132066111',
-    'qclaw': 'agent_1c11a7bd_1777129814251',
+    // Agent IDs are registered dynamically at runtime.
+    // Legacy aliases preserved for message normalization only.
+    // Replace with your own agent IDs or remove if not needed.
 };
 /**
  * 解析 Agent 标识符为完整 agent_id。

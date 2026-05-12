@@ -71,12 +71,12 @@
     <div class="line" id="l3a"><span class="info">  {"status":"ok","version":"2.4.0","uptime":4.11}</span></div>
 
     <div class="line" id="l4" style="margin-top:12px;border-top:1px solid rgba(255,255,255,.06);padding-top:10px"><span class="prompt">$</span> <span class="cmd">python3 -c "from hub_client import SynergyHubClient; c=SynergyHubClient('http://localhost:3100'); print(c.register('INVITE-001'))"</span></div>
-    <div class="line" id="l4a"><span class="success">  ✓ agent registered: agent_workbuddy_a3f7c2e1</span></div>
+    <div class="line" id="l4a"><span class="success">  ✓ agent registered: agent_abc123...</span></div>
     <div class="line" id="l4b"><span class="success">  ✓ token: ah_7e8d... (store securely)</span></div>
 
     <div class="line" id="l5" style="margin-top:8px"><span class="prompt">$</span> <span class="cmd">python3 -c "from hub_client import SynergyHubClient; c=SynergyHubClient('http://localhost:3100'); c.set_token('ah_7e8d...'); c.send_message(to='hermes', content='hello from workbuddy!')"</span></div>
     <div class="line" id="l5a"><span class="success">  ✓ message sent (msg_id: 370024b7-8007)</span></div>
-    <div class="line" id="l5b"><span class="success">  ✓ delivered to agent_hermes (real-time sse)</span></div>
+    <div class="line" id="l5b"><span class="success">  ✓ delivered to hermes (real-time sse)</span></div>
 
     <div class="line" id="l6" style="margin-top:10px"><span class="comment">  # 53 mcp tools ready · &lt;50ms latency · sqlite wal persistence</span></div>
     <div class="cursor" id="cursor"></div>

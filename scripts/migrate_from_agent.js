@@ -13,10 +13,11 @@ const DB_PATH = resolve(process.cwd(), "comm_hub.db");
 const db = new Database(DB_PATH);
 
 // 别名映射（与 src/identity.ts 保持同步）
+// 替换为你自己的 agent ID
 const ALIAS_MAP = {
-  qclaw:    "agent_1c11a7bd_1777129814251",
-  workbuddy: "agent_workbuddy_a3f7c2e1_1777300825754",
-  hermes:   "agent_hermes_54cfe58b_1777132066111",
+  qclaw:    "agent_qclaw_example_id",
+  workbuddy: "agent_workbuddy_example_id",
+  hermes:   "agent_hermes_example_id",
 };
 
 console.log(`\n=== Phase 2.1: from_agent 格式规范化迁移 ===`);

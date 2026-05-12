@@ -15,3 +15,7 @@ project-specs/
 tests/*.db
 tests/*.db-shm
 tests/*.db-wal
+
+# Temp/debug scripts with hardcoded tokens
+node_verify.js
+node_verify.mjs

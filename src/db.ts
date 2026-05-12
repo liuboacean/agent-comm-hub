@@ -10,7 +10,7 @@ import type { PragmaColumnInfo, CountRow, MaxTimestampRow } from "./types.js";
 import { getErrorMessage } from "./types.js";
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const DB_PATH = join(__dir, "../comm_hub.db");
+const DB_PATH = process.env.DB_PATH || join(__dir, "../comm_hub.db");
 
 export const db: DatabaseType = new Database(DB_PATH);
 

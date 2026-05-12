@@ -1,0 +1,32 @@
+{
+  "name": "@liuboacean/agent-comm-hub",
+  "version": "2.4.5",
+  "description": "Production-grade multi-agent communication client SDK for Agent Communication Hub — zero external dependencies",
+  "type": "module",
+  "main": "agent-client.js",
+  "types": "agent-client.d.ts",
+  "license": "MIT",
+  "author": "liuboacean",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/liuboacean/agent-comm-hub.git"
+  },
+  "keywords": [
+    "mcp",
+    "multi-agent",
+    "agent-communication",
+    "sse",
+    "ai-agents",
+    "orchestration",
+    "model-context-protocol"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "agent-client.js",
+    "agent-client.d.ts",
+    "agent-client.js.map",
+    "README.md"
+  ]
+}

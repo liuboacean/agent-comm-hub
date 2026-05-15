@@ -2,6 +2,7 @@
   <img src="https://img.shields.io/badge/Node.js-18+-green?logo=node.js" alt="Node.js 18+">
   <img src="https://img.shields.io/badge/Python-3.9+-blue?logo=python" alt="Python 3.9+">
   <img src="https://img.shields.io/badge/MCP_Protocol-1.0-orange?logo=robot" alt="MCP Protocol">
+  <img src="https://img.shields.io/badge/DB_Split_Protection-v3-green?logo=shield" alt="三层防护">
   <img src="https://img.shields.io/badge/License-MIT-yellow" alt="MIT License">
   <img src="https://img.shields.io/badge/TypeScript-SDK-blue?logo=typescript" alt="TypeScript SDK">
   <img src="https://img.shields.io/badge/Python_SDK-Zero_Dependencies-brightgreen?logo=python" alt="Zero Dependencies">
@@ -63,8 +64,9 @@ python3 -c "from hub_client import SynergyHubClient; c=SynergyHubClient('http://
 | 进化引擎 | 12 | 经验共享、4 级策略审批、信任反馈闭环 |
 | 安全审计 | 6 | Token 认证、4 级 RBAC、审计哈希链、CORS 白名单 |
 | 文件传输 | 3 | 上传 / 下载 / 列表，Base64 10MB 限制 |
+| 高可用防护 | 3 | DB 分裂自动检测 + 合并 + 看门狗自愈 |
 
-**53 个 MCP 工具** · SQLite WAL（零消息丢失） · SSE 推送延迟 < 50ms
+**56 个 MCP 工具** · SQLite WAL（零消息丢失） · SSE 推送延迟 < 50ms
 
 ---
 
@@ -162,7 +164,12 @@ cd deploy && docker compose up -d
 git clone https://github.com/liuboacean/agent-comm-hub.git
 cd agent-comm-hub
 npm install && npm run build
+
+# 方式 A — 快速启动（开发）
 npm start
+
+# 方式 B — 生产启动（推荐，含 DB 一致性检测 + 看门狗自愈）
+bash scripts/start_hub_server.sh
 ```
 
 ### 作为 Skill 安装
@@ -182,6 +189,8 @@ npx skills add liuboacean/agent-comm-hub
 启动 Hub 后，将其添加到 Agent 的 MCP 配置中：
 
 ### 方式一：stdio（推荐）
+
+> 注意：显示设置 `DB_PATH` 环境变量可防止 Node 版本切换导致的多 DB 分裂问题
 
 ```json
 {
@@ -255,8 +264,11 @@ agent-comm-hub/
 │   ├── evolution-engine-guide.md
 │   └── hermes-integration-guide.md
 ├── scripts/
-│   ├── install.sh               # Hub 服务安装脚本
-│   └── test-e2e.sh              # 端到端测试套件
+│   ├── install.sh                  # Hub 服务安装脚本
+│   ├── test-e2e.sh                 # 端到端测试套件
+│   ├── start_hub_server.sh         # 生产启动脚本（含 DB 一致性检测）
+│   ├── check_db_consistency.sh     # DB 分裂检测 + 自动合并（启动 / 看门狗共用）
+│   └── cron_db_watchdog.sh         # 每 10 分钟 DB 健康看门狗
 └── tests/                       # 集成 + 单元测试
 ```
 
@@ -266,10 +278,11 @@ agent-comm-hub/
 
 | 文档 | 适用场景 |
 |------|---------|
-| [API 参考](docs/API_REFERENCE.md) | 全部 53 个工具签名 + 示例 |
+| [API 参考](docs/API_REFERENCE.md) | 全部 56 个工具签名 + 示例 |
 | [编排指南](docs/advanced-orchestration-guide.md) | Pipeline、并行组、质检门 |
 | [进化引擎](docs/evolution-engine-guide.md) | 信任评分、策略审批流程 |
 | [Hermes 集成](docs/hermes-integration-guide.md) | Hermes Agent 分步接入 |
+| [三层防护](docs/hub-db-split-three-layer-protection.md) | DB 分裂检测、合并、看门狗自愈 |
 | [English README](docs/README_EN.md) | 英文版 |
 
 ---

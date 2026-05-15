@@ -3,14 +3,56 @@
  * 消息 + 任务 两张表，进程重启数据不丢失
  */
 import Database, { type Database as DatabaseType, type Statement } from "better-sqlite3";
-import { join, dirname } from "path";
+import { existsSync } from "fs";
+import { join, dirname, resolve } from "path";
 import { fileURLToPath } from "url";
 import { logger, logError } from "./logger.js";
 import type { PragmaColumnInfo, CountRow, MaxTimestampRow } from "./types.js";
 import { getErrorMessage } from "./types.js";
 
-const __dir = dirname(fileURLToPath(import.meta.url));
-const DB_PATH = process.env.DB_PATH || join(__dir, "../comm_hub.db");
+const HUB_DIR = process.env.HOME
+  ? join(process.env.HOME, "WorkBuddy/20260416213415/agent-comm-hub")
+  : undefined;
+
+/**
+ * 四级回退解析 DB 路径，防止忘记设置 DB_PATH 时静默使用 dist/comm_hub.db。
+ * 这是 2026-05-15 双 DB 分裂事故的永久防护。
+ *
+ * 优先级：
+ *   1. DB_PATH 环境变量（显式指定）
+ *   2. 当前工作目录的 comm_hub.db（与 stdio.js 一致）
+ *   3. ~/WorkBuddy/.../comm_hub.db（硬编码 fallback）
+ *   4. 明确报错终止（不静默回退到 dist/）
+ */
+function resolveDbPath(): string {
+  // 第 1 级：环境变量优先
+  if (process.env.DB_PATH) {
+    return process.env.DB_PATH;
+  }
+
+  // 第 2 级：当前工作目录
+  const cwdPath = resolve("comm_hub.db");
+  if (existsSync(cwdPath)) {
+    return cwdPath;
+  }
+
+  // 第 3 级：硬编码 fallback
+  if (HUB_DIR) {
+    const homePath = join(HUB_DIR, "comm_hub.db");
+    if (existsSync(homePath)) {
+      return homePath;
+    }
+  }
+
+  // 第 4 级：明确报错，绝不静默使用 dist/comm_hub.db
+  throw new Error(
+    "DB_PATH 未设置且未找到 comm_hub.db。\n" +
+    "请设置环境变量 DB_PATH，或确保 comm_hub.db 存在于当前工作目录或 ~/WorkBuddy/.../ 下。\n" +
+    "参考: DB_PATH=~/WorkBuddy/20260416213415/agent-comm-hub/comm_hub.db"
+  );
+}
+
+const DB_PATH = resolveDbPath();
 
 export const db: DatabaseType = new Database(DB_PATH);
 

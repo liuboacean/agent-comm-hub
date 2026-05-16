@@ -278,7 +278,7 @@ agent-comm-hub/
 
 | 文档 | 适用场景 |
 |------|---------|
-| [API 参考](docs/API_REFERENCE.md) | 全部 56 个工具签名 + 示例 |
+| [API 参考](docs/API_REFERENCE.md) | 全部 53 个工具签名 + 示例 |
 | [编排指南](docs/advanced-orchestration-guide.md) | Pipeline、并行组、质检门 |
 | [进化引擎](docs/evolution-engine-guide.md) | 信任评分、策略审批流程 |
 | [Hermes 集成](docs/hermes-integration-guide.md) | Hermes Agent 分步接入 |

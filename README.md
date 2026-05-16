@@ -60,13 +60,13 @@ python3 -c "from hub_client import SynergyHubClient; c=SynergyHubClient('http://
 | 消息通信 | 5 | P2P / 广播、FTS5 全文搜索、去重 |
 | 任务调度 | 8 | 7 状态机、Pipeline、并行组、自动重试 |
 | 共享记忆 | 5 | private / team / collective 三级作用域 |
-| 编排协调 | 11 | 依赖链（DFS 环检测）、质检门、交接协议 |
+| 编排协调 | 8 | 依赖链（DFS 环检测）、质检门、交接协议 |
 | 进化引擎 | 12 | 经验共享、4 级策略审批、信任反馈闭环 |
-| 安全审计 | 6 | Token 认证、4 级 RBAC、审计哈希链、CORS 白名单 |
+| 安全审计 | 4 | Token 认证、4 级 RBAC、审计哈希链、CORS 白名单 |
 | 文件传输 | 3 | 上传 / 下载 / 列表，Base64 10MB 限制 |
-| 高可用防护 | 3 | DB 分裂自动检测 + 合并 + 看门狗自愈 |
+| 高可用防护 | 2 | DB 分裂自动检测 + 合并 + 看门狗自愈 |
 
-**56 个 MCP 工具** · SQLite WAL（零消息丢失） · SSE 推送延迟 < 50ms
+**53 个 MCP 工具** · SQLite WAL（零消息丢失） · SSE 推送延迟 < 50ms
 
 ---
 

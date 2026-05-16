@@ -44,10 +44,11 @@ No config files. No external services. Works locally.
 | **Messaging** | 5 | P2P / broadcast, FTS5 search, deduplication |
 | **Task Scheduling** | 8 | 7-state machine, pipelines, parallel groups, auto-retry |
 | **Memory** | 5 | private / team / collective scopes, edge function scoring |
-| **Orchestration** | 11 | Dependency chains (DFS cycle detection), quality gates, handover protocols |
+| **Orchestration** | 8 | Dependency chains (DFS cycle detection), quality gates, handover protocols |
 | **Evolution** | 12 | Experience sharing, 4-tier strategy approval, trust-score feedback loop |
-| **Security** | 6 | Token auth, 4-level RBAC, audit hash chain, CORS whitelist |
+| **Security** | 4 | Token auth, 4-level RBAC, audit hash chain, CORS whitelist |
 | **Files** | 3 | Upload / download / list, up to 10MB Base64 |
+| **High Availability** | 2 | DB split detection + auto-merge + watchdog self-healing |
 
 **53 MCP tools** · SQLite WAL (zero message loss) · SSE push latency < 50ms
 

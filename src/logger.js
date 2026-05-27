@@ -2,7 +2,7 @@
  * logger.ts — 结构化 JSON 日志（Phase 5b）
  * 替换 console.log/error/warn 为 JSON 格式输出
  *
- * 输出目标：stdout（info/debug）+ stderr（warn/error）
+ * 输出目标：全部 stderr（避免干扰 MCP stdio 协议）
  * 格式：{"timestamp":"ISO8601","level":"info","traceId":"xxx","module":"server","msg":"xxx",...meta}
  *
  * 环境变量：LOG_LEVEL（默认 info）
@@ -25,7 +25,7 @@ function write(entry) {
         process.stderr.write(line + "\n");
     }
     else {
-        process.stdout.write(line + "\n");
+        process.stderr.write(line + "\n");
     }
 }
 function formatMsg(args) {

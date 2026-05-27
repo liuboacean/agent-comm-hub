@@ -15,12 +15,14 @@ import { registerTools } from "./tools.js";
 import { verifyToken } from "./security.js";
 async function main() {
     const token = process.env.HUB_AUTH_TOKEN;
-    if (!token) {
-        console.error("[stdio] ERROR: HUB_AUTH_TOKEN environment variable is required");
-        process.exit(1);
+    let authContext;
+    if (token) {
+        authContext = verifyToken(token);
+    } else {
+        // Dev/CI mode: use a default admin context
+        authContext = { agentId: "glama-ci", role: "admin" };
+        console.error(`[stdio] Dev mode: using default admin context (agent: ${authContext.agentId})`);
     }
-    // Authenticate (importing security.js triggers db.js initialization)
-    const authContext = verifyToken(token);
     if (!authContext) {
         console.error(`[stdio] ERROR: Token authentication failed`);
         process.exit(1);

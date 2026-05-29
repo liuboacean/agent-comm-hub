@@ -2,7 +2,7 @@
  * logger.ts — 结构化 JSON 日志（Phase 5b）
  * 替换 console.log/error/warn 为 JSON 格式输出
  *
- * 输出目标：stdout（info/debug）+ stderr（warn/error）
+ * 输出目标：全部写入 stderr（stdout 保留给 MCP stdio JSON-RPC 协议）
  * 格式：{"timestamp":"ISO8601","level":"info","traceId":"xxx","module":"server","msg":"xxx",...meta}
  *
  * 环境变量：LOG_LEVEL（默认 info）
@@ -35,11 +35,7 @@ function shouldLog(level: LogLevel): boolean {
 function write(entry: LogEntry): void {
   if (!shouldLog(entry.level)) return;
   const line = JSON.stringify(entry);
-  if (entry.level === "warn" || entry.level === "error") {
-    process.stderr.write(line + "\n");
-  } else {
-    process.stdout.write(line + "\n");
-  }
+  process.stderr.write(line + "\n");
 }
 
 function formatMsg(args: unknown[]): string {

@@ -952,3 +952,43 @@ export function scoreAppliedStrategies(): {
 
   return { scored, details };
 }
+
+// ─── FTS 索引重建 ────────────────────────────────────────
+
+/**
+ * 为所有已有 strategies 重建 FTS 索引
+ * 在 db.ts 模块初始化时调用，确保 stdio.js 等入口也不会漏掉
+ */
+export function rebuildStrategiesFts(): void {
+  try {
+    const stratCount = (db.prepare(`SELECT COUNT(*) as cnt FROM strategies`).get() as any)?.cnt ?? 0;
+    let ftsCount = 0;
+    try {
+      ftsCount = (db.prepare(`SELECT COUNT(*) as cnt FROM strategies_fts`).get() as any)?.cnt ?? 0;
+    } catch {
+      return; // FTS 表不存在
+    }
+
+    if (stratCount === 0 || ftsCount >= stratCount) {
+      return; // 不需要重建
+    }
+
+    const strategies = db.prepare(
+      `SELECT id, title, content, category FROM strategies`
+    ).all() as { id: number; title: string; content: string; category: string }[];
+
+    const insertFts = db.prepare(
+      `INSERT INTO strategies_fts (rowid, title, content, category) VALUES (?, ?, ?, ?)`
+    );
+
+    const rebuildBatch = db.transaction((strats: { id: number; title: string; content: string; category: string }[]) => {
+      for (const s of strats) {
+        insertFts.run(s.id, s.title, s.content, s.category);
+      }
+    });
+
+    rebuildBatch(strategies);
+  } catch (err: unknown) {
+    logError("evolution_rebuildStrategiesFts_error", err);
+  }
+}

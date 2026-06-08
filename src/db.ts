@@ -449,19 +449,9 @@ try {
 }
 
 // FTS5 虚拟表（独立存储模式 + fts_tokens 列）
+// 注意：不再在模块加载时 DROP TABLE，避免多进程（server.js + stdio.js）
+// 竞态导致 FTS 索引被清空。Phase 2 旧版 migration 已完成。
 try {
-  // Phase 2: 旧版 FTS5 可能已存在（external content 模式），需要重建
-  // 先尝试删除旧表（ignore error 如果不存在）
-  try {
-    db.exec(`DROP TRIGGER IF EXISTS memories_ai`);
-    db.exec(`DROP TRIGGER IF EXISTS memories_ad`);
-    db.exec(`DROP TRIGGER IF EXISTS memories_au`);
-    db.exec(`DROP TABLE IF EXISTS memories_fts`);
-  } catch {
-    // ignore
-  }
-
-  // 新版 FTS5：独立存储 fts_tokens 列
   db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
       title,
@@ -475,6 +465,15 @@ try {
     logger.warn("db_fts5_init_warning", { module: "db", error: getErrorMessage(e) });
   }
 }
+
+// 模块初始化时检查并重建 FTS 索引（如果为空）
+// 这个调用对 server.js 冗余（server.ts 也会调），但对 stdio.js 等
+// 其他入口至关重要——确保任何进程初始化后 FTS 都不为空。
+import("./memory.js").then(({ rebuildFtsIndex }) => {
+  rebuildFtsIndex();
+}).catch(() => {
+  // 循环引用时忽略
+});
 
 // --- agents_capabilities 表 ---
 db.exec(`
@@ -571,16 +570,9 @@ db.exec(`
 `);
 
 // FTS5 全文索引（N-gram 中文分词，与 memories 一致）
+// FTS5 虚拟表 for strategies（独立存储模式）
+// 注意：不再在模块加载时 DROP TABLE，避免多进程竞态（同 memories_fts）
 try {
-  try {
-    db.exec(`DROP TRIGGER IF EXISTS strategies_ai`);
-    db.exec(`DROP TRIGGER IF EXISTS strategies_ad`);
-    db.exec(`DROP TRIGGER IF EXISTS strategies_au`);
-    db.exec(`DROP TABLE IF EXISTS strategies_fts`);
-  } catch {
-    // ignore
-  }
-
   db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS strategies_fts USING fts5(
       title, content, category
@@ -591,6 +583,13 @@ try {
     logger.warn("db_strategies_fts5_init_warning", { module: "db", error: getErrorMessage(e) });
   }
 }
+
+// 模块初始化后重建 strategies_fts 索引（如果为空）
+import("./evolution.js").then(({ rebuildStrategiesFts }) => {
+  if (typeof rebuildStrategiesFts === "function") rebuildStrategiesFts();
+}).catch(() => {
+  // 循环引用或函数不存在时忽略
+});
 
 // ═══════════════════════════════════════════════════════════════
 // Phase 4b — Task Orchestrator 进阶（依赖链 + 质量门 + 交接 + 分级审批）

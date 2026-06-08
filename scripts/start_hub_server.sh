@@ -6,10 +6,14 @@
 
 set -euo pipefail
 
-HUB_DIR="/Users/liubo/WorkBuddy/20260416213415/agent-comm-hub"
+HUB_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$HUB_DIR"
 
-export PATH="/Users/liubo/.nvm/versions/node/v24.15.0/bin:$PATH"
+# 使用 nvm 管理的 Node.js（如果存在），否则使用系统 node
+if [ -s "$HOME/.nvm/nvm.sh" ]; then
+  export NVM_DIR="$HOME/.nvm"
+  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+fi
 export PORT=3100
 
 # 第 2 层：启动前一致性检查

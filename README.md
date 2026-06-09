@@ -79,6 +79,11 @@ python3 -c "from hub_client import SynergyHubClient; c=SynergyHubClient('http://
 - 📨 **P0-4**: 新增 `generate_invite` MCP 工具 — 安全生成注册邀请码（SHA-256 + 24h 过期）
 - 🧪 **P0-3**: 测试覆盖率提升 — 新增 identity(9) + evolution(10) 共 19 个测试用例
 
+### v2.4.7 (2026-06-09)
+- 🔍 **P1-1**: FTS5 tags 分词修复 — 空格拼接替代 JSON，版本号/hash 可正确搜索
+- 📊 **P1-2**: 12 处静默吞异常修复 — 全链路 logError，信任分/DB统计/SSE 可观测
+- 🔐 **P1-3**: authed() 统一认证中间件 — 52 个 handler 重构，零 requireAuth 残留
+
 ---
 
 ## 架构

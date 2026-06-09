@@ -53,7 +53,7 @@ function createTestDb(): Database.Database {
       approval_tier   TEXT DEFAULT 'admin',
       observation_start INTEGER,
       veto_deadline     INTEGER,
-      UNIQUE(title, proposer_id, proposed_at)
+      UNIQUE(title, proposer_id)  -- 不含 proposed_at, timestamp 不应影响重复检测
     );
 
     CREATE TABLE IF NOT EXISTS strategy_feedback (

@@ -18,7 +18,7 @@ import { randomUUID } from "crypto";
 import { db } from "./db.js";
 import { buildFtsTokens, buildSearchQuery } from "./tokenizer.js";
 import { auditLog } from "./security.js";
-import type { MemoryRow } from "./types.js";
+import type { MemoryRow, CountRow } from "./types.js";
 import { getErrorMessage } from "./types.js";
 import { logError, logger } from "./logger.js";
 
@@ -365,10 +365,10 @@ export function deleteMemory(
  */
 export function getMemoryStats(): MemoryStats {
   try {
-    const totalRow = db.prepare(`SELECT COUNT(*) as cnt FROM memories`).get() as any;
+    const totalRow = db.prepare(`SELECT COUNT(*) as cnt FROM memories`).get() as CountRow;
     let ftsEntries = 0;
     try {
-      const ftsRow = db.prepare(`SELECT COUNT(*) as cnt FROM memories_fts`).get() as any;
+      const ftsRow = db.prepare(`SELECT COUNT(*) as cnt FROM memories_fts`).get() as CountRow;
       ftsEntries = ftsRow?.cnt ?? 0;
     } catch {
       // FTS 表可能不存在
@@ -412,10 +412,10 @@ export function getMemoryStats(): MemoryStats {
  */
 export function rebuildFtsIndex(): void {
   try {
-    const memCount = (db.prepare(`SELECT COUNT(*) as cnt FROM memories`).get() as any)?.cnt ?? 0;
+    const memCount = (db.prepare(`SELECT COUNT(*) as cnt FROM memories`).get() as CountRow)?.cnt ?? 0;
     let ftsCount = 0;
     try {
-      ftsCount = (db.prepare(`SELECT COUNT(*) as cnt FROM memories_fts`).get() as any)?.cnt ?? 0;
+      ftsCount = (db.prepare(`SELECT COUNT(*) as cnt FROM memories_fts`).get() as CountRow)?.cnt ?? 0;
     } catch {
       // FTS 表不存在，跳过
       return;

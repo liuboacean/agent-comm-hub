@@ -1025,16 +1025,16 @@ export function stopCleanup(): void {
 // ═══════════════════════════════════════════════════════════════
 
 export function fts5IntegrityCheck(): { ok: boolean; details: string } {
-  const memMain = db.prepare("SELECT COUNT(*) as cnt FROM memories").get() as any;
-  const memFts = db.prepare("SELECT COUNT(*) as cnt FROM memories_fts").get() as any;
-  const stratFts = db.prepare("SELECT COUNT(*) as cnt FROM strategies_fts").get() as any;
+  const memMain = db.prepare("SELECT COUNT(*) as cnt FROM memories").get() as CountRow;
+  const memFts = db.prepare("SELECT COUNT(*) as cnt FROM memories_fts").get() as CountRow;
+  const stratFts = db.prepare("SELECT COUNT(*) as cnt FROM strategies_fts").get() as CountRow;
   const checks: string[] = [];
   if (memMain.cnt > 0 && memFts.cnt < memMain.cnt) {
     checks.push(`memories FTS5 mismatch (main=${memMain.cnt}, fts=${memFts.cnt}), triggering REINDEX`);
     db.exec("INSERT INTO memories_fts(memories_fts) VALUES('rebuild')");
   }
   if (stratFts.cnt === 0) {
-    const stratCnt = db.prepare("SELECT COUNT(*) as cnt FROM strategies WHERE status='approved'").get() as any;
+    const stratCnt = db.prepare("SELECT COUNT(*) as cnt FROM strategies WHERE status='approved'").get() as CountRow;
     if (stratCnt.cnt > 0) {
       checks.push("strategies FTS5 empty, triggering REINDEX");
       db.exec("INSERT INTO strategies_fts(strategies_fts) VALUES('rebuild')");

@@ -174,6 +174,15 @@ export function proposeStrategy(
   const now = Date.now();
   const trustScore = getAgentTrustScore(proposerId);
 
+  // P1-2 fix: UNIQUE(title, proposer_id, proposed_at) 因 timestamp 不同导致
+  // 重复检测失效。改为显式前置检查，确保同一 proposer 不能重复提交相同标题。
+  const dupCheck = db.prepare(
+    "SELECT COUNT(*) as cnt FROM strategies WHERE title = ? AND proposer_id = ?"
+  ).get(title.trim(), proposerId) as { cnt: number } | undefined;
+  if (dupCheck && dupCheck.cnt > 0) {
+    return { ok: false, error: "Duplicate title: strategy with this title already exists for this proposer" };
+  }
+
   try {
     const result = db.prepare(
       `INSERT INTO strategies (title, content, category, sensitivity, proposer_id, status, proposed_at, task_id, source_trust)

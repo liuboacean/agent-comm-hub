@@ -15,6 +15,39 @@ const clients = new Map<string, Response>();
 // ─── 客户端去重：per-connection 递增 event_id ─────────────
 const clientEventCounters = new Map<string, number>();
 
+// ─── P2-3: SSE 僵尸连接清理 ──────────────────────────────
+const clientLastActivity = new Map<string, number>();
+let zombieCleanupTimer: ReturnType<typeof setInterval> | null = null;
+
+function touchActivity(agentId: string): void {
+  clientLastActivity.set(agentId, Date.now());
+}
+
+/**
+ * 启动僵尸连接清理（每 5 分钟检测 1 次，心跳超时 10 分钟自动移除）
+ */
+export function startZombieCleanup(timeoutMs = 600_000): void {
+  if (zombieCleanupTimer) return;
+  zombieCleanupTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [agentId, last] of clientLastActivity.entries()) {
+      if (now - last > timeoutMs) {
+        const res = clients.get(agentId);
+        if (res) { try { res.end(); } catch { /* ignore close error */ } }
+        clients.delete(agentId);
+        clientEventCounters.delete(agentId);
+        clientLastActivity.delete(agentId);
+        logger.warn("sse_zombie_removed", { module: "sse", agent_id: agentId, idle_ms: now - last });
+      }
+    }
+  }, 300_000); // 每 5 分钟
+  logger.info("sse_zombie_cleanup_started", { module: "sse", interval_ms: 300_000, timeout_ms: timeoutMs });
+}
+
+export function stopZombieCleanup(): void {
+  if (zombieCleanupTimer) { clearInterval(zombieCleanupTimer); zombieCleanupTimer = null; }
+}
+
 function nextEventId(agentId: string): number {
   const current = clientEventCounters.get(agentId) ?? 0;
   const next = current + 1;
@@ -43,6 +76,7 @@ export function registerClient(agentId: string, res: Response): void {
   clients.set(agentId, res);
   // 重置 event counter
   clientEventCounters.set(agentId, 0);
+  touchActivity(agentId);
   logger.info("sse_client_connected", { module: "sse", agent_id: agentId, total: clients.size });
 }
 
@@ -81,6 +115,7 @@ export function pushToAgent(agentId: string, event: object, dedupId?: string): b
     res.write(`id: ${eventId}\n`);
     res.write(`event: message\n`);
     res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    touchActivity(agentId);
     return true;
   } catch (err) {
     // 连接异常，移除
@@ -105,6 +140,10 @@ export function broadcast(agentIds: string[], event: object): Record<string, boo
  */
 export function onlineAgents(): string[] {
   return [...clients.keys()];
+}
+
+export function connectedCount(): number {
+  return clients.size;
 }
 
 /**

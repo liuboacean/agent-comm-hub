@@ -15,7 +15,7 @@ import express, { type Request, type Response, type NextFunction } from "express
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { registerTools } from "./tools.js";
-import { registerClient, removeClient, pushToAgent, onlineAgents, drainAllClients } from "./sse.js";
+import { registerClient, removeClient, pushToAgent, onlineAgents, drainAllClients, startZombieCleanup, stopZombieCleanup } from "./sse.js";
 import { getDbStats, db, scheduleCleanup, stopCleanup } from "./db.js";
 import { messageRepo, taskRepo, consumedRepo } from "./repo/sqlite-impl.js";
 import {
@@ -248,6 +248,58 @@ app.get("/health", (_req: Request, res: Response) => {
     },
     sse: {
       active_connections: onlineAgents().length,
+    },
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// P2-5: 详细健康检查端点（免认证）
+// ═══════════════════════════════════════════════════════════════
+app.get("/health/detailed", (_req: Request, res: Response) => {
+  const stats = getDbStats();
+  const mem = process.memoryUsage();
+  const agents = onlineAgents();
+
+  // FTS5 索引状态
+  let fts5Status = "unknown";
+  try {
+    const memMain = db.prepare("SELECT COUNT(*) as cnt FROM memories").get() as any;
+    const memFts = db.prepare("SELECT COUNT(*) as cnt FROM memories_fts").get() as any;
+    const stratFts = db.prepare("SELECT COUNT(*) as cnt FROM strategies_fts").get() as any;
+    fts5Status = memMain.cnt === memFts.cnt ? "consistent" : "drifted";
+  } catch (err) { logError("health_detailed_fts5_failed", err, { module: "server" }); }
+
+  // 消息队列深度（24h 内未确认消息数）
+  let pendingMessages = 0;
+  try {
+    const row = db.prepare(
+      "SELECT COUNT(*) as cnt FROM messages WHERE status IN ('unread','delivered') AND created_at > ?"
+    ).get(Date.now() - 86400_000) as any;
+    pendingMessages = row?.cnt ?? 0;
+  } catch (err) { logError("health_detailed_msg_pending_failed", err, { module: "server" }); }
+
+  res.json({
+    status: "ok",
+    version: "2.4.7",
+    uptime: process.uptime(),
+    timestamp: Date.now(),
+    memory: {
+      rss_mb: Math.round(mem.rss / 1024 / 1024),
+      heap_used_mb: Math.round(mem.heapUsed / 1024 / 1024),
+      heap_total_mb: Math.round(mem.heapTotal / 1024 / 1024),
+    },
+    agents: {
+      online: agents.length,
+      online_ids: agents,
+    },
+    fts5: {
+      status: fts5Status,
+    },
+    messages: {
+      pending_24h: pendingMessages,
+    },
+    db: {
+      tables: stats,
     },
   });
 });
@@ -557,6 +609,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   stopHeartbeatMonitor();
   stopDedupCleanup();
   stopCleanup();
+  stopZombieCleanup();
 
   // 4. 关闭数据库
   try {
@@ -603,6 +656,9 @@ httpServer = app.listen(config.port, () => {
 
   // Phase 6: 启动定时清理（过期 Token / Dedup / Consumed）
   scheduleCleanup(config.dedupTTL);
+
+  // P2-3: SSE 僵尸连接清理（5分钟检测，10分钟超时）
+  startZombieCleanup();
 
   // 重建 FTS 索引
   rebuildFtsIndex();

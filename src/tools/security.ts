@@ -8,7 +8,7 @@ import { db, getEnhancedDbStats, archiveOldMessages, archiveOldAuditLogs, vacuum
 import { auditLog, recalculateTrustScore, recalculateAllTrustScores, type AuthContext } from "../security.js";
 import { setAgentRole as setAgentRoleFromIdentity } from "../identity.js";
 import { logError } from "../logger.js";
-import { withRetry, requireAuth, mcpError, mcpFail } from "../utils.js";
+import { withRetry, requireAuth, authed, mcpError, mcpFail } from "../utils.js";
 
 /**
  * 注册安全与维护工具
@@ -27,8 +27,7 @@ export function registerSecurityTools(server: McpServer, authContext?: AuthConte
       role:              z.enum(["admin", "member", "group_admin"]).describe("新角色"),
       managed_group_id:  z.string().optional().describe("管理组 ID（仅 group_admin 角色需要）"),
     },
-    async ({ agent_id, role, managed_group_id }) => {
-      const ctx = requireAuth(authContext, "set_agent_role");
+    authed(authContext, "set_agent_role", async (ctx, { agent_id, role, managed_group_id }) => {
 
       const result = setAgentRoleFromIdentity(agent_id, role, ctx.agentId, managed_group_id);
 
@@ -53,7 +52,7 @@ export function registerSecurityTools(server: McpServer, authContext?: AuthConte
           }, null, 2),
         }],
       };
-    }
+    })
   );
 
   // ────────────────────────────────────────────────────
@@ -66,8 +65,7 @@ export function registerSecurityTools(server: McpServer, authContext?: AuthConte
     {
       agent_id: z.string().optional().describe("目标 Agent ID（不传则重算全部 Agent）"),
     },
-    async ({ agent_id }) => {
-      const ctx = requireAuth(authContext, "recalculate_trust_scores");
+    authed(authContext, "recalculate_trust_scores", async (ctx, { agent_id }) => {
 
       try {
         if (agent_id) {
@@ -100,7 +98,7 @@ export function registerSecurityTools(server: McpServer, authContext?: AuthConte
       } catch (err: unknown) {
         return mcpError(err, "recalculate_trust_scores");
       }
-    }
+    })
   );
 
   // ────────────────────────────────────────────────────
@@ -112,8 +110,7 @@ export function registerSecurityTools(server: McpServer, authContext?: AuthConte
     "get_db_stats",
     "获取数据库统计信息。包括各表行数、数据库文件大小、WAL 大小、最后归档时间等。仅 admin 可调用。",
     {},
-    async () => {
-      requireAuth(authContext, "get_db_stats");
+    authed(authContext, "get_db_stats", async (_ctx) => {
 
       try {
         const stats = getEnhancedDbStats();
@@ -134,7 +131,7 @@ export function registerSecurityTools(server: McpServer, authContext?: AuthConte
         logError("get_db_stats_error", err);
         return mcpError(err, "get_db_stats");
       }
-    }
+    })
   );
 
   // Tool DB2: archive_data — admin only
@@ -148,8 +145,7 @@ export function registerSecurityTools(server: McpServer, authContext?: AuthConte
       vacuum: z.boolean().optional().default(false)
               .describe("归档后是否执行 VACUUM 压缩数据库文件"),
     },
-    async ({ type, days, vacuum }) => {
-      requireAuth(authContext, "archive_data");
+    authed(authContext, "archive_data", async (_ctx, { type, days, vacuum }) => {
 
       try {
         const daysForType = days ?? (type === "messages" ? 30 : 90);
@@ -192,6 +188,6 @@ export function registerSecurityTools(server: McpServer, authContext?: AuthConte
         logError("archive_data_error", err);
         return mcpError(err, "archive_data");
       }
-    }
+    })
   );
 }

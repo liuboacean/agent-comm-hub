@@ -7,6 +7,7 @@ import { randomUUID } from "crypto";
 import { db, type Task, type Pipeline, type PipelineTask } from "./db.js";
 import { pushToAgent, onlineAgents } from "./sse.js";
 import { auditLog, recalculateTrustScore } from "./security.js";
+import { logError } from "./logger.js";
 import type { DepType } from "./repo/types.js";
 import { taskRepo } from "./repo/sqlite-impl.js";
 
@@ -444,7 +445,9 @@ export function registerCapability(input: CapabilityInput): { id: string } {
 
   // Phase 5a Day 2: 验证的能力影响信任评分
   if (input.verified) {
-    try { recalculateTrustScore(input.agent_id); } catch {}
+    try { recalculateTrustScore(input.agent_id); } catch (err) {
+      logError("trust_score_recalc_failed", err, { module: "orchestrator", agent_id: input.agent_id });
+    }
   }
 
   return { id };

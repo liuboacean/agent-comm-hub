@@ -229,7 +229,7 @@ app.get("/health", (_req: Request, res: Response) => {
   try {
     const row = db.prepare(`SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size()`).get() as any;
     dbSize = row?.size ?? 0;
-  } catch {}
+  } catch (err) { logError("health_db_size_query_failed", err, { module: "server" }); }
 
   res.json({
     status: "ok",
@@ -408,7 +408,7 @@ function extractToolName(req: express.Request): string | null {
     if (body?.method === "tools/call" && body?.params?.name) {
       return body.params.name as string;
     }
-  } catch {}
+  } catch (err) { logError("extract_tool_name_failed", err, { module: "mcp" }); }
   return null;
 }
 

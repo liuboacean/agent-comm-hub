@@ -28,6 +28,19 @@ const MAX_TITLE_LENGTH = 500;
 const MAX_RECALL_RESULTS = 20;
 const MAX_LIST_RESULTS = 50;
 
+// ─── P1-1: 向后兼容 tags 解析 ────────────────────────────
+// v2.4.6+ 存空格拼接字符串（"v2.2.0 source:hermes"），旧数据仍为 JSON 数组
+
+export function parseTags(tagsStr: string | null): string[] {
+  if (!tagsStr) return [];
+  // 检测是否为旧 JSON 数组格式
+  if (tagsStr.startsWith("[") && tagsStr.endsWith("]")) {
+    try { return JSON.parse(tagsStr) as string[]; } catch { /* fall through */ }
+  }
+  // 新格式：空格分隔
+  return tagsStr.split(" ").filter(Boolean);
+}
+
 // ─── 类型定义 ────────────────────────────────────────────
 export interface MemoryEntry {
   id: string;
@@ -35,7 +48,7 @@ export interface MemoryEntry {
   title: string | null;
   content: string;
   scope: "private" | "group" | "collective";
-  tags: string | null;  // JSON array
+  tags: string | null;  // space-separated (v2.4.6+), legacy JSON array
   source_agent_id: string | null;  // Phase 2 Day 4: 溯源
   source_task_id: string | null;   // Phase 2 Day 4: 溯源
   created_at: number;
@@ -95,7 +108,9 @@ export function storeMemory(
   }
 
   const tags = options?.tags ?? null;
-  const tagsJson = tags ? JSON.stringify(tags) : null;
+  // P1-1: 空格拼接替代 JSON，避免 FTS5 tokenizer 拆分版本号/hash
+  // 旧格式: ["v2.2.0","source:hermes"] → 新格式: "v2.2.0 source:hermes"
+  const tagsStr = tags ? tags.join(" ") : null;
   const sourceAgentId = options?.source_agent_id ?? null;
   const sourceTaskId = options?.source_task_id ?? null;
 
@@ -108,12 +123,12 @@ export function storeMemory(
     db.prepare(
       `INSERT INTO memories (id, agent_id, title, content, fts_tokens, scope, tags, source_agent_id, source_task_id, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(id, agentId, title, content, ftsTokens, scope, tagsJson, sourceAgentId, sourceTaskId, now, now);
+    ).run(id, agentId, title, content, ftsTokens, scope, tagsStr, sourceAgentId, sourceTaskId, now, now);
 
     // 同步写入 FTS5 索引
     db.prepare(
       `INSERT INTO memories_fts (title, content, tags, fts_tokens) VALUES (?, ?, ?, ?)`
-    ).run(title, content, tagsJson, ftsTokens);
+    ).run(title, content, tagsStr, ftsTokens);
 
     const memory: MemoryEntry = {
       id,
@@ -121,7 +136,7 @@ export function storeMemory(
       title,
       content,
       scope,
-      tags: tagsJson,
+      tags: tagsStr,
       source_agent_id: sourceAgentId,
       source_task_id: sourceTaskId,
       created_at: now,

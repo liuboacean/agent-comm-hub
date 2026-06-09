@@ -10,7 +10,7 @@ import { type ConsumedEntry } from "../db.js";
 import { consumedRepo } from "../repo/sqlite-impl.js";
 import { type AuthContext } from "../security.js";
 import { logError } from "../logger.js";
-import { withRetry, requireAuth } from "../utils.js";
+import { withRetry, requireAuth, authed } from "../utils.js";
 import { getErrorMessage } from "../types.js";
 
 export function registerConsumedTools(server: McpServer, authContext?: AuthContext): void {
@@ -28,8 +28,7 @@ export function registerConsumedTools(server: McpServer, authContext?: AuthConte
       action:        z.string().describe("执行的动作，如 reviewed_and_replied / acknowledged / processed"),
       notes:         z.string().optional().describe("处理说明，方便日后追溯"),
     },
-    async ({ agent_id, resource, resource_type, action, notes }) => {
-      requireAuth(authContext, "mark_consumed");
+    authed(authContext, "mark_consumed", async (_ctx, { agent_id, resource, resource_type, action, notes }) => {
 
       try {
         const entry: ConsumedEntry = {
@@ -71,7 +70,7 @@ export function registerConsumedTools(server: McpServer, authContext?: AuthConte
           }],
         };
       }
-    }
+    })
   );
 
   // ────────────────────────────────────────────────────
@@ -84,8 +83,7 @@ export function registerConsumedTools(server: McpServer, authContext?: AuthConte
       agent_id: z.string().describe("Agent ID，如 hermes"),
       resource: z.string().describe("文件路径或信号 ID"),
     },
-    async ({ agent_id, resource }) => {
-      requireAuth(authContext, "check_consumed");
+    authed(authContext, "check_consumed", async (_ctx, { agent_id, resource }) => {
 
       try {
         const record = await withRetry(
@@ -131,7 +129,7 @@ export function registerConsumedTools(server: McpServer, authContext?: AuthConte
           }],
         };
       }
-    }
+    })
   );
 
 }

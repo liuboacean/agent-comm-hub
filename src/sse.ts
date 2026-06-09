@@ -36,7 +36,9 @@ export function registerClient(agentId: string, res: Response): void {
   // 如果已有旧连接，先关掉（Agent 重启场景）
   const existing = clients.get(agentId);
   if (existing) {
-    try { existing.end(); } catch (_) {}
+    try { existing.end(); } catch (err) {
+      logger.debug("sse_old_connection_close_error", { module: "sse", agent_id: agentId });
+    }
   }
   clients.set(agentId, res);
   // 重置 event counter
@@ -117,7 +119,9 @@ export function drainAllClients(): void {
       res.write(`event: hub_shutdown\n`);
       res.write(`data: {"message":"Server shutting down"}\n\n`);
       res.end();
-    } catch {}
+    } catch (err) {
+      logger.debug("sse_drain_write_error", { module: "sse", agent_id: agentId });
+    }
   }
   clients.clear();
   clientEventCounters.clear();

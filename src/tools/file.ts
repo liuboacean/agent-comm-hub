@@ -13,7 +13,7 @@ import { logError } from "../logger.js";
 import { incrementMcpCall } from "../metrics.js";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
 import { join as pathJoin } from "path";
-import { withRetry, requireAuth, mcpError } from "../utils.js";
+import { withRetry, requireAuth, authed, mcpError } from "../utils.js";
 
 /**
  * 注册文件传输工具
@@ -35,8 +35,7 @@ export function registerFileTools(server: McpServer, authContext?: AuthContext):
       content_base64: z.string().describe("文件内容的 Base64 编码"),
       mime_type:      z.string().default("application/octet-stream").describe("MIME 类型"),
     },
-    async ({ message_id, filename, content_base64, mime_type }) => {
-      const ctx = requireAuth(authContext, "upload_file");
+    authed(authContext, "upload_file", async (ctx, { message_id, filename, content_base64, mime_type }) => {
       try {
         // 验证消息存在
         const msg = messageRepo.getById(message_id);
@@ -103,7 +102,7 @@ export function registerFileTools(server: McpServer, authContext?: AuthContext):
         logError("upload_file_error", err);
         return mcpError(err, "upload_file");
       }
-    }
+    })
   );
 
   // --- Tool: download_file ---
@@ -114,8 +113,7 @@ export function registerFileTools(server: McpServer, authContext?: AuthContext):
     {
       attachment_id: z.string().describe("附件 ID"),
     },
-    async ({ attachment_id }) => {
-      const ctx = requireAuth(authContext, "download_file");
+    authed(authContext, "download_file", async (ctx, { attachment_id }) => {
       try {
         const attach = attachStmt.getById.get(attachment_id) as Attachment | undefined;
         if (!attach) {
@@ -144,7 +142,7 @@ export function registerFileTools(server: McpServer, authContext?: AuthContext):
         logError("download_file_error", err);
         return mcpError(err, "download_file");
       }
-    }
+    })
   );
 
   // --- Tool: list_attachments ---
@@ -155,8 +153,7 @@ export function registerFileTools(server: McpServer, authContext?: AuthContext):
     {
       message_id: z.string().describe("消息 ID"),
     },
-    async ({ message_id }) => {
-      const ctx = requireAuth(authContext, "list_attachments");
+    authed(authContext, "list_attachments", async (ctx, { message_id }) => {
       try {
         const attachments = attachStmt.listByMessage.all(message_id) as Attachment[];
         incrementMcpCall("list_attachments", "success", ctx.role);
@@ -181,6 +178,6 @@ export function registerFileTools(server: McpServer, authContext?: AuthContext):
         logError("list_attachments_error", err);
         return mcpError(err, "list_attachments");
       }
-    }
+    })
   );
 }

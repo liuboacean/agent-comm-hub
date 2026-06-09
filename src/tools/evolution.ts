@@ -10,6 +10,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { pushToAgent } from "../sse.js";
 import { auditLog, recalculateTrustScore, type AuthContext } from "../security.js";
+import { logError } from "../logger.js";
 import {
   shareExperience,
   proposeStrategy,
@@ -25,7 +26,7 @@ import {
   checkVetoWindow,
   vetoStrategy as vetoStrategyFromEvolution,
 } from "../evolution.js";
-import { requireAuth, mcpFail } from "../utils.js";
+import { requireAuth, authed, mcpFail } from "../utils.js";
 
 /**
  * 注册 Evolution Engine 相关工具（12 个）
@@ -46,8 +47,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
       tags:    z.array(z.string()).max(10).optional().describe("标签列表，如 ['debugging', 'mcp']"),
       task_id: z.string().optional().describe("关联任务 ID"),
     },
-    async ({ title, content, tags, task_id }) => {
-      const ctx = requireAuth(authContext, "share_experience");
+    authed(authContext, "share_experience", async (ctx, { title, content, tags, task_id }) => {
 
       const result = shareExperience(title, content, ctx.agentId, { task_id });
 
@@ -70,7 +70,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
           }, null, 2),
         }],
       };
-    }
+    })
   );
 
   // Tool E2: propose_strategy — member 及以上
@@ -84,8 +84,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
                 .describe("策略分类"),
       task_id:  z.string().optional().describe("关联任务 ID"),
     },
-    async ({ title, content, category, task_id }) => {
-      const ctx = requireAuth(authContext, "propose_strategy");
+    authed(authContext, "propose_strategy", async (ctx, { title, content, category, task_id }) => {
 
       const result = proposeStrategy(title, content, category, ctx.agentId, { task_id });
 
@@ -111,7 +110,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
           }, null, 2),
         }],
       };
-    }
+    })
   );
 
   // Tool E3: list_strategies — member 及以上
@@ -124,8 +123,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
       proposer_id: z.string().optional().describe("提议者 Agent ID"),
       limit:       z.number().min(1).max(50).optional().default(20).describe("最大返回数量"),
     },
-    async ({ status, category, proposer_id, limit }) => {
-      const ctx = requireAuth(authContext, "list_strategies");
+    authed(authContext, "list_strategies", async (ctx, { status, category, proposer_id, limit }) => {
 
       const strategies = listStrategies({ status, category, proposer_id, limit });
 
@@ -152,7 +150,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
           }, null, 2),
         }],
       };
-    }
+    })
   );
 
   // Tool E4: search_strategies — member 及以上
@@ -164,8 +162,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
       category: z.string().optional().describe("分类筛选"),
       limit:    z.number().min(1).max(20).optional().default(10).describe("最大返回数量"),
     },
-    async ({ query, category, limit }) => {
-      const ctx = requireAuth(authContext, "search_strategies");
+    authed(authContext, "search_strategies", async (ctx, { query, category, limit }) => {
 
       const results = searchStrategies(query, { category, limit });
 
@@ -189,7 +186,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
           }, null, 2),
         }],
       };
-    }
+    })
   );
 
   // Tool E5: apply_strategy — member 及以上
@@ -200,8 +197,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
       strategy_id: z.number().describe("策略 ID"),
       context:     z.string().max(500).optional().describe("应用场景描述"),
     },
-    async ({ strategy_id, context }) => {
-      const ctx = requireAuth(authContext, "apply_strategy");
+    authed(authContext, "apply_strategy", async (ctx, { strategy_id, context }) => {
 
       const result = applyStrategy(strategy_id, ctx.agentId, { context });
 
@@ -240,7 +236,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
           }, null, 2),
         }],
       };
-    }
+    })
   );
 
   // Tool E6: feedback_strategy — member 及以上
@@ -253,8 +249,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
       comment:     z.string().max(500).optional().describe("反馈备注"),
       applied:     z.boolean().optional().describe("是否实际采纳到工作中"),
     },
-    async ({ strategy_id, feedback, comment, applied }) => {
-      const ctx = requireAuth(authContext, "feedback_strategy");
+    authed(authContext, "feedback_strategy", async (ctx, { strategy_id, feedback, comment, applied }) => {
 
       const result = feedbackStrategy(strategy_id, ctx.agentId, feedback, { comment, applied });
 
@@ -265,7 +260,9 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
       auditLog("tool_feedback_strategy", ctx.agentId, String(strategy_id), `feedback=${feedback}`);
 
       // Phase 5a Day 2: 反馈影响信任评分
-      try { recalculateTrustScore(ctx.agentId); } catch {}
+      try { recalculateTrustScore(ctx.agentId); } catch (err) {
+        logError("trust_score_recalc_failed", err, { module: "evolution", agent_id: ctx.agentId });
+      }
 
       return {
         content: [{
@@ -279,7 +276,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
           }, null, 2),
         }],
       };
-    }
+    })
   );
 
   // Tool A1: approve_strategy — admin only
@@ -291,8 +288,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
       action:      z.enum(["approve", "reject"]).describe("审批动作"),
       reason:      z.string().max(1000).describe("审批理由"),
     },
-    async ({ strategy_id, action, reason }) => {
-      const ctx = requireAuth(authContext, "approve_strategy");
+    authed(authContext, "approve_strategy", async (ctx, { strategy_id, action, reason }) => {
 
       const result = approveStrategy(strategy_id, ctx.agentId, action, reason);
 
@@ -333,7 +329,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
           }, null, 2),
         }],
       };
-    }
+    })
   );
 
   // Tool A2: get_evolution_status — member 及以上
@@ -341,8 +337,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
     "get_evolution_status",
     "查看 Evolution Engine 进化指标统计。包含经验数、策略数、审批率、贡献者排名等。",
     {},
-    async () => {
-      const ctx = requireAuth(authContext, "get_evolution_status");
+    authed(authContext, "get_evolution_status", async (ctx) => {
 
       const stats = getEvolutionStatus();
 
@@ -355,7 +350,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
           }, null, 2),
         }],
       };
-    }
+    })
   );
 
   // Tool A3: score_applied_strategies — admin only (Phase 2.2)
@@ -363,8 +358,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
     "score_applied_strategies",
     "自动评分已采纳策略：将 7 天前采纳但仍为 neutral 反馈的策略降为 negative。应定期调用。",
     {},
-    async () => {
-      const ctx = requireAuth(authContext, "score_applied_strategies");
+    authed(authContext, "score_applied_strategies", async (ctx) => {
 
       const result = scoreAppliedStrategies();
 
@@ -382,7 +376,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
           }, null, 2),
         }],
       };
-    }
+    })
   );
 
   // ────────────────────────────────────────────────────
@@ -400,8 +394,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
                 .describe("策略分类"),
       task_id:  z.string().optional().describe("关联任务 ID"),
     },
-    async ({ title, content, category, task_id }) => {
-      const ctx = requireAuth(authContext, "propose_strategy_tiered");
+    authed(authContext, "propose_strategy_tiered", async (ctx, { title, content, category, task_id }) => {
 
       const result = proposeStrategyTiered(title, content, category, ctx.agentId, { task_id });
 
@@ -433,7 +426,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
           }, null, 2),
         }],
       };
-    }
+    })
   );
 
   // Tool T2: check_veto_window — member 及以上
@@ -443,8 +436,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
     {
       strategy_id: z.number().describe("策略 ID"),
     },
-    async ({ strategy_id }) => {
-      const ctx = requireAuth(authContext, "check_veto_window");
+    authed(authContext, "check_veto_window", async (ctx, { strategy_id }) => {
 
       const result = checkVetoWindow(strategy_id);
 
@@ -463,7 +455,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
           }, null, 2),
         }],
       };
-    }
+    })
   );
 
   // Tool T3: veto_strategy — admin only
@@ -474,8 +466,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
       strategy_id: z.number().describe("策略 ID"),
       reason:      z.string().max(1000).describe("撤回理由"),
     },
-    async ({ strategy_id, reason }) => {
-      const ctx = requireAuth(authContext, "veto_strategy");
+    authed(authContext, "veto_strategy", async (ctx, { strategy_id, reason }) => {
 
       const result = vetoStrategyFromEvolution(strategy_id, ctx.agentId, reason);
 
@@ -495,6 +486,6 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
           }, null, 2),
         }],
       };
-    }
+    })
   );
 }

@@ -10,9 +10,10 @@ import {
   recallMemory,
   listMemories,
   deleteMemory as deleteMemoryFromService,
+  parseTags,  // P1-1: 向后兼容 tags 解析
 } from "../memory.js";
 import { auditLog, type AuthContext } from "../security.js";
-import { requireAuth, mcpFail, mcpError } from "../utils.js";
+import { requireAuth, authed, mcpFail, mcpError } from "../utils.js";
 import { fts5IntegrityCheck } from "../db.js";
 import { logger } from "../logger.js";
 
@@ -33,8 +34,7 @@ export function registerMemoryTools(server: McpServer, authContext?: AuthContext
       tags:    z.array(z.string()).optional().describe("标签列表，如 ['work', 'important']"),
       source_task_id: z.string().optional().describe("关联任务 ID（用于溯源追踪）"),
     },
-    async ({ content, title, scope, tags, source_task_id }) => {
-      const ctx = requireAuth(authContext, "store_memory");
+    authed(authContext, "store_memory", async (ctx, { content, title, scope, tags, source_task_id }) => {
 
       // Phase 2 Day 4: collective/group 写入自动记录 source_agent_id
       const sourceAgentId = scope === "collective" || scope === "group" ? ctx.agentId : undefined;
@@ -82,7 +82,7 @@ export function registerMemoryTools(server: McpServer, authContext?: AuthContext
           }, null, 2),
         }],
       };
-    }
+    })
   );
 
   // ────────────────────────────────────────────────────
@@ -99,8 +99,7 @@ export function registerMemoryTools(server: McpServer, authContext?: AuthContext
       limit: z.number().min(1).max(50).optional().default(10)
              .describe("最大返回数量"),
     },
-    async ({ query, scope, limit }) => {
-      const ctx = requireAuth(authContext, "recall_memory");
+    authed(authContext, "recall_memory", async (ctx, { query, scope, limit }) => {
 
       const results = recallMemory(query, ctx.agentId, { scope, limit });
 
@@ -115,7 +114,7 @@ export function registerMemoryTools(server: McpServer, authContext?: AuthContext
               title:             m.title,
               content:           m.content,
               scope:             m.scope,
-              tags:              m.tags ? JSON.parse(m.tags) : [],
+              tags:              m.tags ? parseTags(m.tags) : [],
               agent_id:          m.agent_id,
               source_agent_id:   m.source_agent_id,
               source_task_id:    m.source_task_id,
@@ -127,7 +126,7 @@ export function registerMemoryTools(server: McpServer, authContext?: AuthContext
           }, null, 2),
         }],
       };
-    }
+    })
   );
 
   // ────────────────────────────────────────────────────
@@ -145,8 +144,7 @@ export function registerMemoryTools(server: McpServer, authContext?: AuthContext
       offset: z.number().min(0).optional().default(0)
               .describe("分页偏移量"),
     },
-    async ({ scope, limit, offset }) => {
-      const ctx = requireAuth(authContext, "list_memories");
+    authed(authContext, "list_memories", async (ctx, { scope, limit, offset }) => {
 
       const results = listMemories(ctx.agentId, { scope, limit, offset });
 
@@ -159,7 +157,7 @@ export function registerMemoryTools(server: McpServer, authContext?: AuthContext
               title:             m.title,
               content:           m.content,
               scope:             m.scope,
-              tags:              m.tags ? JSON.parse(m.tags) : [],
+              tags:              m.tags ? parseTags(m.tags) : [],
               agent_id:          m.agent_id,
               source_agent_id:   m.source_agent_id,
               source_task_id:    m.source_task_id,
@@ -172,7 +170,7 @@ export function registerMemoryTools(server: McpServer, authContext?: AuthContext
           }, null, 2),
         }],
       };
-    }
+    })
   );
 
   // ────────────────────────────────────────────────────
@@ -185,8 +183,7 @@ export function registerMemoryTools(server: McpServer, authContext?: AuthContext
     {
       memory_id: z.string().describe("要删除的记忆 ID"),
     },
-    async ({ memory_id }) => {
-      const ctx = requireAuth(authContext, "delete_memory");
+    authed(authContext, "delete_memory", async (ctx, { memory_id }) => {
 
       const result = deleteMemoryFromService(memory_id, ctx.agentId, ctx.role);
 
@@ -206,7 +203,7 @@ export function registerMemoryTools(server: McpServer, authContext?: AuthContext
           }, null, 2),
         }],
       };
-    }
+    })
   );
 
   // ────────────────────────────────────────────────────
@@ -222,8 +219,7 @@ export function registerMemoryTools(server: McpServer, authContext?: AuthContext
       tags:  z.array(z.string()).optional().describe("标签筛选（如 ['work', 'important']）"),
       limit: z.number().min(1).max(50).optional().default(10).describe("最大返回数量"),
     },
-    async ({ query, scope, tags, limit }) => {
-      const ctx = requireAuth(authContext, "search_memories");
+    authed(authContext, "search_memories", async (ctx, { query, scope, tags, limit }) => {
 
       try {
         // 复用已有的 recallMemory（FTS5 引擎）
@@ -233,12 +229,8 @@ export function registerMemoryTools(server: McpServer, authContext?: AuthContext
         if (tags && tags.length > 0) {
           results = results.filter(m => {
             if (!m.tags) return false;
-            try {
-              const parsedTags: string[] = JSON.parse(m.tags);
-              return tags.some(t => parsedTags.includes(t));
-            } catch {
-              return false;
-            }
+            const parsedTags = parseTags(m.tags);
+            return tags.some(t => parsedTags.includes(t));
           });
         }
 
@@ -254,7 +246,7 @@ export function registerMemoryTools(server: McpServer, authContext?: AuthContext
                 title:             m.title,
                 content:           m.content,
                 scope:             m.scope,
-                tags:              m.tags ? JSON.parse(m.tags) : [],
+                tags:              m.tags ? parseTags(m.tags) : [],
                 agent_id:          m.agent_id,
                 source_agent_id:   m.source_agent_id,
                 source_task_id:    m.source_task_id,
@@ -269,7 +261,7 @@ export function registerMemoryTools(server: McpServer, authContext?: AuthContext
       } catch (err: unknown) {
         return mcpError(err, "search_memories");
       }
-    }
+    })
   );
 
 }

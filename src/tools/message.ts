@@ -13,7 +13,7 @@ import { auditLog, type AuthContext } from "../security.js";
 import { resolveAgentId } from "../identity.js";
 import { dedupMessage, validateMessageBody } from "../dedup.js";
 import { logError } from "../logger.js";
-import { withRetry, requireAuth, mcpError } from "../utils.js";
+import { withRetry, requireAuth, authed, mcpError } from "../utils.js";
 import { getErrorMessage } from "../types.js";
 
 export function registerMessageTools(server: McpServer, authContext?: AuthContext): void {
@@ -34,8 +34,7 @@ export function registerMessageTools(server: McpServer, authContext?: AuthContex
       metadata: z.record(z.unknown()).optional()
                   .describe("附加结构化数据，如 taskId、priority 等"),
     },
-    async ({ from, to, content, type, metadata }) => {
-      const ctx = requireAuth(authContext, "send_message");
+    authed(authContext, "send_message", async (ctx, { from, to, content, type, metadata }) => {
 
       // ── from_agent 格式规范化（Phase 2.1） ────────────────
       const resolvedFrom = resolveAgentId(from);
@@ -122,7 +121,7 @@ export function registerMessageTools(server: McpServer, authContext?: AuthContex
           }, null, 2),
         }],
       };
-    }
+    })
   );
 
   // ────────────────────────────────────────────────────
@@ -137,8 +136,7 @@ export function registerMessageTools(server: McpServer, authContext?: AuthContex
       content:   z.string(),
       metadata:  z.record(z.unknown()).optional(),
     },
-    async ({ from, agent_ids, content, metadata }) => {
-      const ctx = requireAuth(authContext, "broadcast_message");
+    authed(authContext, "broadcast_message", async (ctx, { from, agent_ids, content, metadata }) => {
 
       // 消息体校验
       const validation = validateMessageBody(content);
@@ -205,7 +203,7 @@ export function registerMessageTools(server: McpServer, authContext?: AuthContex
           }, null, 2),
         }],
       };
-    }
+    })
   );
 
   // ────────────────────────────────────────────────────
@@ -218,8 +216,7 @@ export function registerMessageTools(server: McpServer, authContext?: AuthContex
       message_id: z.string().describe("消息 ID"),
       agent_id:   z.string().describe("确认方 Agent ID，如 hermes"),
     },
-    async ({ message_id, agent_id }) => {
-      requireAuth(authContext, "acknowledge_message");
+    authed(authContext, "acknowledge_message", async (_ctx, { message_id, agent_id }) => {
 
       try {
         const msg = await withRetry(
@@ -263,7 +260,7 @@ export function registerMessageTools(server: McpServer, authContext?: AuthContex
           }],
         };
       }
-    }
+    })
   );
 
   // ────────────────────────────────────────────────────
@@ -277,8 +274,7 @@ export function registerMessageTools(server: McpServer, authContext?: AuthContex
       agent_id: z.string().optional().describe("限定 Agent ID（按发送方或接收方过滤）"),
       limit:    z.number().min(1).max(50).optional().default(10).describe("最大返回数量"),
     },
-    async ({ query, agent_id, limit }) => {
-      const ctx = requireAuth(authContext, "search_messages");
+    authed(authContext, "search_messages", async (ctx, { query, agent_id, limit }) => {
 
       try {
         const conditions: string[] = ["content LIKE ?"];
@@ -319,7 +315,7 @@ export function registerMessageTools(server: McpServer, authContext?: AuthContex
       } catch (err: unknown) {
         return mcpError(err, "search_messages");
       }
-    }
+    })
   );
 
   // ────────────────────────────────────────────────────
@@ -337,8 +333,7 @@ export function registerMessageTools(server: McpServer, authContext?: AuthContex
       status: z.enum(["unread", "delivered"]).optional().default("unread").describe("要确认的消息状态，默认 unread"),
       limit: z.number().int().min(1).max(500).default(100).describe("最多确认的消息数量，默认 100，上限 500"),
     },
-    async ({ agent_id, from_agent, before, after, status, limit }) => {
-      const ctx = requireAuth(authContext, "batch_acknowledge_messages");
+    authed(authContext, "batch_acknowledge_messages", async (ctx, { agent_id, from_agent, before, after, status, limit }) => {
 
       try {
         // 构建查询条件
@@ -417,7 +412,7 @@ export function registerMessageTools(server: McpServer, authContext?: AuthContex
         logError("batch_acknowledge_messages_error", err);
         return mcpError(err, "batch_acknowledge_messages");
       }
-    }
+    })
   );
 
 }

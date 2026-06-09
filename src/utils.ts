@@ -47,6 +47,27 @@ export function requireAuth(
   return authContext;
 }
 
+// ─── P1-3: 统一认证中间件 ────────────────────────────────
+
+/**
+ * 将 MCP 工具 handler 包装为自动认证版本。
+ * 消除每个 handler 开头手动调用 requireAuth() 的重复模式。
+ *
+ * @param authContext  认证上下文（由 registerXxxTools 的闭包传入）
+ * @param toolName     工具名称，用于权限检查
+ * @param fn           实际的 handler 函数，接收已验证的 AuthContext + 工具参数
+ */
+export function authed<T extends Record<string, unknown>>(
+  authContext: AuthContext | undefined,
+  toolName: string,
+  fn: (ctx: AuthContext, params: T) => ReturnType<typeof mcpFail> | Promise<ReturnType<typeof mcpFail>>
+): (params: T) => ReturnType<typeof mcpFail> | Promise<ReturnType<typeof mcpFail>> {
+  return (params: T) => {
+    const ctx = requireAuth(authContext, toolName);
+    return fn(ctx, params);
+  };
+}
+
 // ─── MCP 工具错误返回统一格式 ─────────────────────────────
 
 /** MCP 工具 catch 块返回的统一格式（兼容 MCP SDK Tool callback 返回类型） */

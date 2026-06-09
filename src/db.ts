@@ -938,7 +938,7 @@ export function getEnhancedDbStats(): {
     if (fs.existsSync(walPath)) {
       walSize = fs.statSync(walPath).size;
     }
-  } catch { /* ignore */ }
+  } catch (err) { logError("db_stats_archive_query_failed", err, { module: "db" }); }
 
   // 最后归档时间
   let lastMsgArchive: string | null = null;
@@ -946,11 +946,11 @@ export function getEnhancedDbStats(): {
   try {
     const msgRow = db.prepare(`SELECT MAX(archived_at) as ts FROM messages_archive`).get() as MaxTimestampRow | undefined;
     lastMsgArchive = msgRow?.ts ? new Date(msgRow.ts).toISOString() : null;
-  } catch { /* ignore */ }
+  } catch (err) { logError("db_stats_archive_query_failed", err, { module: "db" }); }
   try {
     const auditRow = db.prepare(`SELECT MAX(archived_at) as ts FROM audit_log_archive`).get() as MaxTimestampRow | undefined;
     lastAuditArchive = auditRow?.ts ? new Date(auditRow.ts).toISOString() : null;
-  } catch { /* ignore */ }
+  } catch (err) { logError("db_stats_archive_query_failed", err, { module: "db" }); }
 
   return {
     table_counts: tableCounts,

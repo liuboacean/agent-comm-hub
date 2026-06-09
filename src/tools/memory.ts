@@ -14,7 +14,7 @@ import {
 } from "../memory.js";
 import { auditLog, type AuthContext } from "../security.js";
 import { requireAuth, authed, mcpFail, mcpError } from "../utils.js";
-import { fts5IntegrityCheck } from "../db.js";
+import { fts5IntegrityCheck, db } from "../db.js";
 import { logger } from "../logger.js";
 
 export function registerMemoryTools(server: McpServer, authContext?: AuthContext): void {
@@ -218,12 +218,39 @@ export function registerMemoryTools(server: McpServer, authContext?: AuthContext
              .default("all").describe("可见范围筛选"),
       tags:  z.array(z.string()).optional().describe("标签筛选（如 ['work', 'important']）"),
       limit: z.number().min(1).max(50).optional().default(10).describe("最大返回数量"),
+      offline_window_days: z.number().min(0).max(30).optional().default(7)
+        .describe("离线回退窗口（天）。当 FTS5 命中不足 5 条时，回退到最近 N 天的 collective/group 全量记忆"),
     },
-    authed(authContext, "search_memories", async (ctx, { query, scope, tags, limit }) => {
+    authed(authContext, "search_memories", async (ctx, { query, scope, tags, limit, offline_window_days }) => {
 
       try {
         // 复用已有的 recallMemory（FTS5 引擎）
         let results = recallMemory(query, ctx.agentId, { scope, limit });
+
+        // P2-2: 离线回退 — FTS5 命中不足时，回退到最近 N 天 collective/group 记忆
+        if (results.length < 5 && offline_window_days > 0 && scope !== "private") {
+          const windowMs = offline_window_days * 86400_000;
+          const since = Date.now() - windowMs;
+          const fallbackScope = scope === "all" ? "(scope='collective' OR scope='group')" : `scope='${scope}'`;
+          const fallbackRows = db.prepare(
+            `SELECT id, agent_id, title, content, scope, tags, source_agent_id, source_task_id, created_at
+             FROM memories WHERE ${fallbackScope} AND created_at > ?
+             ORDER BY created_at DESC LIMIT ?`
+          ).all(since, limit) as Array<{
+            id: string; agent_id: string; title: string | null; content: string;
+            scope: string; tags: string | null; source_agent_id: string | null;
+            source_task_id: string | null; created_at: number;
+          }>;
+          if (fallbackRows.length > 0) {
+            results = fallbackRows.map(r => ({
+              ...r,
+              title: r.title ?? "",
+              scope: r.scope as "private" | "group" | "collective",
+              source_trust_score: null as number | null,
+              updated_at: null as number | null,
+            })) as typeof results;
+          }
+        }
 
         // 按 tags 过滤（recallMemory 不直接支持 tags 参数）
         if (tags && tags.length > 0) {

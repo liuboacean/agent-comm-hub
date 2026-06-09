@@ -89,6 +89,7 @@ python3 -c "from hub_client import SynergyHubClient; c=SynergyHubClient('http://
 - 🩺 **P2-5**: `/health/detailed` 端点 — 在线Agent/FTS5状态/消息队列深度
 - 📦 **P2-4**: 依赖升级 — vitest 4.1.8 / tsx 4.22.4
 - ✨ **P2-1**: 类型安全改善 — 8 处 `as any` → CountRow/MemoryRow
+- 💾 **P2-2**: 离线记忆缓存 — FTS5 命中不足时回退最近 N 天 collective/group 记忆
 
 ---
 

@@ -84,6 +84,12 @@ python3 -c "from hub_client import SynergyHubClient; c=SynergyHubClient('http://
 - 📊 **P1-2**: 12 处静默吞异常修复 — 全链路 logError，信任分/DB统计/SSE 可观测
 - 🔐 **P1-3**: authed() 统一认证中间件 — 52 个 handler 重构，零 requireAuth 残留
 
+### v2.4.7+ (2026-06-09)
+- 🧹 **P2-3**: SSE 僵尸连接清理 — 5分钟检测周期，10分钟心跳超时自动移除
+- 🩺 **P2-5**: `/health/detailed` 端点 — 在线Agent/FTS5状态/消息队列深度
+- 📦 **P2-4**: 依赖升级 — vitest 4.1.8 / tsx 4.22.4
+- ✨ **P2-1**: 类型安全改善 — 8 处 `as any` → CountRow/MemoryRow
+
 ---
 
 ## 架构

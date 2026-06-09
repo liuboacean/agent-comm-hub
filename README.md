@@ -71,6 +71,16 @@ python3 -c "from hub_client import SynergyHubClient; c=SynergyHubClient('http://
 
 ---
 
+## 最近更新
+
+### v2.4.6 (2026-06-09)
+- 🔒 **P0-1**: FTS5 索引守护 — 每次存储记忆后自动校验索引完整性，消除双进程竞态
+- 🛣️ **P0-2**: 数据库路径外部化 — 支持 `HUB_ROOT` 环境变量，适配任意部署环境
+- 📨 **P0-4**: 新增 `generate_invite` MCP 工具 — 安全生成注册邀请码（SHA-256 + 24h 过期）
+- 🧪 **P0-3**: 测试覆盖率提升 — 新增 identity(9) + evolution(10) 共 19 个测试用例
+
+---
+
 ## 架构
 
 ```

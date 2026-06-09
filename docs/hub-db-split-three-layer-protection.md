@@ -28,7 +28,7 @@
 四级回退优先级：
 1. `DB_PATH` 环境变量（最高优先）
 2. `process.cwd() + /comm_hub.db`（当前工作目录）
-3. `~/WorkBuddy/20260416213415/agent-comm-hub/comm_hub.db`（固定路径）
+3. `~/.agent-comm-hub/comm_hub.db`（HUB_ROOT 环境变量或默认路径）
 4. 抛错
 
 **效果**: 无论从哪个目录启动，只要显式传入 DB_PATH env 或用固定路径，都能读取正确的 DB 文件。

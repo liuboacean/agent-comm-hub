@@ -8,12 +8,13 @@
 #   - 输出非空 → 检测到异常，cron 自动推送告警
 #
 # crontab 配置（每 10 分钟）：
-#   */10 * * * * /bin/bash ~/WorkBuddy/20260416213415/agent-comm-hub/scripts/cron_db_watchdog.sh
+#   */10 * * * * /bin/bash <hub-install-path>/scripts/cron_db_watchdog.sh
 #
 
 set -euo pipefail
 
-HUB_DIR="$HOME/WorkBuddy/20260416213415/agent-comm-hub"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+HUB_DIR="${HUB_ROOT:-$SCRIPT_DIR/..}"
 ROOT_DB="$HUB_DIR/comm_hub.db"
 DIST_DB="$HUB_DIR/dist/comm_hub.db"
 DB_PATH_ENV="${DB_PATH:-}"

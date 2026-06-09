@@ -28,6 +28,46 @@ import { withRetry, requireAuth, mcpFail } from "../utils.js";
 export function registerIdentityTools(server: McpServer, authContext?: AuthContext): void {
 
   // ────────────────────────────────────────────────────
+  // NEW Tool: generate_invite (P0-4)
+  // 生成邀请码 — admin only
+  // ────────────────────────────────────────────────────
+  server.tool(
+    "generate_invite",
+    "生成新 Agent 邀请码。仅 admin 可调用。邀请码默认 24 小时后过期。",
+    {
+      role: z.enum(["member","admin"]).default("member"),
+      expires_in_hours: z.number().min(1).max(168).default(24),
+    },
+    async ({ role, expires_in_hours }) => {
+      const ctx = requireAuth(authContext, "generate_invite");
+      if (ctx.role !== "admin") {
+        return mcpFail("Admin role required", "generate_invite");
+      }
+      const crypto = await import("crypto");
+      const plain = crypto.randomBytes(32).toString("hex");
+      const hash = crypto.createHash("sha256").update(plain).digest("hex");
+      const now = Date.now();
+      const expiresAt = now + expires_in_hours * 3600 * 1000;
+      const tokenId = `invite_${now}_${crypto.randomBytes(4).toString("hex")}`;
+      db.prepare(
+        "INSERT INTO auth_tokens (token_id, token_type, token_value, agent_id, role, used, created_at, expires_at) VALUES (?, 'invite_code', ?, NULL, ?, 0, ?, ?)"
+      ).run(tokenId, hash, role, now, expiresAt);
+      auditLog("generate_invite", ctx.agentId, tokenId, `role=${role} expires=${expires_in_hours}h`);
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            success: true,
+            invite_code: plain,
+            role, expires_at: new Date(expiresAt).toISOString(),
+            warning: "⚠️ 邀请码仅显示一次，请在过期前使用 register_agent 注册"
+          }, null, 2)
+        }]
+      };
+    }
+  );
+
+  // ────────────────────────────────────────────────────
   // NEW Tool 1: register_agent (Phase 1)
   // 注册新 Agent — public 工具，无需认证
   // ────────────────────────────────────────────────────

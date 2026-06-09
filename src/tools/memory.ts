@@ -13,6 +13,8 @@ import {
 } from "../memory.js";
 import { auditLog, type AuthContext } from "../security.js";
 import { requireAuth, mcpFail, mcpError } from "../utils.js";
+import { fts5IntegrityCheck } from "../db.js";
+import { logger } from "../logger.js";
 
 export function registerMemoryTools(server: McpServer, authContext?: AuthContext): void {
 
@@ -51,6 +53,17 @@ export function registerMemoryTools(server: McpServer, authContext?: AuthContext
 
       auditLog("tool_store_memory", ctx.agentId, result.memory.id,
         `scope=${scope}, source_agent=${sourceAgentId ?? "none"}, task=${source_task_id ?? "none"}, tags=${tags ? JSON.stringify(tags) : "none"}`);
+
+      // P0-1: FTS5 索引完整性守护
+      try {
+        const check = fts5IntegrityCheck();
+        if (!check.ok) {
+          logger.warn("fts5_integrity_check", { module: "memory", details: check.details });
+        }
+      } catch (e) {
+        // 守护不阻塞主流程
+        logger.warn("fts5_integrity_check_error", { module: "memory", error: String(e) });
+      }
 
       return {
         content: [{

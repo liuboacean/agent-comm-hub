@@ -10,9 +10,8 @@ import { logger, logError } from "./logger.js";
 import type { PragmaColumnInfo, CountRow, MaxTimestampRow } from "./types.js";
 import { getErrorMessage } from "./types.js";
 
-const HUB_DIR = process.env.HOME
-  ? join(process.env.HOME, "WorkBuddy/20260416213415/agent-comm-hub")
-  : undefined;
+const HUB_DIR = process.env.HUB_ROOT
+  || (process.env.HOME ? join(process.env.HOME, ".agent-comm-hub") : process.cwd());
 
 /**
  * 四级回退解析 DB 路径，防止忘记设置 DB_PATH 时静默使用 dist/comm_hub.db。
@@ -21,7 +20,7 @@ const HUB_DIR = process.env.HOME
  * 优先级：
  *   1. DB_PATH 环境变量（显式指定）
  *   2. 当前工作目录的 comm_hub.db（与 stdio.js 一致）
- *   3. ~/WorkBuddy/.../comm_hub.db（硬编码 fallback）
+ *   3. HUB_ROOT 环境变量 或 ~/.agent-comm-hub/comm_hub.db（通用 fallback）
  *   4. 明确报错终止（不静默回退到 dist/）
  */
 function resolveDbPath(): string {
@@ -47,8 +46,8 @@ function resolveDbPath(): string {
   // 第 4 级：明确报错，绝不静默使用 dist/comm_hub.db
   throw new Error(
     "DB_PATH 未设置且未找到 comm_hub.db。\n" +
-    "请设置环境变量 DB_PATH，或确保 comm_hub.db 存在于当前工作目录或 ~/WorkBuddy/.../ 下。\n" +
-    "参考: DB_PATH=~/WorkBuddy/20260416213415/agent-comm-hub/comm_hub.db"
+    "请设置环境变量 DB_PATH 或 HUB_ROOT，或确保 comm_hub.db 存在于当前工作目录下。\n" +
+    "参考: DB_PATH=~/.agent-comm-hub/comm_hub.db"
   );
 }
 
@@ -1019,4 +1018,27 @@ export function stopCleanup(): void {
     cleanupTimer = null;
     logger.info("cleanup_scheduler_stopped", { module: "db" });
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// P0-1: FTS5 索引完整性守护
+// ═══════════════════════════════════════════════════════════════
+
+export function fts5IntegrityCheck(): { ok: boolean; details: string } {
+  const memMain = db.prepare("SELECT COUNT(*) as cnt FROM memories").get() as any;
+  const memFts = db.prepare("SELECT COUNT(*) as cnt FROM memories_fts").get() as any;
+  const stratFts = db.prepare("SELECT COUNT(*) as cnt FROM strategies_fts").get() as any;
+  const checks: string[] = [];
+  if (memMain.cnt > 0 && memFts.cnt === 0) {
+    checks.push("memories FTS5 empty, triggering REINDEX");
+    db.exec("INSERT INTO memories_fts(memories_fts) VALUES('rebuild')");
+  }
+  if (stratFts.cnt === 0) {
+    const stratCnt = db.prepare("SELECT COUNT(*) as cnt FROM strategies WHERE status='approved'").get() as any;
+    if (stratCnt.cnt > 0) {
+      checks.push("strategies FTS5 empty, triggering REINDEX");
+      db.exec("INSERT INTO strategies_fts(strategies_fts) VALUES('rebuild')");
+    }
+  }
+  return { ok: checks.length === 0, details: checks.join("; ") || "OK" };
 }

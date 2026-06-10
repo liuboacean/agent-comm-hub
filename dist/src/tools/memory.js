@@ -1,0 +1,230 @@
+import { z } from "zod";
+import { storeMemory as storeMemoryFromService, recallMemory, listMemories, deleteMemory as deleteMemoryFromService, parseTags, // P1-1: 向后兼容 tags 解析
+ } from "../memory.js";
+import { auditLog } from "../security.js";
+import { authed, mcpFail, mcpError } from "../utils.js";
+import { fts5IntegrityCheck, db } from "../db.js";
+import { logger } from "../logger.js";
+export function registerMemoryTools(server, authContext) {
+    // ────────────────────────────────────────────────────
+    // Tool 14: store_memory (Phase 1 Week 2)
+    // 存储记忆 — member 及以上
+    // ────────────────────────────────────────────────────
+    server.tool("store_memory", "存储一条记忆到 Hub。支持 private（仅自己可见）、group（组内可见）、collective（全局可见）三种范围。存储后可通过 recall_memory 全文搜索召回。", {
+        content: z.string().describe("记忆内容（最多 10000 字符）"),
+        title: z.string().optional().describe("记忆标题（最多 500 字符）"),
+        scope: z.enum(["private", "group", "collective"]).optional()
+            .default("private").describe("可见范围"),
+        tags: z.array(z.string()).optional().describe("标签列表，如 ['work', 'important']"),
+        source_task_id: z.string().optional().describe("关联任务 ID（用于溯源追踪）"),
+    }, authed(authContext, "store_memory", async (ctx, { content, title, scope, tags, source_task_id }) => {
+        // Phase 2 Day 4: collective/group 写入自动记录 source_agent_id
+        const sourceAgentId = scope === "collective" || scope === "group" ? ctx.agentId : undefined;
+        const result = storeMemoryFromService(ctx.agentId, content, {
+            title,
+            scope,
+            tags,
+            source_agent_id: sourceAgentId,
+            source_task_id,
+        });
+        if (!result.ok) {
+            return mcpFail(result.error, "store_memory");
+        }
+        auditLog("tool_store_memory", ctx.agentId, result.memory.id, `scope=${scope}, source_agent=${sourceAgentId ?? "none"}, task=${source_task_id ?? "none"}, tags=${tags ? JSON.stringify(tags) : "none"}`);
+        // P0-1: FTS5 索引完整性守护
+        try {
+            const check = fts5IntegrityCheck();
+            if (!check.ok) {
+                logger.warn("fts5_integrity_check", { module: "memory", details: check.details });
+            }
+        }
+        catch (e) {
+            // 守护不阻塞主流程
+            logger.warn("fts5_integrity_check_error", { module: "memory", error: String(e) });
+        }
+        return {
+            content: [{
+                    type: "text",
+                    text: JSON.stringify({
+                        success: true,
+                        memory_id: result.memory.id,
+                        scope: result.memory.scope,
+                        source_agent_id: result.memory.source_agent_id,
+                        source_task_id: result.memory.source_task_id,
+                        note: scope === "collective"
+                            ? "🌐 全局记忆已存储，所有 Agent 可搜索到（已记录写入者溯源）"
+                            : scope === "group"
+                                ? "👥 组内记忆已存储，组内 Agent 可搜索到（已记录写入者溯源）"
+                                : "🔒 私有记忆已存储，仅自己可见",
+                    }, null, 2),
+                }],
+        };
+    }));
+    // ────────────────────────────────────────────────────
+    // Tool 15: recall_memory (Phase 1 Week 2)
+    // 全文搜索召回记忆 — member 及以上
+    // ────────────────────────────────────────────────────
+    server.tool("recall_memory", "通过关键词全文搜索召回记忆。搜索范围包括自己的私有记忆、组内共享记忆和全局记忆。使用 FTS5 引擎，支持多关键词、短语搜索。", {
+        query: z.string().describe("搜索关键词（如 'Agent 通信协议 错误修复'）"),
+        scope: z.enum(["private", "group", "collective", "all"]).optional()
+            .default("all").describe("搜索范围"),
+        limit: z.number().min(1).max(50).optional().default(10)
+            .describe("最大返回数量"),
+    }, authed(authContext, "recall_memory", async (ctx, { query, scope, limit }) => {
+        const results = recallMemory(query, ctx.agentId, { scope, limit });
+        return {
+            content: [{
+                    type: "text",
+                    text: JSON.stringify({
+                        query,
+                        scope,
+                        results: results.map(m => ({
+                            id: m.id,
+                            title: m.title,
+                            content: m.content,
+                            scope: m.scope,
+                            tags: m.tags ? parseTags(m.tags) : [],
+                            agent_id: m.agent_id,
+                            source_agent_id: m.source_agent_id,
+                            source_task_id: m.source_task_id,
+                            source_trust_score: m.source_trust_score ?? null,
+                            created_at: m.created_at,
+                        })),
+                        count: results.length,
+                        queried_by: ctx.agentId,
+                    }, null, 2),
+                }],
+        };
+    }));
+    // ────────────────────────────────────────────────────
+    // Tool 16: list_memories (Phase 1 Week 2)
+    // 列出记忆 — member 及以上
+    // ────────────────────────────────────────────────────
+    server.tool("list_memories", "列出可访问的记忆列表。按创建时间倒序排列。可按 scope 筛选。", {
+        scope: z.enum(["private", "group", "collective", "all"]).optional()
+            .default("all").describe("可见范围筛选"),
+        limit: z.number().min(1).max(50).optional().default(20)
+            .describe("最大返回数量"),
+        offset: z.number().min(0).optional().default(0)
+            .describe("分页偏移量"),
+    }, authed(authContext, "list_memories", async (ctx, { scope, limit, offset }) => {
+        const results = listMemories(ctx.agentId, { scope, limit, offset });
+        return {
+            content: [{
+                    type: "text",
+                    text: JSON.stringify({
+                        memories: results.map(m => ({
+                            id: m.id,
+                            title: m.title,
+                            content: m.content,
+                            scope: m.scope,
+                            tags: m.tags ? parseTags(m.tags) : [],
+                            agent_id: m.agent_id,
+                            source_agent_id: m.source_agent_id,
+                            source_task_id: m.source_task_id,
+                            source_trust_score: m.source_trust_score ?? null,
+                            created_at: m.created_at,
+                            updated_at: m.updated_at,
+                        })),
+                        count: results.length,
+                        queried_by: ctx.agentId,
+                    }, null, 2),
+                }],
+        };
+    }));
+    // ────────────────────────────────────────────────────
+    // Tool 17: delete_memory (Phase 1 Week 2)
+    // 删除记忆 — 仅限自己（admin 可删除任何）
+    // ────────────────────────────────────────────────────
+    server.tool("delete_memory", "删除一条记忆。仅能删除自己的私有记忆（admin 可删除任何记忆）。", {
+        memory_id: z.string().describe("要删除的记忆 ID"),
+    }, authed(authContext, "delete_memory", async (ctx, { memory_id }) => {
+        const result = deleteMemoryFromService(memory_id, ctx.agentId, ctx.role);
+        if (!result.ok) {
+            return mcpFail(result.error, "delete_memory");
+        }
+        auditLog("tool_delete_memory", ctx.agentId, memory_id);
+        return {
+            content: [{
+                    type: "text",
+                    text: JSON.stringify({
+                        success: true,
+                        memory_id,
+                        note: "记忆已永久删除",
+                    }, null, 2),
+                }],
+        };
+    }));
+    // ────────────────────────────────────────────────────
+    // Tool S2: search_memories — member 及以上
+    // ────────────────────────────────────────────────────
+    server.tool("search_memories", "全文搜索记忆内容。使用 FTS5 引擎，支持多关键词、短语搜索。可按可见范围和标签筛选。", {
+        query: z.string().describe("搜索关键词（如 '通信协议 错误修复'）"),
+        scope: z.enum(["private", "group", "collective", "all"]).optional()
+            .default("all").describe("可见范围筛选"),
+        tags: z.array(z.string()).optional().describe("标签筛选（如 ['work', 'important']）"),
+        limit: z.number().min(1).max(50).optional().default(10).describe("最大返回数量"),
+        offline_window_days: z.number().min(0).max(30).optional().default(7)
+            .describe("离线回退窗口（天）。当 FTS5 命中不足 5 条时，回退到最近 N 天的 collective/group 全量记忆"),
+    }, authed(authContext, "search_memories", async (ctx, { query, scope, tags, limit, offline_window_days }) => {
+        try {
+            // 复用已有的 recallMemory（FTS5 引擎）
+            let results = recallMemory(query, ctx.agentId, { scope, limit });
+            // P2-2: 离线回退 — FTS5 命中不足时，回退到最近 N 天 collective/group 记忆
+            if (results.length < 5 && offline_window_days > 0 && scope !== "private") {
+                const windowMs = offline_window_days * 86400_000;
+                const since = Date.now() - windowMs;
+                const fallbackScope = scope === "all" ? "(scope='collective' OR scope='group')" : `scope='${scope}'`;
+                const fallbackRows = db.prepare(`SELECT id, agent_id, title, content, scope, tags, source_agent_id, source_task_id, created_at
+             FROM memories WHERE ${fallbackScope} AND created_at > ?
+             ORDER BY created_at DESC LIMIT ?`).all(since, limit);
+                if (fallbackRows.length > 0) {
+                    results = fallbackRows.map(r => ({
+                        ...r,
+                        title: r.title ?? "",
+                        scope: r.scope,
+                        source_trust_score: null,
+                        updated_at: null,
+                    }));
+                }
+            }
+            // 按 tags 过滤（recallMemory 不直接支持 tags 参数）
+            if (tags && tags.length > 0) {
+                results = results.filter(m => {
+                    if (!m.tags)
+                        return false;
+                    const parsedTags = parseTags(m.tags);
+                    return tags.some(t => parsedTags.includes(t));
+                });
+            }
+            return {
+                content: [{
+                        type: "text",
+                        text: JSON.stringify({
+                            query,
+                            scope,
+                            tags: tags ?? null,
+                            memories: results.map(m => ({
+                                id: m.id,
+                                title: m.title,
+                                content: m.content,
+                                scope: m.scope,
+                                tags: m.tags ? parseTags(m.tags) : [],
+                                agent_id: m.agent_id,
+                                source_agent_id: m.source_agent_id,
+                                source_task_id: m.source_task_id,
+                                source_trust_score: m.source_trust_score ?? null,
+                                created_at: m.created_at,
+                            })),
+                            count: results.length,
+                            queried_by: ctx.agentId,
+                        }, null, 2),
+                    }],
+            };
+        }
+        catch (err) {
+            return mcpError(err, "search_memories");
+        }
+    }));
+}
+//# sourceMappingURL=memory.js.map

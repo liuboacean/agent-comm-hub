@@ -855,6 +855,17 @@ function getPersistentUptime(): number {
 // ═══════════════════════════════════════════════════════════════
 // 启动
 // ═══════════════════════════════════════════════════════════════
+
+// 当 stdin 不是 TTY（如被 mcp-proxy 包装）时，切换到 MCP stdio 模式
+if (!process.stdin.isTTY) {
+  // 异步加载 stdio 模式
+  const { startMcpStdio } = await import("./stdio.js");
+  startMcpStdio().catch((err: unknown) => {
+    logError("stdio_init_failed", err, { module: "server" });
+    process.exit(1);
+  });
+}
+
 initServerStartTime();
 
 httpServer = app.listen(config.port, () => {

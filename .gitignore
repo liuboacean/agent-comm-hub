@@ -20,9 +20,8 @@ node_verify.js
 node_verify.mjs
 
 # Build outputs
-dist/
-web/dist/
-coverage/
+/dist/
+/coverage/
 coverage_backup_*/
 backups/
 

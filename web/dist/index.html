@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ACH Console — Agent Comm Hub 管理面板</title>
+<style>
+/* ───── RESET & BASE ───── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:14px}
+body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f0f2f5;color:#1a1d23;height:100vh;overflow:hidden}
+
+/* ───── SCROLLBAR ───── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#c4c8d0;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#9ca0a8}
+
+/* ───── LOGIN ───── */
+.login-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#eef2ff 0%,#e0e7ff 50%,#f5f3ff 100%);z-index:100}
+.login-card{background:#fff;border-radius:16px;padding:40px;width:380px;box-shadow:0 8px 40px rgba(79,70,229,0.12);text-align:center}
+.login-logo{width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,#4f46e5,#7c3aed);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:22px;font-weight:700;color:#fff}
+.login-card h1{font-size:22px;font-weight:700;margin-bottom:4px}
+.login-card p{color:#6b7280;font-size:14px;margin-bottom:28px}
+.login-card label{display:block;text-align:left;font-size:13px;font-weight:500;color:#374151;margin-bottom:6px}
+.login-card select{width:100%;padding:10px 12px;border:1.5px solid #d1d5db;border-radius:10px;font-size:14px;background:#fff;color:#1a1d23;outline:none;transition:border-color .2s;margin-bottom:16px;cursor:pointer}
+.login-card select:focus{border-color:#4f46e5}
+.login-card button{width:100%;padding:11px;border:none;border-radius:10px;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;font-size:15px;font-weight:600;cursor:pointer;transition:opacity .2s,transform .1s}
+.login-card button:hover{opacity:.92}
+.login-card button:active{transform:scale(.98)}
+.login-error{color:#dc2626;font-size:13px;margin-bottom:12px;display:none}
+
+/* ───── APP LAYOUT ───── */
+.app{display:none;height:100vh;flex-direction:column}
+
+/* Header */
+.header{background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;padding:0 24px;height:56px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;box-shadow:0 2px 8px rgba(79,70,229,0.15)}
+.header-left{display:flex;align-items:center;gap:12px}
+.header-logo{width:32px;height:32px;border-radius:8px;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700}
+.header h1{font-size:16px;font-weight:600}
+.header-right{display:flex;align-items:center;gap:12px}
+.header-role{padding:4px 14px;border-radius:20px;font-size:12px;font-weight:500;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.25)}
+
+/* Body */
+.body{display:flex;flex:1;overflow:hidden}
+
+/* Sidebar */
+.sidebar{width:220px;background:#fff;border-right:1px solid #e5e7eb;padding:12px 0;overflow-y:auto;flex-shrink:0}
+.sidebar-group{padding:8px 16px 4px;font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em}
+.sidebar-item{display:flex;align-items:center;gap:10px;padding:10px 20px;margin:2px 8px;border-radius:8px;color:#4b5563;text-decoration:none;font-size:14px;cursor:pointer;transition:all .15s}
+.sidebar-item:hover{background:#f3f4f6;color:#1a1d23}
+.sidebar-item.active{background:#eef2ff;color:#4f46e5;font-weight:600}
+.sidebar-item svg{width:18px;height:18px;flex-shrink:0;opacity:.7}
+.sidebar-item.active svg{opacity:1}
+
+/* Main content */
+.main{flex:1;padding:24px;overflow-y:auto;background:#f0f2f5}
+
+/* Page header */
+.page-header{margin-bottom:20px}
+.page-header h2{font-size:20px;font-weight:700;color:#1a1d23}
+.page-header p{font-size:13px;color:#6b7280;margin-top:2px}
+
+/* Stats cards */
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px;margin-bottom:24px}
+.stat-card{background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,0.04);border:1px solid #e5e7eb;position:relative;overflow:hidden}
+.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+.stat-card:nth-child(1)::before{background:linear-gradient(90deg,#4f46e5,#818cf8)}
+.stat-card:nth-child(2)::before{background:linear-gradient(90deg,#7c3aed,#a78bfa)}
+.stat-card:nth-child(3)::before{background:linear-gradient(90deg,#0891b2,#22d3ee)}
+.stat-card:nth-child(4)::before{background:linear-gradient(90deg,#16a34a,#4ade80)}
+.stat-label{font-size:13px;color:#6b7280;margin-bottom:4px;display:flex;align-items:center;gap:6px}
+.stat-value{font-size:28px;font-weight:700;line-height:1.2}
+.stat-value.purple{color:#7c3aed}
+.stat-value.green{color:#16a34a}
+.stat-value.red{color:#dc2626}
+.stat-icon{position:absolute;right:16px;top:16px;font-size:28px;opacity:0.08;font-weight:700}
+
+/* Section panels */
+.panel{background:#fff;border-radius:12px;border:1px solid #e5e7eb;box-shadow:0 1px 3px rgba(0,0,0,0.04);overflow:hidden}
+.panel-header{padding:16px 20px 0;display:flex;align-items:center;justify-content:space-between}
+.panel-header h3{font-size:15px;font-weight:600}
+.panel-body{padding:12px 20px 20px}
+
+/* Table */
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead th{padding:10px 12px;text-align:left;font-weight:500;color:#6b7280;font-size:12px;border-bottom:2px solid #e5e7eb;position:sticky;top:0;background:#fafafa}
+tbody td{padding:10px 12px;border-bottom:1px solid #f3f4f6;vertical-align:middle}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover{background:#f9fafb}
+.mono{font-family:'SF Mono','Fira Code','Consolas',monospace;font-size:12px}
+.ellipsis{max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Badges */
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500;border:1px solid}
+.badge-success{border-color:#bbf7d0;background:#f0fdf4;color:#15803d}
+.badge-danger{border-color:#fecaca;background:#fef2f2;color:#dc2626}
+.badge-warning{border-color:#fde68a;background:#fffbeb;color:#b45309}
+.badge-info{border-color:#bfdbfe;background:#eff6ff;color:#1d4ed8}
+
+/* Empty state */
+.empty-state{text-align:center;padding:40px 20px;color:#9ca3af}
+.empty-state p{font-size:14px;margin-bottom:4px}
+.empty-state .hint{font-size:12px}
+
+/* Loading */
+.loading{display:flex;align-items:center;justify-content:center;padding:60px;color:#9ca3af;gap:10px}
+.spinner{width:20px;height:20px;border:2px solid #e5e7eb;border-top-color:#4f46e5;border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Error */
+.error-msg{background:#fef2f2;border:1px solid #fecaca;color:#dc2626;padding:12px 16px;border-radius:10px;font-size:13px;margin-bottom:16px}
+
+/* Section visibility */
+.section{display:none}
+.section.active{display:block}
+</style>
+</head>
+<body>
+
+<!-- ─── LOGIN ─── -->
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-card">
+    <div class="login-logo">A</div>
+    <h1>ACH Console</h1>
+    <p>Agent-Comm-Hub v2.5.0 管理面板</p>
+    <div class="login-error" id="loginError"></div>
+    <label for="roleSelect">选择角色进入面板</label>
+    <select id="roleSelect">
+      <option value="admin">admin — 管理员（全部权限）</option>
+      <option value="member">member — 成员（只读）</option>
+      <option value="peer">peer — 对等（基础信息）</option>
+      <option value="guest">guest — 访客（仅摘要）</option>
+    </select>
+    <button onclick="doLogin()">进入面板</button>
+  </div>
+</div>
+
+<!-- ─── APP ─── -->
+<div class="app" id="app">
+  <header class="header">
+    <div class="header-left">
+      <div class="header-logo">A</div>
+      <h1>ACH Console</h1>
+    </div>
+    <div class="header-right">
+      <span class="header-role" id="roleBadge">admin</span>
+    </div>
+  </header>
+  <div class="body">
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-group">概览</div>
+      <a class="sidebar-item active" onclick="switchTab('dashboard')" data-tab="dashboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg> 总览仪表盘
+      </a>
+      <a class="sidebar-item" onclick="switchTab('agents')" data-tab="agents">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> Agents
+      </a>
+      <a class="sidebar-item" onclick="switchTab('pipelines')" data-tab="pipelines">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> Pipelines
+      </a>
+      <div class="sidebar-group" style="margin-top:8px">监控</div>
+      <a class="sidebar-item" onclick="switchTab('throughput')" data-tab="throughput">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg> 消息吞吐
+      </a>
+      <a class="sidebar-item" onclick="switchTab('health')" data-tab="health">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg> 健康检查
+      </a>
+      <div class="sidebar-group" style="margin-top:8px">数据</div>
+      <a class="sidebar-item" onclick="switchTab('audit')" data-tab="audit">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> 审计日志
+      </a>
+    </nav>
+
+    <main class="main">
+      <!-- Dashboard -->
+      <div class="section active" id="tab-dashboard">
+        <div class="page-header"><h2>总览仪表盘</h2><p>Agent-Comm-Hub 实时运行状态</p></div>
+        <div class="stats-grid" id="dashStats"></div>
+        <div class="panel">
+          <div class="panel-header"><h3>实时审计流</h3><span style="font-size:12px;color:#9ca3af">最近操作</span></div>
+          <div class="panel-body" id="dashAudit"><div class="loading"><div class="spinner"></div>加载中...</div></div>
+        </div>
+      </div>
+
+      <!-- Agents -->
+      <div class="section" id="tab-agents">
+        <div class="page-header"><h2>Agents</h2><p>智能体连接与状态</p></div>
+        <div id="agentsContent"><div class="loading"><div class="spinner"></div>加载中...</div></div>
+      </div>
+
+      <!-- Pipelines -->
+      <div class="section" id="tab-pipelines">
+        <div class="page-header"><h2>Pipelines</h2><p>工作流管道状态</p></div>
+        <div id="pipelinesContent"><div class="loading"><div class="spinner"></div>加载中...</div></div>
+      </div>
+
+      <!-- Throughput -->
+      <div class="section" id="tab-throughput">
+        <div class="page-header"><h2>消息吞吐</h2><p>消息传递与限流统计</p></div>
+        <div id="throughputContent"><div class="loading"><div class="spinner"></div>加载中...</div></div>
+      </div>
+
+      <!-- Health -->
+      <div class="section" id="tab-health">
+        <div class="page-header"><h2>健康检查</h2><p>服务与数据库健康状态</p></div>
+        <div id="healthContent"><div class="loading"><div class="spinner"></div>加载中...</div></div>
+      </div>
+
+      <!-- Audit -->
+      <div class="section" id="tab-audit">
+        <div class="page-header"><h2>审计日志</h2><p>全量操作审计追踪</p></div>
+        <div class="panel">
+          <div class="panel-body" id="auditContent"><div class="loading"><div class="spinner"></div>加载中...</div></div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+let curRole = null, pollTimer = null;
+
+// ─── Login ───
+function doLogin() {
+  const role = document.getElementById('roleSelect').value;
+  const errEl = document.getElementById('loginError');
+  if (!['admin','member','peer','guest'].includes(role)) {
+    errEl.textContent = '请选择有效角色';
+    errEl.style.display = 'block'; return;
+  }
+  errEl.style.display = 'none';
+  curRole = role;
+  document.getElementById('loginOverlay').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+  document.getElementById('roleBadge').textContent = role;
+  refreshAll();
+  pollTimer = setInterval(refreshActive, 15000);
+}
+
+// ─── Tab switching ───
+function switchTab(name) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.sidebar-item').forEach(a => a.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  document.querySelector(`[data-tab="${name}"]`).classList.add('active');
+  refreshActive();
+}
+
+// ─── Refresh ───
+function refreshActive() {
+  const active = document.querySelector('.section.active');
+  if (!active) return;
+  const id = active.id;
+  if (id === 'tab-dashboard') loadDashboard();
+  else if (id === 'tab-agents') loadAgents();
+  else if (id === 'tab-pipelines') loadPipelines();
+  else if (id === 'tab-throughput') loadThroughput();
+  else if (id === 'tab-health') loadHealth();
+  else if (id === 'tab-audit') loadAudit();
+}
+
+function refreshAll() { loadDashboard(); }
+
+// ─── Helpers ───
+async function api(url) { const r = await fetch(url); if (!r.ok) throw new Error(r.statusText); return r.json(); }
+function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
+function fmtTime(ts) { try { return new Date(ts).toLocaleString('zh-CN', {hour12:false}); } catch { return ts||''; } }
+
+// ─── Dashboard ───
+async function loadDashboard() {
+  try {
+    const s = await api('/api/status');
+    let a; try { a = await api('/api/audit/tail?n=10'); } catch { a = {entries:[]}; }
+    const entries = a.entries || [];
+
+    document.getElementById('dashStats').innerHTML = `
+      <div class="stat-card"><div class="stat-label">🤖 刚刚活跃 Agent</div><div class="stat-value">${s.agents.online}<span style="font-size:16px;color:#9ca3af;font-weight:400"> / ${s.agents.total}</span></div></div>
+      <div class="stat-card"><div class="stat-label">📋 Pipeline 总数</div><div class="stat-value purple">${s.pipelines.total}</div></div>
+      <div class="stat-card"><div class="stat-label">📨 消息吞吐 / 5 分钟</div><div class="stat-value">${(s.throughput.last_5min || 0).toLocaleString()}</div></div>
+      <div class="stat-card"><div class="stat-label">🔍 FTS5 索引</div><div class="stat-value ${s.health.fts5 === 'consistent' ? 'green' : 'red'}">${s.health.fts5 === 'consistent' ? '✅ 一致' : '⚠️ 异常'}</div></div>`;
+
+    document.getElementById('dashAudit').innerHTML = entries.length === 0
+      ? '<div class="empty-state"><p>暂无审计事件</p><div class="hint">系统正常运行中</div></div>'
+      : `<div style="max-height:320px;overflow-y:auto"><table><thead><tr><th>时间</th><th>操作</th><th>目标</th><th>操作者</th><th>状态</th></tr></thead>
+        <tbody>${entries.map(e => `<tr><td class="mono">${fmtTime(e.ts)}</td><td>${esc(e.action)}</td><td class="mono ellipsis">${esc(e.target||'-')}</td><td>${esc(e.operator||'-')}</td><td><span class="badge ${!e.details || e.details === 'success' ? 'badge-success' : e.details.startsWith('fail') ? 'badge-danger' : 'badge-info'}">${esc(e.details||'success')}</span></td></tr>`).join('')}
+        </tbody></table></div>`;
+  } catch(e) {
+    document.getElementById('dashStats').innerHTML = '';
+    document.getElementById('dashAudit').innerHTML = `<div class="error-msg">⚠️ 无法加载数据: ${esc(e.message)}</div>`;
+  }
+}
+
+// ─── Agents ───
+async function loadAgents() {
+  const el = document.getElementById('agentsContent');
+  try {
+    const s = await api('/api/status');
+    const a = await api('/api/agents');
+    const list = a.agents || [];
+    el.innerHTML = `
+      <div class="stats-grid" style="grid-template-columns:repeat(3,1fr)">
+        <div class="stat-card"><div class="stat-label">总 Agent 数</div><div class="stat-value">${s.agents.total}</div></div>
+        <div class="stat-card"><div class="stat-label">刚刚活跃</div><div class="stat-value green">${s.agents.online}</div></div>
+        <div class="stat-card"><div class="stat-label">注册后未活跃</div><div class="stat-value">${s.agents.total - s.agents.online}</div></div>
+      </div>
+      <div class="panel" style="margin-top:16px">
+        <div class="panel-header"><h3>Agent 列表</h3><span style="font-size:12px;color:#9ca3af">按最后活跃时间排序</span></div>
+        <div class="panel-body">
+          ${list.length === 0
+            ? '<div class="empty-state"><p>暂无 Agent 数据</p></div>'
+              : `<div style="max-height:480px;overflow-y:auto"><table><thead><tr>
+                <th>名称</th><th>Agent ID</th><th>角色</th><th>最后活跃</th><th>信任分</th>
+              </tr></thead><tbody>
+              ${list.map(a => {
+                const isOnline = a.online;
+                const hb = a.last_seen || '-';
+                const statusColor = isOnline ? '#16a34a' : '#9ca3af';
+                return `<tr>
+                  <td><strong>${esc(a.name)}</strong></td>
+                  <td class="mono ellipsis" title="${esc(a.agent_id)}">${esc(a.agent_id.slice(0,30))}…</td>
+                  <td><span class="badge ${a.role === 'admin' ? 'badge-info' : 'badge-success'}">${esc(a.role)}</span></td>
+                  <td style="color:${statusColor}">${hb}</td>
+                  <td><span class="mono">${a.trust_score}</span></td>
+                </tr>`;
+              }).join('')}
+              </tbody></table></div>`}
+        </div>
+      </div>`;
+  } catch(e) { el.innerHTML = `<div class="error-msg">⚠️ ${esc(e.message)}</div>`; }
+}
+
+// ─── Pipelines ───
+async function loadPipelines() {
+  const el = document.getElementById('pipelinesContent');
+  try {
+    const s = await api('/api/status');
+    const byState = s.pipelines.by_state || {};
+    el.innerHTML = `
+      <div class="stats-grid" style="grid-template-columns:repeat(3,1fr)">
+        <div class="stat-card"><div class="stat-label">Pipeline 总数</div><div class="stat-value purple">${s.pipelines.total}</div></div>
+      </div>
+      <div class="panel" style="margin-top:16px">
+        <div class="panel-header"><h3>状态分布</h3></div>
+        <div class="panel-body">
+          <pre style="font-size:12px;line-height:1.8;background:#f9fafb;padding:16px;border-radius:8px;overflow-x:auto">${JSON.stringify({pipelines: s.pipelines}, null, 2)}</pre>
+        </div>
+      </div>`;
+  } catch(e) { el.innerHTML = `<div class="error-msg">⚠️ ${esc(e.message)}</div>`; }
+}
+
+// ─── Throughput ───
+async function loadThroughput() {
+  const el = document.getElementById('throughputContent');
+  try {
+    const s = await api('/api/status');
+    el.innerHTML = `
+      <div class="stats-grid" style="grid-template-columns:repeat(2,1fr)">
+        <div class="stat-card"><div class="stat-label">最近 5 分钟消息量</div><div class="stat-value">${(s.throughput.last_5min||0).toLocaleString()}</div></div>
+      </div>
+      <div class="panel" style="margin-top:16px">
+        <div class="panel-header"><h3>限流统计 Top</h3></div>
+        <div class="panel-body">
+          ${!s.top_limited || s.top_limited.length === 0
+            ? '<div class="empty-state"><p>无限流记录</p><div class="hint">所有 Agent 通信正常</div></div>'
+            : `<table><thead><tr><th>Agent</th><th>被限流次数</th></tr></thead><tbody>
+              ${s.top_limited.map(t => `<tr><td class="mono">${esc(t.agent_id)}</td><td><span class="badge badge-warning">${t.count} 次</span></td></tr>`).join('')}
+            </tbody></table>`}
+        </div>
+      </div>`;
+  } catch(e) { el.innerHTML = `<div class="error-msg">⚠️ ${esc(e.message)}</div>`; }
+}
+
+// ─── Health ───
+async function loadHealth() {
+  const el = document.getElementById('healthContent');
+  try {
+    const h = await api('/health');
+    const s = await api('/api/status');
+    const up = h.uptime || 0;
+    let uptimeStr;
+    if (up < 60) uptimeStr = Math.round(up) + ' 秒';
+    else if (up < 3600) uptimeStr = Math.floor(up / 60) + ' 分钟 ' + Math.round(up % 60) + ' 秒';
+    else uptimeStr = Math.floor(up / 3600) + ' 小时 ' + Math.floor((up % 3600) / 60) + ' 分钟';
+
+    const bk = h.backup || {};
+    const remote = bk.remote || {};
+    const bkStr = bk.enabled ? '✅ 已启用' : '❌ 未启用';
+    const remoteStr = remote.enabled ? '✅ 远程备份中' : '⏳ 未配置远程';
+    const bkTime = bk.last_backup ? fmtTime(bk.last_backup) : '尚未备份';
+    const remoteTime = remote.last_push || '暂无记录';
+    const bkSize = bk.total_size_mb || '0.00';
+    const bkCount = bk.backup_count || 0;
+
+    el.innerHTML = `
+      <div class="stats-grid" style="grid-template-columns:repeat(3,1fr)">
+        <div class="stat-card"><div class="stat-label">服务状态</div><div class="stat-value green">${h.status === 'ok' ? '✅ 运行中' : '❌ 异常'}</div></div>
+        <div class="stat-card"><div class="stat-label">版本</div><div class="stat-value" style="font-size:20px">${h.version || '-'}</div></div>
+        <div class="stat-card"><div class="stat-label">运行时间</div><div class="stat-value" style="font-size:18px">${uptimeStr}</div></div>
+      </div>
+      <div class="panel" style="margin-top:16px">
+        <div class="panel-header"><h3>备份状态</h3></div>
+        <div class="panel-body">
+          <table><thead><tr><th>层级</th><th>状态</th><th>最近备份</th><th>机制</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>本地备份</strong></td>
+              <td><span class="badge badge-success">${bkStr}</span></td>
+              <td class="mono">${bkTime}</td>
+              <td class="mono">定时器，保留 ${bk.max_backups || 24} 份</td>
+            </tr>
+            <tr>
+              <td><strong>远程推送 → liubo-pc</strong></td>
+              <td><span class="badge badge-success">${remoteStr}</span></td>
+              <td class="mono">${remoteTime}</td>
+              <td class="mono" style="font-size:11px">${esc(remote.method || 'rsync')}</td>
+            </tr>
+          </tbody></table>
+          <div style="margin-top:8px;font-size:12px;color:#9ca3af">
+            本地: ${esc(bk.backup_dir || '-')} &nbsp;|&nbsp;
+            远程: ${esc(remote.host || '-')}:${esc(remote.dir || '-')} &nbsp;|&nbsp;
+            频率: ${esc(remote.schedule || '每 4 小时')}
+          </div>
+        </div>
+      </div>
+      <div class="panel" style="margin-top:16px">
+        <div class="panel-header"><h3>详尽状态</h3></div>
+        <div class="panel-body">
+          <pre style="font-size:12px;line-height:1.8;background:#f9fafb;padding:16px;border-radius:8px;overflow-x:auto;max-height:400px">${JSON.stringify({version: h.version, uptime: h.uptime, sse: h.sse, memory: h.memory, db: h.db, backup: h.backup}, null, 2)}</pre>
+        </div>
+      </div>`;
+  } catch(e) { el.innerHTML = `<div class="error-msg">⚠️ ${esc(e.message)}</div>`; }
+}
+
+// ─── Audit ───
+async function loadAudit() {
+  const el = document.getElementById('auditContent');
+  try {
+    const a = await api('/api/audit/tail?n=100');
+    const entries = a.entries || [];
+    el.innerHTML = entries.length === 0
+      ? '<div class="empty-state"><p>暂无审计事件</p><div class="hint">系统运行时间较短</div></div>'
+      : `<div style="max-height:480px;overflow-y:auto"><table><thead><tr><th>#</th><th>时间</th><th>操作</th><th>目标</th><th>操作者</th><th>详情</th></tr></thead>
+        <tbody>${entries.map((e,i) => `<tr><td style="color:#9ca3af;font-size:11px">${entries.length-i}</td><td class="mono">${fmtTime(e.ts)}</td><td>${esc(e.action)}</td><td class="mono ellipsis">${esc(e.target||'-')}</td><td>${esc(e.operator||'-')}</td><td class="mono ellipsis">${esc(e.details||'')}</td></tr>`).join('')}
+        </tbody></table></div>`;
+  } catch(e) { el.innerHTML = `<div class="error-msg">⚠️ ${esc(e.message)}</div>`; }
+}
+</script>
+</body>
+</html>

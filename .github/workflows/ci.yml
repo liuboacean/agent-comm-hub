@@ -29,8 +29,8 @@ jobs:
           node-version: "24"
           cache: "npm"
       - run: npm ci
-      # vitest 直接编译 TS，无需预构建
-      - run: npm run test:unit
+      # 设置 DB_PATH 避免 db.ts 初始化时找不到数据库文件
+      - run: DB_PATH=./test_ci.db npm run test:unit
 
   coverage:
     name: Coverage Report
@@ -43,8 +43,7 @@ jobs:
           node-version: "24"
           cache: "npm"
       - run: npm ci
-      # vitest 直接编译 TS，无需预构建
-      - run: npm run test:unit -- --coverage.reporter=lcov --coverage.reporter=text-summary
+      - run: DB_PATH=./test_ci.db npm run test:unit -- --coverage.reporter=lcov --coverage.reporter=text-summary
       - name: Upload coverage to Codecov
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: codecov/codecov-action@v4

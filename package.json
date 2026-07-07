@@ -1,6 +1,6 @@
 {
   "name": "agent-comm-hub",
-  "version": "2.4.7",
+  "version": "2.5.0",
   "description": "Production-grade multi-agent communication infrastructure via MCP + SSE",
   "type": "module",
   "engines": {
@@ -15,7 +15,10 @@
     "stdio": "node dist/src/stdio.js",
     "test": "tsx scripts/test-e2e.ts",
     "test:unit": "vitest run --coverage",
-    "test:unit:watch": "vitest"
+    "test:unit:watch": "vitest",
+    "web": "cd web && npx vite build && cd .. && tsx src/server.ts",
+    "docs:sync": "tsx scripts/sync-docs.ts",
+    "docs:sync:dry": "tsx scripts/sync-docs.ts --dry-run"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.10.2",

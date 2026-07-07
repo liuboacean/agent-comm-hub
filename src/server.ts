@@ -15,7 +15,7 @@ import express, { type Request, type Response, type NextFunction } from "express
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { registerTools } from "./tools.js";
-import { registerClient, removeClient, pushToAgent, onlineAgents, drainAllClients, startZombieCleanup, stopZombieCleanup } from "./sse.js";
+import { registerClient, removeClient, pushToAgent, onlineAgents, drainAllClients, startZombieCleanup, stopZombieCleanup, broadcastToAll } from "./sse.js";
 import { getDbStats, db, scheduleCleanup, stopCleanup } from "./db.js";
 import { messageRepo, taskRepo, consumedRepo } from "./repo/sqlite-impl.js";
 import {
@@ -41,7 +41,12 @@ import {
   incrementGauge,
   decrementGauge,
   collectHubMetrics,
+  getTopLimited,
 } from "./metrics.js";
+import { ActivationOrchestrator } from "./orchestrator.js";
+import { RateLimiter } from "./ratelimit.js";
+import { setMessageRateLimiter } from "./tools/message.js";
+import { createDashboardRouter } from "./web/server.js";
 
 // ═══════════════════════════════════════════════════════════════
 // Phase 6: 配置外部化（零依赖，所有配置有默认值）
@@ -442,13 +447,106 @@ app.get("/api/consumed", authMiddleware, (req: Request, res: Response) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// P1-4: 激活编排层 + P2-8: 限流 — 初始化
+// ═══════════════════════════════════════════════════════════════
+
+const activationOrch = new ActivationOrchestrator();
+activationOrch.replayFromAudit(); // 从 audit_log 恢复状态
+import { setActivationOrchestrator } from "./tools/orchestrator.js";
+setActivationOrchestrator(activationOrch);
+
+const msgRateLimiter = new RateLimiter();
+setMessageRateLimiter(msgRateLimiter);
+
+// ═══════════════════════════════════════════════════════════════
+// P2-7: Web 管理面板端点
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * GET /api/status — 面板总览指标（免认证，仅读数据）
+ */
+app.get("/api/status", (_req: Request, res: Response) => {
+  const agents = activationOrch.getAllAgentStates();
+  const agentStateCount: Record<string, number> = {};
+  for (const a of agents) {
+    agentStateCount[a.state] = (agentStateCount[a.state] ?? 0) + 1;
+  }
+
+  const pipelines = activationOrch.getAllPipelineStates();
+  const pipelineStateCount: Record<string, number> = {};
+  for (const p of pipelines) {
+    pipelineStateCount[p.state] = (pipelineStateCount[p.state] ?? 0) + 1;
+  }
+
+  // 近 5 分钟消息量
+  const fiveMinAgo = Date.now() - 300_000;
+  let last5min = 0;
+  try {
+    const row = db.prepare(
+      "SELECT COUNT(*) as cnt FROM messages WHERE created_at > ?"
+    ).get(fiveMinAgo) as any;
+    last5min = row?.cnt ?? 0;
+  } catch { /* table may not exist yet */ }
+
+  // FTS5 健康
+  let fts5Status = "unknown";
+  try {
+    const memMain = db.prepare("SELECT COUNT(*) as cnt FROM memories").get() as any;
+    const memFts = db.prepare("SELECT COUNT(*) as cnt FROM memories_fts").get() as any;
+    fts5Status = memMain.cnt === memFts.cnt ? "consistent" : "drifted";
+  } catch { /* FTS5 may not exist */ }
+
+  // 限流 Top
+  const topLimited = getTopLimited(10);
+
+  res.json({
+    agents: {
+      total: agents.length,
+      online: agents.filter(a => a.state === "active").length,
+      by_state: agentStateCount,
+    },
+    pipelines: {
+      total: pipelines.length,
+      by_state: pipelineStateCount,
+    },
+    throughput: {
+      last_5min: last5min,
+    },
+    health: {
+      fts5: fts5Status,
+      active_sse: onlineAgents().length,
+    },
+    top_limited: topLimited,
+    timestamp: Date.now(),
+  });
+});
+
+/**
+ * GET /api/audit/tail — 审计日志尾部
+ */
+app.get("/api/audit/tail", (req: Request, res: Response) => {
+  const n = Math.min(parseInt((req.query.n as string) ?? "50", 10), 500);
+  try {
+    const rows = db.prepare(
+      "SELECT id, ts, action, operator, target, details FROM audit_log ORDER BY id DESC LIMIT ?"
+    ).all(n) as any[];
+    res.json({ entries: rows });
+  } catch {
+    res.json({ entries: [] });
+  }
+});
+
+// 挂载 Dashboard 静态资源
+app.use("/dashboard", createDashboardRouter());
+
+// ═══════════════════════════════════════════════════════════════
 // MCP 端点：Stateless 模式
 // ═══════════════════════════════════════════════════════════════
 
 function createMcpServer(authContext: AuthContext | undefined): McpServer {
   const server = new McpServer({
     name: "agent-comm-hub",
-    version: "2.4.7",
+    version: "2.5.0",
   });
   registerTools(server, authContext);
   return server;

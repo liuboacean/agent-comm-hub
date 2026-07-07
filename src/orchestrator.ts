@@ -1020,3 +1020,239 @@ export function evaluateQualityGate(
 
   return { gate_id: gateId, status, blocked_tasks: blockedTasks };
 }
+
+// ═══════════════════════════════════════════════════════════════
+// P1-4: 激活编排层 — Agent Activation Orchestrator
+// ═══════════════════════════════════════════════════════════════
+
+import {
+  isLegalAgentTransition,
+  isLegalPipelineTransition,
+  type AgentState,
+  type PipelineState,
+} from "./state-machine.js";
+
+export interface ActivationResult {
+  success: boolean;
+  state?: string;
+  error?: string;
+  code?: string;
+}
+
+/**
+ * ActivationOrchestrator — Agent/Pipeline 激活态管理（P1-4）
+ *
+ * 职责：
+ *  - activate/deactivate Agent
+ *  - pause/resume Pipeline
+ *  - 幂等：已激活再激活 → 返回成功（不报错、不写审计）
+ *  - 非法转移 → 返回 INVALID_TRANSITION 错误码
+ *  - 每次操作写 audit_log + SSE broadcast
+ *  - 启动时从 audit_log 重放恢复状态（replayFromAudit）
+ */
+export class ActivationOrchestrator {
+  private agentStates: Map<string, AgentState> = new Map();
+  private pipelineStates: Map<string, PipelineState> = new Map();
+
+  constructor(
+    initialAgentStates?: Map<string, AgentState>,
+    initialPipelineStates?: Map<string, PipelineState>,
+  ) {
+    if (initialAgentStates) this.agentStates = new Map(initialAgentStates);
+    if (initialPipelineStates) this.pipelineStates = new Map(initialPipelineStates);
+  }
+
+  /**
+   * 激活 Agent（registered/suspended → active）
+   * 幂等：已激活再激活返回 success 但不重复写审计日志
+   */
+  activateAgent(agentId: string, operator: string): ActivationResult {
+    const current = this.agentStates.get(agentId);
+    if (!current) {
+      return { success: false, error: `Agent not found: ${agentId}`, code: "AGENT_NOT_FOUND" };
+    }
+
+    // 幂等
+    if (current === "active") {
+      return { success: true, state: "active" };
+    }
+
+    if (!isLegalAgentTransition(current, "active")) {
+      return {
+        success: false,
+        error: `Invalid transition: ${current} → active`,
+        code: "INVALID_TRANSITION",
+      };
+    }
+
+    this.agentStates.set(agentId, "active");
+
+    // 写审计日志
+    const details = `${current}→active`;
+    auditLog("activate_agent", operator, agentId, details);
+
+    // SSE 广播
+    pushToAgent(agentId, {
+      event: "agent_state_changed",
+      content: JSON.stringify({ agent_id: agentId, state: "active", operator }),
+    });
+
+    return { success: true, state: "active" };
+  }
+
+  /**
+   * 挂起 Agent（active → suspended）
+   * 幂等：已挂起再挂起返回 success
+   */
+  deactivateAgent(agentId: string, operator: string): ActivationResult {
+    const current = this.agentStates.get(agentId);
+    if (!current) {
+      return { success: false, error: `Agent not found: ${agentId}`, code: "AGENT_NOT_FOUND" };
+    }
+
+    if (current === "suspended") {
+      return { success: true, state: "suspended" };
+    }
+
+    if (!isLegalAgentTransition(current, "suspended")) {
+      return {
+        success: false,
+        error: `Invalid transition: ${current} → suspended`,
+        code: "INVALID_TRANSITION",
+      };
+    }
+
+    this.agentStates.set(agentId, "suspended");
+
+    const details = `${current}→suspended`;
+    auditLog("deactivate_agent", operator, agentId, details);
+
+    pushToAgent(agentId, {
+      event: "agent_state_changed",
+      content: JSON.stringify({ agent_id: agentId, state: "suspended", operator }),
+    });
+
+    return { success: true, state: "suspended" };
+  }
+
+  /**
+   * 暂停 Pipeline（active → paused）
+   */
+  pausePipeline(pipelineId: string, operator: string): ActivationResult {
+    const current = this.pipelineStates.get(pipelineId);
+    if (!current) {
+      return { success: false, error: `Pipeline not found: ${pipelineId}`, code: "PIPELINE_NOT_FOUND" };
+    }
+
+    if (current === "paused") {
+      return { success: true, state: "paused" };
+    }
+
+    if (!isLegalPipelineTransition(current, "paused")) {
+      return {
+        success: false,
+        error: `Invalid transition: ${current} → paused`,
+        code: "INVALID_TRANSITION",
+      };
+    }
+
+    this.pipelineStates.set(pipelineId, "paused");
+
+    const details = `${current}→paused`;
+    auditLog("pause_pipeline", operator, pipelineId, details);
+
+    pushToAgent(pipelineId, {
+      event: "pipeline_state_changed",
+      content: JSON.stringify({ pipeline_id: pipelineId, state: "paused", operator }),
+    });
+
+    return { success: true, state: "paused" };
+  }
+
+  /**
+   * 恢复 Pipeline（paused → active）
+   */
+  resumePipeline(pipelineId: string, operator: string): ActivationResult {
+    const current = this.pipelineStates.get(pipelineId);
+    if (!current) {
+      return { success: false, error: `Pipeline not found: ${pipelineId}`, code: "PIPELINE_NOT_FOUND" };
+    }
+
+    if (current === "active") {
+      return { success: true, state: "active" };
+    }
+
+    if (!isLegalPipelineTransition(current, "active")) {
+      return {
+        success: false,
+        error: `Invalid transition: ${current} → active`,
+        code: "INVALID_TRANSITION",
+      };
+    }
+
+    this.pipelineStates.set(pipelineId, "active");
+
+    const details = `${current}→active`;
+    auditLog("resume_pipeline", operator, pipelineId, details);
+
+    pushToAgent(pipelineId, {
+      event: "pipeline_state_changed",
+      content: JSON.stringify({ pipeline_id: pipelineId, state: "active", operator }),
+    });
+
+    return { success: true, state: "active" };
+  }
+
+  /**
+   * 从审计日志重放恢复内存状态（启动时调用）
+   */
+  replayFromAudit(): void {
+    try {
+      const rows = getAll<{ action: string; target: string }>(
+        `SELECT action, target FROM audit_log WHERE action IN ('activate_agent','deactivate_agent','pause_pipeline','resume_pipeline') ORDER BY id ASC`
+      );
+      for (const row of rows) {
+        if (row.action === "activate_agent") this.agentStates.set(row.target, "active");
+        else if (row.action === "deactivate_agent") this.agentStates.set(row.target, "suspended");
+        else if (row.action === "resume_pipeline") this.pipelineStates.set(row.target, "active");
+        else if (row.action === "pause_pipeline") this.pipelineStates.set(row.target, "paused");
+      }
+    } catch {
+      // audit_log 表可能不存在（首次启动），静默忽略
+    }
+  }
+
+  /** 查询 Agent 状态 */
+  getAgentState(agentId: string): AgentState | undefined {
+    return this.agentStates.get(agentId);
+  }
+
+  /** 查询 Pipeline 状态 */
+  getPipelineState(pipelineId: string): PipelineState | undefined {
+    return this.pipelineStates.get(pipelineId);
+  }
+
+  /** 获取全部 Agent 状态快照 */
+  getAllAgentStates(): Array<{ id: string; state: string }> {
+    return Array.from(this.agentStates.entries()).map(([id, state]) => ({ id, state }));
+  }
+
+  /** 获取全部 Pipeline 状态快照 */
+  getAllPipelineStates(): Array<{ id: string; state: string }> {
+    return Array.from(this.pipelineStates.entries()).map(([id, state]) => ({ id, state }));
+  }
+
+  /** 注册 Agent（registered 初始状态） */
+  registerAgent(agentId: string): void {
+    if (!this.agentStates.has(agentId)) {
+      this.agentStates.set(agentId, "registered");
+    }
+  }
+
+  /** 注册 Pipeline（draft 初始状态） */
+  registerPipeline(pipelineId: string): void {
+    if (!this.pipelineStates.has(pipelineId)) {
+      this.pipelineStates.set(pipelineId, "draft");
+    }
+  }
+}

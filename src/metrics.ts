@@ -261,3 +261,26 @@ export function collectHubMetrics(db: DatabaseType): string {
 
   return lines.join("\n") + "\n";
 }
+
+// ─── P2-8: 限流 Top N 查询 ─────────────────────────────
+
+/**
+ * 获取限流触发次数 Top N（按 agent_id 分组）
+ * 从 counters 中过滤 rate_limit_total 指标，按值降序排列
+ */
+export function getTopLimited(n: number = 10): Array<{ agent_id: string; count: number }> {
+  const agentCounts = new Map<string, number>();
+
+  for (const c of counters) {
+    if (c.labels._name === "rate_limit_total") {
+      const agentId = c.labels.agent_id ?? "unknown";
+      const current = agentCounts.get(agentId) ?? 0;
+      agentCounts.set(agentId, current + c.value);
+    }
+  }
+
+  return Array.from(agentCounts.entries())
+    .map(([agent_id, count]) => ({ agent_id, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, n);
+}

@@ -31,6 +31,14 @@ import {
   addTaskToPipeline,
 } from "../orchestrator.js";
 import { requireAuth, authed, mcpError } from "../utils.js";
+import { ActivationOrchestrator } from "../orchestrator.js";
+
+/** 全局 ActivationOrchestrator 实例，由 server.ts 注入 */
+export let activationOrch: ActivationOrchestrator | null = null;
+
+export function setActivationOrchestrator(orch: ActivationOrchestrator): void {
+  activationOrch = orch;
+}
 
 /**
  * 注册 Task Orchestrator 相关工具（16 个）
@@ -660,6 +668,78 @@ export function registerOrchestratorTools(server: McpServer, authContext?: AuthC
       } catch (err: unknown) {
         return mcpError(err, "add_task_to_pipeline");
       }
+    })
+  );
+
+  // ────────────────────────────────────────────────────
+  // P1-4: activate_agent — 激活 Agent
+  // ────────────────────────────────────────────────────
+  server.tool(
+    "activate_agent",
+    "激活一个已注册的 Agent（registered/suspended → active）。已激活再激活幂等。",
+    {
+      agent_id: z.string().describe("目标 Agent ID"),
+    },
+    authed(authContext, "activate_agent", async (ctx, { agent_id }) => {
+      const result = activationOrch?.activateAgent(agent_id, ctx.agentId);
+      if (!result) {
+        return { content: [{ type: "text", text: JSON.stringify({ success: false, error: "Activation orchestrator not initialized" }) }], isError: true };
+      }
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    })
+  );
+
+  // ────────────────────────────────────────────────────
+  // P1-4: deactivate_agent — 挂起 Agent
+  // ────────────────────────────────────────────────────
+  server.tool(
+    "deactivate_agent",
+    "挂起一个活跃 Agent（active → suspended）。已挂起再挂起幂等。",
+    {
+      agent_id: z.string().describe("目标 Agent ID"),
+    },
+    authed(authContext, "deactivate_agent", async (ctx, { agent_id }) => {
+      const result = activationOrch?.deactivateAgent(agent_id, ctx.agentId);
+      if (!result) {
+        return { content: [{ type: "text", text: JSON.stringify({ success: false, error: "Activation orchestrator not initialized" }) }], isError: true };
+      }
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    })
+  );
+
+  // ────────────────────────────────────────────────────
+  // P1-4: pause_pipeline — 暂停 Pipeline
+  // ────────────────────────────────────────────────────
+  server.tool(
+    "pause_pipeline",
+    "暂停一个活跃 Pipeline（active → paused）。已暂停再暂停幂等。",
+    {
+      pipeline_id: z.string().describe("目标 Pipeline ID"),
+    },
+    authed(authContext, "pause_pipeline", async (ctx, { pipeline_id }) => {
+      const result = activationOrch?.pausePipeline(pipeline_id, ctx.agentId);
+      if (!result) {
+        return { content: [{ type: "text", text: JSON.stringify({ success: false, error: "Activation orchestrator not initialized" }) }], isError: true };
+      }
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    })
+  );
+
+  // ────────────────────────────────────────────────────
+  // P1-4: resume_pipeline — 恢复 Pipeline
+  // ────────────────────────────────────────────────────
+  server.tool(
+    "resume_pipeline",
+    "恢复一个暂停的 Pipeline（paused → active）。已激活再恢复幂等。",
+    {
+      pipeline_id: z.string().describe("目标 Pipeline ID"),
+    },
+    authed(authContext, "resume_pipeline", async (ctx, { pipeline_id }) => {
+      const result = activationOrch?.resumePipeline(pipeline_id, ctx.agentId);
+      if (!result) {
+        return { content: [{ type: "text", text: JSON.stringify({ success: false, error: "Activation orchestrator not initialized" }) }], isError: true };
+      }
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     })
   );
 }

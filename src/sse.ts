@@ -136,6 +136,17 @@ export function broadcast(agentIds: string[], event: object): Record<string, boo
 }
 
 /**
+ * SSE 广播：推送给所有已连接 Agent（P1-4 激活态变更广播）
+ */
+export function broadcastToAll(event: object): Record<string, boolean> {
+  const results: Record<string, boolean> = {};
+  for (const agentId of clients.keys()) {
+    results[agentId] = pushToAgent(agentId, event);
+  }
+  return results;
+}
+
+/**
  * 查询哪些 Agent 在线
  */
 export function onlineAgents(): string[] {

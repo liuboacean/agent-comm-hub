@@ -15,6 +15,14 @@ import { dedupMessage, validateMessageBody } from "../dedup.js";
 import { logError } from "../logger.js";
 import { withRetry, requireAuth, authed, mcpError } from "../utils.js";
 import { getErrorMessage } from "../types.js";
+import { RateLimiter } from "../ratelimit.js";
+
+/** 全局 RateLimiter 实例，由 server.ts 在启动时注入 */
+export let messageRateLimiter: RateLimiter | null = null;
+
+export function setMessageRateLimiter(rl: RateLimiter): void {
+  messageRateLimiter = rl;
+}
 
 export function registerMessageTools(server: McpServer, authContext?: AuthContext): void {
 
@@ -65,6 +73,25 @@ export function registerMessageTools(server: McpServer, authContext?: AuthContex
           }],
           isError: true,
         };
+      }
+
+      // 限流检查（P2-8）
+      if (messageRateLimiter) {
+        const decision = messageRateLimiter.consume(resolvedFrom, 1);
+        if (!decision.allowed) {
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                success: false,
+                error: "Rate limited. Please retry after the specified time.",
+                code: "RATE_LIMITED",
+                retry_after_ms: decision.retryAfterMs,
+              }),
+            }],
+            isError: true,
+          };
+        }
       }
 
       // 消息去重 + 完整性校验

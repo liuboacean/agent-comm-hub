@@ -7,7 +7,7 @@
     "node": ">=24"
   },
   "license": "MIT",
-  "main": "dist/src/server.js",
+  "main": "dist/src/stdio.js",
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/server.ts",

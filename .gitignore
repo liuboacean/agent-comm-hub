@@ -18,3 +18,14 @@ tests/*.db-wal
 # Temp/debug scripts with hardcoded tokens
 node_verify.js
 node_verify.mjs
+
+# Build outputs
+dist/
+web/dist/
+coverage/
+coverage_backup_*/
+backups/
+
+# Web deps
+web/node_modules/
+web/package-lock.json

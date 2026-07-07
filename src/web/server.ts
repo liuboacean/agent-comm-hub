@@ -6,11 +6,10 @@
  */
 import { Router } from "express";
 import { existsSync, readFileSync, statSync } from "fs";
-import { join, extname } from "path";
-import { fileURLToPath } from "url";
+import { join, extname, resolve } from "path";
 
-const __dirname = join(fileURLToPath(import.meta.url), "..");
-const WEB_DIST = join(__dirname, "..", "..", "web", "dist");
+/** web/dist/ 路径：基于进程 CWD（项目根），兼容 tsc 输出到 dist/ 后运行 */
+const WEB_DIST = resolve(process.cwd(), "web", "dist");
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -44,6 +43,12 @@ export function createDashboardRouter(): Router {
       res.status(403).send("Forbidden");
       return;
     }
+
+    // 强制禁用缓存（避免浏览器加载旧的 React SPA）
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.setHeader("Surrogate-Control", "no-store");
 
     // 如果文件存在，返回文件内容
     if (existsSync(filePath)) {

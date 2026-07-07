@@ -47,6 +47,8 @@ import { ActivationOrchestrator } from "./orchestrator.js";
 import { RateLimiter } from "./ratelimit.js";
 import { setMessageRateLimiter } from "./tools/message.js";
 import { createDashboardRouter } from "./web/server.js";
+import { startBackupScheduler, stopBackupScheduler, getBackupStatus } from "./backup.js";
+import { readFileSync, existsSync } from "fs";
 
 // ═══════════════════════════════════════════════════════════════
 // Phase 6: 配置外部化（零依赖，所有配置有默认值）
@@ -100,7 +102,7 @@ app.use((_req: Request, res: Response, next: NextFunction) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-XSS-Protection", "1; mode=block");
   res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-  res.setHeader("Content-Security-Policy", "default-src 'self'");
+  res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'");
   next();
 });
 
@@ -238,8 +240,9 @@ app.get("/health", (_req: Request, res: Response) => {
 
   res.json({
     status: "ok",
-    version: "2.4.7",
-    uptime: process.uptime(),
+    version: "2.5.0",
+    uptime: getPersistentUptime(),
+    first_start_ms: serverStartTime,
     timestamp: Date.now(),
     memory: {
       rss: Math.round(mem.rss / 1024 / 1024),
@@ -254,6 +257,36 @@ app.get("/health", (_req: Request, res: Response) => {
     sse: {
       active_connections: onlineAgents().length,
     },
+    backup: (() => {
+      // 本地备份 + 远程 rsync 备份状态
+      const local = getBackupStatus();
+      let remoteLastBackup: string | null = null;
+      let remoteFiles = 0;
+      try {
+        const logPath = process.env.HUB_BACKUP_LOG || "";
+        if (logPath && existsSync(logPath)) {
+          const log = readFileSync(logPath, "utf-8");
+          const lastLine = log.trim().split("\n").filter(l => l.includes("推送成功")).pop();
+          if (lastLine) {
+            const match = lastLine.match(/^\[([^\]]+)\]/);
+            if (match) remoteLastBackup = match[1];
+          }
+          remoteFiles = (log.match(/推送成功/g) || []).length;
+        }
+      } catch { /* ignore */ }
+      return {
+        ...local,
+        remote: {
+          host: "Acean@10.20.33.123",
+          dir: "/home/Acean/hub-backups",
+          enabled: remoteFiles > 0,
+          last_push: remoteLastBackup,
+          total_pushes: remoteFiles,
+          method: "launchd + sqlite3 .backup + gzip + rsync → liubo-pc",
+          schedule: "每 4 小时（launchd）",
+        },
+      };
+    })(),
   });
 });
 
@@ -285,8 +318,9 @@ app.get("/health/detailed", (_req: Request, res: Response) => {
 
   res.json({
     status: "ok",
-    version: "2.4.7",
-    uptime: process.uptime(),
+    version: "2.5.0",
+    uptime: getPersistentUptime(),
+    first_start_ms: serverStartTime,
     timestamp: Date.now(),
     memory: {
       rss_mb: Math.round(mem.rss / 1024 / 1024),
@@ -478,6 +512,19 @@ app.get("/api/status", (_req: Request, res: Response) => {
     pipelineStateCount[p.state] = (pipelineStateCount[p.state] ?? 0) + 1;
   }
 
+  // 数据库回退：orchestrator 内存状态可能为空（重启后），从 DB 取总量
+  let dbAgentTotal = 0;
+  let dbAgentOnline = 0;
+  let dbPipelineTotal = 0;
+  try {
+    const aRow = db.prepare("SELECT COUNT(*) as cnt FROM agents").get() as any;
+    dbAgentTotal = aRow?.cnt ?? 0;
+    const aOnline = db.prepare("SELECT COUNT(*) as cnt FROM agents WHERE last_heartbeat > ?").get(Date.now() - 300_000) as any;
+    dbAgentOnline = aOnline?.cnt ?? 0;
+    const pRow = db.prepare("SELECT COUNT(*) as cnt FROM pipelines").get() as any;
+    dbPipelineTotal = pRow?.cnt ?? 0;
+  } catch { /* tables may not exist yet */ }
+
   // 近 5 分钟消息量
   const fiveMinAgo = Date.now() - 300_000;
   let last5min = 0;
@@ -501,12 +548,12 @@ app.get("/api/status", (_req: Request, res: Response) => {
 
   res.json({
     agents: {
-      total: agents.length,
-      online: agents.filter(a => a.state === "active").length,
+      total: agents.length || dbAgentTotal,
+      online: agents.filter(a => a.state === "active").length || dbAgentOnline,
       by_state: agentStateCount,
     },
     pipelines: {
-      total: pipelines.length,
+      total: pipelines.length || dbPipelineTotal,
       by_state: pipelineStateCount,
     },
     throughput: {
@@ -519,6 +566,41 @@ app.get("/api/status", (_req: Request, res: Response) => {
     top_limited: topLimited,
     timestamp: Date.now(),
   });
+});
+
+/**
+ * GET /api/agents — 所有 Agent 列表（含详情）
+ */
+app.get("/api/agents", (_req: Request, res: Response) => {
+  try {
+    const rows = db.prepare(
+      "SELECT agent_id, name, role, status, trust_score, last_heartbeat, created_at FROM agents ORDER BY last_heartbeat DESC"
+    ).all() as any[];
+    const now = Date.now();
+    const agents = rows.map(r => {
+      let last_seen: string;
+      const diff = r.last_heartbeat != null ? now - r.last_heartbeat : Infinity;
+      if (r.last_heartbeat == null) {
+        last_seen = "从未活跃";
+      } else if (diff < 60_000) last_seen = "刚刚活跃";
+      else if (diff < 3600_000) last_seen = `${Math.floor(diff / 60_000)} 分钟前`;
+      else if (diff < 86_400_000) last_seen = `${Math.floor(diff / 3600_000)} 小时前`;
+      else last_seen = `${Math.floor(diff / 86_400_000)} 天前`;
+      return {
+        agent_id: r.agent_id,
+        name: r.name,
+        role: r.role,
+        trust_score: r.trust_score,
+        last_heartbeat: r.last_heartbeat,
+        created_at: r.created_at,
+        last_seen,
+        online: r.last_heartbeat != null && diff < 300_000,
+      };
+    });
+    res.json({ agents });
+  } catch {
+    res.json({ agents: [] });
+  }
 });
 
 /**
@@ -536,8 +618,9 @@ app.get("/api/audit/tail", (req: Request, res: Response) => {
   }
 });
 
-// 挂载 Dashboard 静态资源
+// 挂载 Dashboard 静态资源（同时提供 / 和 /dashboard 入口）
 app.use("/dashboard", createDashboardRouter());
+app.get("/", (_req, res) => res.redirect("/dashboard"));
 
 // ═══════════════════════════════════════════════════════════════
 // MCP 端点：Stateless 模式
@@ -705,6 +788,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
 
   // 3. 停止定时器
   stopHeartbeatMonitor();
+  stopBackupScheduler();
   stopDedupCleanup();
   stopCleanup();
   stopZombieCleanup();
@@ -734,12 +818,49 @@ process.on("unhandledRejection", (reason: unknown) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// 持久化运行时间（跨重启）
+// ═══════════════════════════════════════════════════════════════
+
+/** 服务器首次启动时间戳（毫秒），跨重启持久化 */
+let serverStartTime: number | null = null;
+
+function initServerStartTime(): void {
+  try {
+    // 确保 config 表存在
+    db.exec(`CREATE TABLE IF NOT EXISTS server_config (key TEXT PRIMARY KEY, value TEXT)`);
+    const row = db.prepare(`SELECT value FROM server_config WHERE key='hub_first_start'`).get() as any;
+    if (row) {
+      serverStartTime = parseInt(row.value, 10);
+    } else {
+      serverStartTime = Date.now();
+      db.prepare(`INSERT INTO server_config (key, value) VALUES ('hub_first_start', ?)`).run(String(serverStartTime));
+    }
+    logger.info("server_start_time_init", {
+      module: "server",
+      server_start_ms: serverStartTime,
+      uptime_s: Math.round((Date.now() - serverStartTime) / 1000),
+    });
+  } catch (err) {
+    logError("server_start_time_init_failed", err, { module: "server" });
+  }
+}
+
+function getPersistentUptime(): number {
+  if (serverStartTime) {
+    return (Date.now() - serverStartTime) / 1000; // 秒
+  }
+  return process.uptime(); // fallback
+}
+
+// ═══════════════════════════════════════════════════════════════
 // 启动
 // ═══════════════════════════════════════════════════════════════
+initServerStartTime();
+
 httpServer = app.listen(config.port, () => {
   logger.info("server_started", {
     module: "server",
-    version: "2.4.7",
+    version: "2.5.0",
     port: config.port,
     phase: "5b",
   });
@@ -748,6 +869,9 @@ httpServer = app.listen(config.port, () => {
   startHeartbeatMonitor((agentId) => {
     logger.info("agent_offline_timeout", { module: "monitor", agent_id: agentId });
   });
+
+  // 启动数据库定时备份
+  startBackupScheduler(config.dbPath);
 
   // 启动去重缓存 TTL 清理（15min）
   startDedupCleanup();

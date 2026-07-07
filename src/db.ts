@@ -43,17 +43,7 @@ function resolveDbPath(): string {
     }
   }
 
-  // 第 4 级：明确报错，绝不静默使用 dist/comm_hub.db
-  // 第 5 级：Docker/Glama 等无持久化环境，自动创建
-  if (!process.env.CI) {
-    throw new Error(
-      "DB_PATH 未设置且未找到 comm_hub.db。\n" +
-      "请设置环境变量 DB_PATH 或 HUB_ROOT，或确保 comm_hub.db 存在于当前工作目录下。\n" +
-      "参考: DB_PATH=~/.agent-comm-hub/comm_hub.db"
-    );
-  }
-
-  // CI/Docker 环境下自动创建（如 Glama 构建测试）
+  // 第 4 级：自动创建 fallback（Docker/Glama/无持久化环境）
   const fallbackPath = resolve("comm_hub.db");
   console.warn(`[db] DB_PATH not set, creating fallback: ${fallbackPath}`);
   return fallbackPath;

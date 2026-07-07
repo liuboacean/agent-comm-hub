@@ -82,6 +82,7 @@ export interface MemoryRow {
   tags?: string | null;
   source_agent_id?: string | null;
   source_task_id?: string | null;
+  source_trust_score?: number | null;
   created_at: number;
   updated_at?: number | null;
 }

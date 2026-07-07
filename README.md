@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/Node.js-18+-green?logo=node.js" alt="Node.js 18+">
+  <img src="https://img.shields.io/badge/Node.js-24+-green?logo=node.js" alt="Node.js 24+">
   <img src="https://img.shields.io/badge/Python-3.9+-blue?logo=python" alt="Python 3.9+">
   <img src="https://img.shields.io/badge/MCP_Protocol-1.0-orange?logo=robot" alt="MCP Protocol">
   <img src="https://img.shields.io/badge/DB_Split_Protection-v3-green?logo=shield" alt="DB Split Protection">
@@ -25,6 +25,8 @@
 <p align="center">
   <a href="#readme">中文</a> · <a href="docs/README_EN.md">English</a>
 </p>
+
+> 运行环境：Node.js >= 24（better-sqlite3 原生模块按 Node24 编译，请用 `.nvmrc` 指定版本）
 
 ---
 

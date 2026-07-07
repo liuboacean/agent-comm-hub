@@ -16,6 +16,7 @@ import { auditLog, type AuthContext } from "../security.js";
 import { requireAuth, authed, mcpFail, mcpError } from "../utils.js";
 import { fts5IntegrityCheck, db } from "../db.js";
 import { logger } from "../logger.js";
+import type { MemoryRow } from "../types.js";
 
 export function registerMemoryTools(server: McpServer, authContext?: AuthContext): void {
 
@@ -118,7 +119,7 @@ export function registerMemoryTools(server: McpServer, authContext?: AuthContext
               agent_id:          m.agent_id,
               source_agent_id:   m.source_agent_id,
               source_task_id:    m.source_task_id,
-              source_trust_score: (m as any).source_trust_score ?? null,
+              source_trust_score: (m as MemoryRow).source_trust_score ?? null,
               created_at:        m.created_at,
             })),
             count: results.length,
@@ -161,7 +162,7 @@ export function registerMemoryTools(server: McpServer, authContext?: AuthContext
               agent_id:          m.agent_id,
               source_agent_id:   m.source_agent_id,
               source_task_id:    m.source_task_id,
-              source_trust_score: (m as any).source_trust_score ?? null,
+              source_trust_score: (m as MemoryRow).source_trust_score ?? null,
               created_at:        m.created_at,
               updated_at:        m.updated_at,
             })),
@@ -277,7 +278,7 @@ export function registerMemoryTools(server: McpServer, authContext?: AuthContext
                 agent_id:          m.agent_id,
                 source_agent_id:   m.source_agent_id,
                 source_task_id:    m.source_task_id,
-                source_trust_score: (m as any).source_trust_score ?? null,
+                source_trust_score: (m as MemoryRow).source_trust_score ?? null,
                 created_at:        m.created_at,
               })),
               count:      results.length,

@@ -7,6 +7,7 @@
   <img src="https://img.shields.io/badge/TypeScript-SDK-blue?logo=typescript" alt="TypeScript SDK">
   <img src="https://img.shields.io/badge/Python_SDK-Zero_Dependencies-brightgreen?logo=python" alt="Zero Dependencies">
   <img src="https://img.shields.io/badge/CI-Passing-3fb950?logo=githubactions" alt="CI">
+  <img src="https://img.shields.io/badge/Web_Panel-Online-7c3aed?logo=htmx" alt="Web Panel">
   <a href="https://glama.ai/mcp/servers/liuboacean/agent-comm-hub">
     <img src="https://glama.ai/mcp/servers/liuboacean/agent-comm-hub/badges/score.svg" alt="Glama score">
   </a>
@@ -18,7 +19,7 @@
 <h1 align="center">🤖 Agent Communication Hub</h1>
 <p align="center">
   <strong>生产级多智能体通信基础设施</strong><br>
-  实时消息 · 任务调度 · 共享记忆 · 信任进化<br>
+  实时消息 · 任务调度 · 共享记忆 · 信任进化 · Web 管理面板<br>
   基于 MCP + SSE 协议，56 个工具，零外部依赖
 </p>
 
@@ -84,8 +85,9 @@ hub.send_message(to='other-agent', content='Hello, Agent!')
 | 🛡️ 安全审计 | 6 | Token 认证、4 级 RBAC、审计哈希链、CORS 白名单 |
 | 📎 文件传输 | 3 | 上传 / 下载 / 列表，Base64 10MB 限制 |
 | 🔧 高可用防护 | 3 | DB 分裂自动检测 + 合并 + 看门狗自愈 |
+| 🖥️ Web 管理面板 | — | 实时仪表盘 / Agent 列表 / 健康检查 / 远程备份状态 |
 
-**56 个 MCP 工具** · SQLite WAL（零消息丢失） · SSE 推送延迟 < 50ms
+**56 个 MCP 工具 + Web 管理面板** · SQLite WAL（零消息丢失） · SSE 推送延迟 < 50ms
 
 ---
 
@@ -258,6 +260,29 @@ skillhub install agent-comm-hub
 
 ---
 
+## 🖥️ Web 管理面板
+
+Hub 自带 Web 管理面板，无需额外安装：
+
+```
+http://localhost:3100/dashboard
+```
+
+### 功能一览
+
+| 页面 | 内容 |
+|------|------|
+| **总览仪表盘** | 在线 Agent / Pipeline / 消息吞吐 / FTS5 健康 |
+| **Agents** | 完整列表（名称、角色、最后活跃时间、信任分）|
+| **Pipelines** | Pipeline 状态分布 |
+| **消息吞吐** | 5 分钟消息量 + 限流 Top |
+| **健康检查** | 版本、运行时间、DB 状态、备份状态（本地+远程）|
+| **审计日志** | 全量操作审计追踪 |
+
+> 面板为纯静态 HTML（内联 CSS+JS），零前端依赖，启动即用。
+
+---
+
 ## 🛡️ 安全
 
 | 特性 | 说明 |
@@ -276,16 +301,20 @@ skillhub install agent-comm-hub
 
 ```
 agent-comm-hub/
-├── src/                    # Hub 服务端源码（TypeScript）
-│   ├── server.ts          # Express + SSE + MCP 入口
-│   ├── stdio.ts           # stdio MCP 传输入口
-│   ├── db.ts              # SQLite WAL Schema + 查询
-│   ├── identity.ts        # 注册、心跳、RBAC
-│   ├── memory.ts          # 三级作用域记忆 + FTS5
-│   ├── task.ts            # 7 状态任务调度器
-│   ├── orchestrator.ts    # 依赖链、Pipeline
-│   ├── evolution.ts       # 策略引擎、信任评分
-│   └── security.ts        # 认证、Token、RBAC、审计
+├── web/
+│   └── dist/
+│       └── index.html          # Web 管理面板（静态 HTML）
+├── src/                        # Hub 服务端源码（TypeScript）
+│   ├── server.ts               # Express + SSE + MCP 入口
+│   ├── stdio.ts                # stdio MCP 传输入口
+│   ├── db.ts                   # SQLite WAL Schema + 查询
+│   ├── backup.ts               # 数据库定时备份模块
+│   ├── identity.ts             # 注册、心跳、RBAC
+│   ├── memory.ts               # 三级作用域记忆 + FTS5
+│   ├── task.ts                 # 7 状态任务调度器
+│   ├── orchestrator.ts         # 依赖链、Pipeline
+│   ├── evolution.ts            # 策略引擎、信任评分
+│   └── security.ts             # 认证、Token、RBAC、审计
 ├── client-sdk/
 │   ├── hub_client.py      # Python SDK（零依赖，68 方法）
 │   ├── agent-client.ts    # TypeScript SDK（35 公共方法）
@@ -328,6 +357,18 @@ agent-comm-hub/
 ---
 
 ## 🆕 最近更新
+
+### v2.5.0 (2026-07-07)
+- 🖥️ **Web 管理面板** — 纯静态 HTML 仪表盘（零前端依赖），登录后即可查看：
+  - 总览仪表盘（Agent/Pipeline/消息吞吐/FTS5 健康）
+  - Agent 列表（名称/角色/最后活跃时间/信任分）
+  - Pipeline / 消息吞吐 / 健康检查页面
+  - 审计日志实时追踪（每 15 秒自动刷新）
+- 🔄 **在线状态改进** — 二元「在线/离线」标签改为「最后活跃时间」，心跳超时不再跳变
+- 📦 **备份模块** — `src/backup.ts` 定时备份 DB，健康检查页展示本地+远程备份状态
+- ⏱️ **持久化运行时间** — `server_config` 表存储首次启动时间戳，重启不归零
+- 📊 **新增 API** — `GET /api/agents` 返回 Agent 列表详情
+- 🔧 **`.gitignore` 清理** — 移除已跟踪的 `dist/` 和 `src/*.js` 编译产物
 
 ### v2.4.7 (2026-06-09)
 - 🔍 **FTS5 标签分词修复** — 空格拼接替代 JSON，版本号/hash 可正确搜索

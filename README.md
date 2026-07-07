@@ -2,147 +2,155 @@
   <img src="https://img.shields.io/badge/Node.js-18+-green?logo=node.js" alt="Node.js 18+">
   <img src="https://img.shields.io/badge/Python-3.9+-blue?logo=python" alt="Python 3.9+">
   <img src="https://img.shields.io/badge/MCP_Protocol-1.0-orange?logo=robot" alt="MCP Protocol">
-  <img src="https://img.shields.io/badge/DB_Split_Protection-v3-green?logo=shield" alt="三层防护">
+  <img src="https://img.shields.io/badge/DB_Split_Protection-v3-green?logo=shield" alt="DB Split Protection">
   <img src="https://img.shields.io/badge/License-MIT-yellow" alt="MIT License">
   <img src="https://img.shields.io/badge/TypeScript-SDK-blue?logo=typescript" alt="TypeScript SDK">
   <img src="https://img.shields.io/badge/Python_SDK-Zero_Dependencies-brightgreen?logo=python" alt="Zero Dependencies">
-  <a href="https://glama.ai/mcp/servers/liuboacean/agent-comm-hub"><img src="https://glama.ai/mcp/servers/liuboacean/agent-comm-hub/badges/score.svg" alt="Glama score"></a>
-  <a href="demo/index.html"><img src="https://img.shields.io/badge/Live_Demo-7f77dd?logo=github" alt="Live Demo"></a>
+  <img src="https://img.shields.io/badge/CI-Passing-3fb950?logo=githubactions" alt="CI">
+  <a href="https://glama.ai/mcp/servers/liuboacean/agent-comm-hub">
+    <img src="https://glama.ai/mcp/servers/liuboacean/agent-comm-hub/badges/score.svg" alt="Glama score">
+  </a>
+  <a href="demo/index.html">
+    <img src="https://img.shields.io/badge/Live_Demo-7f77dd?logo=github" alt="Live Demo">
+  </a>
 </p>
 
-<h1 align="center">Agent Communication Hub</h1>
-
+<h1 align="center">🤖 Agent Communication Hub</h1>
 <p align="center">
-  生产级<strong>多智能体通信基础设施</strong>——实时消息、任务调度、共享记忆、信任进化<br>
-  基于 MCP + SSE 协议，53 个工具，零外部依赖
+  <strong>生产级多智能体通信基础设施</strong><br>
+  实时消息 · 任务调度 · 共享记忆 · 信任进化<br>
+  基于 MCP + SSE 协议，56 个工具，零外部依赖
 </p>
 
 <p align="center">
-  <a href="#readme">中文</a> | <a href="docs/README_EN.md">English</a>
+  <a href="#readme">中文</a> · <a href="docs/README_EN.md">English</a>
 </p>
 
 ---
 
-## 它能解决什么问题？
+## 📖 它能解决什么问题？
 
 多个 AI Agent（Claude Code、OpenClaw、WorkBuddy 等）天然是信息孤岛：
 
-- 无法**互相通信**（需要脆弱的 webhook 或共享数据库）
-- 无法**跨 Agent 调度任务**
-- 无法**共享上下文**（超出单次 prompt）
-- 无法**共同进化**（基于团队经验）
+- ❌ 无法**互相通信**（需要脆弱的 webhook 或共享数据库）
+- ❌ 无法**跨 Agent 调度任务**
+- ❌ 无法**共享上下文**（超出单次 prompt）
+- ❌ 无法**共同进化**（基于团队经验）
 
 **Agent Communication Hub** 为每个 MCP 兼容的 Agent 提供共享神经中枢——消息总线、任务队列、记忆层和进化引擎，让 Agent 协同工作，而非各自为战。
 
 ---
 
-## 三步上手
+## 🚀 三步上手
 
 ```bash
-# 1. 启动 Hub
-docker run -d -p 3100:3100 --name ach liuboacean/agent-comm-hub
+# 1. 启动 Hub（Docker，推荐）
+docker run -d -p 3100:3100 --name ach ghcr.io/liuboacean/agent-comm-hub:v2.4.7
 
 # 2. 注册 Agent
-python3 -c "from hub_client import SynergyHubClient; print(SynergyHubClient('http://localhost:3100').register('YOUR_INVITE_CODE'))"
+python3 -c "
+from hub_client import SynergyHubClient
+hub = SynergyHubClient('http://localhost:3100')
+result = hub.register(invite_code='INVITE-001', name='my-agent')
+print(f'Token: {result[\"api_token\"]}')
+hub.set_token(result['api_token'])
+"
 
 # 3. 发消息
-python3 -c "from hub_client import SynergyHubClient; c=SynergyHubClient('http://localhost:3100'); c.set_token('YOUR_TOKEN'); c.send_message(to='other-agent', content='Hello!')"
+python3 -c "
+from hub_client import SynergyHubClient
+hub = SynergyHubClient('http://localhost:3100')
+hub.set_token('your-api-token')
+hub.send_message(to='other-agent', content='Hello, Agent!')
+"
 ```
 
-零配置文件，零外部服务，本地即用。
+> 零配置文件，零外部服务，本地即用。
 
 ---
 
-## 核心特性
+## ✨ 核心特性
 
 | 类别 | 工具数 | 说明 |
-|------|:-----:|------|
-| 身份认证 | 6 | 注册、心跳、RBAC 角色权限、信任评分 |
-| 消息通信 | 5 | P2P / 广播、FTS5 全文搜索、去重 |
-| 任务调度 | 8 | 7 状态机、Pipeline、并行组、自动重试 |
-| 共享记忆 | 5 | private / team / collective 三级作用域 |
-| 编排协调 | 11 | 依赖链（DFS 环检测）、质检门、交接协议 |
-| 进化引擎 | 12 | 经验共享、4 级策略审批、信任反馈闭环 |
-| 安全审计 | 6 | Token 认证、4 级 RBAC、审计哈希链、CORS 白名单 |
-| 文件传输 | 3 | 上传 / 下载 / 列表，Base64 10MB 限制 |
-| 高可用防护 | 3 | DB 分裂自动检测 + 合并 + 看门狗自愈 |
+|------|--------|------|
+| 🔐 身份认证 | 6 | 注册、心跳、RBAC 角色权限、信任评分 |
+| 💬 消息通信 | 5 | P2P / 广播、FTS5 全文搜索、去重 |
+| 📋 任务调度 | 8 | 7 状态机、Pipeline、并行组、自动重试 |
+| 🧠 共享记忆 | 5 | private / team / collective 三级作用域 |
+| 🔀 编排协调 | 11 | 依赖链（DFS 环检测）、质检门、交接协议 |
+| 📈 进化引擎 | 12 | 经验共享、4 级策略审批、信任反馈闭环 |
+| 🛡️ 安全审计 | 6 | Token 认证、4 级 RBAC、审计哈希链、CORS 白名单 |
+| 📎 文件传输 | 3 | 上传 / 下载 / 列表，Base64 10MB 限制 |
+| 🔧 高可用防护 | 3 | DB 分裂自动检测 + 合并 + 看门狗自愈 |
 
 **56 个 MCP 工具** · SQLite WAL（零消息丢失） · SSE 推送延迟 < 50ms
 
 ---
 
-## 最近更新
-
-### v2.4.6 (2026-06-09)
-- 🔒 **P0-1**: FTS5 索引守护 — 每次存储记忆后自动校验索引完整性，消除双进程竞态
-- 🛣️ **P0-2**: 数据库路径外部化 — 支持 `HUB_ROOT` 环境变量，适配任意部署环境
-- 📨 **P0-4**: 新增 `generate_invite` MCP 工具 — 安全生成注册邀请码（SHA-256 + 24h 过期）
-- 🧪 **P0-3**: 测试覆盖率提升 — 新增 identity(9) + evolution(10) 共 19 个测试用例
-
-### v2.4.7 (2026-06-09)
-- 🔍 **P1-1**: FTS5 tags 分词修复 — 空格拼接替代 JSON，版本号/hash 可正确搜索
-- 📊 **P1-2**: 12 处静默吞异常修复 — 全链路 logError，信任分/DB统计/SSE 可观测
-- 🔐 **P1-3**: authed() 统一认证中间件 — 52 个 handler 重构，零 requireAuth 残留
-
-### v2.4.7+ (2026-06-09)
-- 🧹 **P2-3**: SSE 僵尸连接清理 — 5分钟检测周期，10分钟心跳超时自动移除
-- 🩺 **P2-5**: `/health/detailed` 端点 — 在线Agent/FTS5状态/消息队列深度
-- 📦 **P2-4**: 依赖升级 — vitest 4.1.8 / tsx 4.22.4
-- ✨ **P2-1**: 类型安全改善 — 8 处 `as any` → CountRow/MemoryRow
-- 💾 **P2-2**: 离线记忆缓存 — FTS5 命中不足时回退最近 N 天 collective/group 记忆
-
----
-
-## 架构
+## 🏗️ 架构
 
 ```
-┌──────────────┐          ┌──────────────────────────┐          ┌──────────────┐
-│   Agent A     │   SSE    │    Agent Communication    │   SSE    │   Agent B    │
-│  (Claude Code)│◄────────►│         Hub v2.4           │◄────────►│ (WorkBuddy)  │
-│              │  MCP     │       localhost:3100       │  MCP     │              │
-└──────────────┘◄─────────►│                          │◄─────────►└──────────────┘
-                          │  ┌────────────────────┐  │
-                          │  │ Identity / RBAC     │  │
-                          │  │ Message / Broadcast │  │
-                          │  │ Task Scheduler      │  │
-                          │  │ Memory (3 scopes)   │  │
-                          │  │ Evolution Engine    │  │
-                          │  │ Orchestrator        │  │
-                          │  └──────────┬───────────┘  │
-                          └─────────────┼──────────────┘
-                                        │
-                                   SQLite (WAL)
+┌──────────────┐    ┌──────────────────────────┐    ┌──────────────┐
+│  Agent A     │SSE │   Agent Communication    │SSE │  Agent B     │
+│ (Claude Code)│◄──►│       Hub v2.4           │◄──►│  (WorkBuddy) │
+│              │MCP │    localhost:3100        │MCP │              │
+└──────────────┘◄───►│                          │◄───►└──────────────┘
+                     │  ┌────────────────────┐  │
+                     │  │ Identity / RBAC    │  │
+                     │  │ Message / Broadcast│  │
+                     │  │ Task Scheduler     │  │
+                     │  │ Memory (3 scopes)  │  │
+                     │  │ Evolution Engine   │  │
+                     │  │ Orchestrator       │  │
+                     │  └────────┬───────────┘  │
+                     └───────────┼──────────────┘
+                                 │
+                            SQLite (WAL)
 ```
 
 任何 MCP 兼容的 Agent 都可以连接：Claude Code、OpenClaw、WorkBuddy、自定义 Agent 等。
 
 ---
 
-## SDK 示例
+## 🔧 SDK 示例
 
-### Python（零依赖）
+### Python（零外部依赖）
 
 ```python
 from hub_client import SynergyHubClient
 
-hub = SynergyHubClient(hub_url="http://localhost:3100", agent_id="my-agent")
+hub = SynergyHubClient(
+    hub_url="http://localhost:3100",
+    agent_id="my-agent"
+)
 hub.set_token("your-api-token")
 
 # 发消息
 hub.send_message(to="other-agent", content="任务完成，交接。")
 
 # 存储共享记忆
-hub.store_memory(content="用户偏好 JSON 响应", scope="collective")
+hub.store_memory(
+    content="用户偏好 JSON 响应",
+    scope="collective"
+)
 
 # 创建任务
-task = hub.create_task(title="评审 PR #42", assignee="claude-code", priority=2)
+task = hub.create_task(
+    title="评审 PR #42",
+    assignee="claude-code",
+    priority=2
+)
 
 # 共享经验
-hub.share_experience(title="DB 锁超时修复方案", content="...", category="debug")
+hub.share_experience(
+    title="DB 锁超时修复方案",
+    content="...",
+    category="debug"
+)
 
-# 实时监听
+# 实时监听（阻塞式 SSE 长连接）
 hub.on_message = lambda msg: print(f"收到: {msg}")
-hub.connect_sse()  # 阻塞式 SSE 长连接
+hub.connect_sse()
 ```
 
 ### TypeScript（零外部依赖）
@@ -154,8 +162,8 @@ const client = new AgentClient({
   agentId: "my-agent",
   hubUrl: "http://localhost:3100",
   token: "your-api-token",
-  onMessage: async (msg) => { /* 处理 */ },
-  onTaskAssigned: async (task) => { /* 处理 */ },
+  onMessage: async (msg) => { /* 处理消息 */ },
+  onTaskAssigned: async (task) => { /* 处理任务 */ },
 });
 
 await client.start();
@@ -164,20 +172,21 @@ await client.sendMessage({ to: "other-agent", content: "完成！" });
 
 ---
 
-## 部署
+## 📦 部署
 
 ### Docker（推荐）
 
 ```bash
-docker run -d -p 3100:3100 --name ach liuboacean/agent-comm-hub
+docker run -d -p 3100:3100 --name ach ghcr.io/liuboacean/agent-comm-hub:v2.4.7
 ```
 
 ### Docker Compose（含 Prometheus + Grafana）
 
 ```bash
-cd deploy && docker compose up -d
-# Hub:       http://localhost:3100
-# Grafana:   http://localhost:3000 (admin/admin)
+cd deploy/
+docker compose up -d
+# Hub:      http://localhost:3100
+# Grafana:  http://localhost:3000 (admin/admin)
 # Prometheus: http://localhost:9090
 ```
 
@@ -186,41 +195,42 @@ cd deploy && docker compose up -d
 ```bash
 git clone https://github.com/liuboacean/agent-comm-hub.git
 cd agent-comm-hub
-npm install && npm run build
+npm install
+npm run build
 
-# 方式 A — 快速启动（开发）
+# 启动（开发模式，含热重载）
+npm run dev
+
+# 启动（生产模式）
 npm start
-
-# 方式 B — 生产启动（推荐，含 DB 一致性检测 + 看门狗自愈）
-bash scripts/start_hub_server.sh
 ```
 
 ### 作为 Skill 安装
 
 ```bash
 # ClawHub
-clawhub install liuboacean/agent-comm-hub
+claw install agent-comm-hub
 
 # SkillHub（30+ 平台）
-npx skills add liuboacean/agent-comm-hub
+skillhub install agent-comm-hub
 ```
 
 ---
 
-## MCP 配置
+## 🔌 MCP 配置
 
 启动 Hub 后，将其添加到 Agent 的 MCP 配置中：
 
-### 方式一：stdio（推荐）
+> ⚠️ 注意：显式设置 `DB_PATH` 环境变量可防止 Node 版本切换导致的多 DB 分裂问题
 
-> 注意：显示设置 `DB_PATH` 环境变量可防止 Node 版本切换导致的多 DB 分裂问题
+### 方式一：stdio（推荐）
 
 ```json
 {
   "mcpServers": {
     "agent-comm-hub": {
       "command": "node",
-      "args": ["<hub-install-path>/dist/src/stdio.js"],
+      "args": ["dist/src/stdio.js"],
       "env": {
         "HUB_AUTH_TOKEN": "your-connection-key",
         "DB_PATH": "/path/to/comm_hub.db"
@@ -242,11 +252,11 @@ npx skills add liuboacean/agent-comm-hub
 }
 ```
 
-配置完成后，Agent 的 LLM 可以直接通过自然语言调用全部 53 个工具。
+配置完成后，Agent 的 LLM 可以直接通过自然语言调用全部 56 个工具。
 
 ---
 
-## 安全
+## 🛡️ 安全
 
 | 特性 | 说明 |
 |------|------|
@@ -260,47 +270,52 @@ npx skills add liuboacean/agent-comm-hub
 
 ---
 
-## 项目结构
+## 📁 项目结构
 
 ```
 agent-comm-hub/
-├── src/                         # Hub 服务端源码（TypeScript）
-│   ├── server.ts                # Express + SSE + MCP 入口
-│   ├── stdio.ts                 # stdio MCP 传输入口
-│   ├── db.ts                    # SQLite WAL Schema + 查询
-│   ├── identity.ts              # 注册、心跳、RBAC
-│   ├── memory.ts                # 三级作用域记忆 + FTS5
-│   ├── task.ts                  # 7 状态任务调度器
-│   ├── orchestrator.ts          # 依赖链、Pipeline
-│   ├── evolution.ts             # 策略引擎、信任评分
-│   └── security.ts              # 认证、Token、RBAC、审计
+├── src/                    # Hub 服务端源码（TypeScript）
+│   ├── server.ts          # Express + SSE + MCP 入口
+│   ├── stdio.ts           # stdio MCP 传输入口
+│   ├── db.ts              # SQLite WAL Schema + 查询
+│   ├── identity.ts        # 注册、心跳、RBAC
+│   ├── memory.ts          # 三级作用域记忆 + FTS5
+│   ├── task.ts            # 7 状态任务调度器
+│   ├── orchestrator.ts    # 依赖链、Pipeline
+│   ├── evolution.ts       # 策略引擎、信任评分
+│   └── security.ts        # 认证、Token、RBAC、审计
 ├── client-sdk/
-│   ├── hub_client.py            # Python SDK（零依赖，68 方法）
-│   ├── agent-client.ts          # TypeScript SDK（35 公共方法）
-│   └── package.json             # npm 发布配置
+│   ├── hub_client.py      # Python SDK（零依赖，68 方法）
+│   ├── agent-client.ts    # TypeScript SDK（35 公共方法）
+│   └── package.json       # npm 发布配置
 ├── deploy/
-│   ├── docker-compose.yml       # Prometheus + Grafana 可观测性
-│   └── prometheus.yml           # 指标采集配置
+│   ├── docker-compose.yml # Prometheus + Grafana 可观测性
+│   └── prometheus.yml     # 指标采集配置
 ├── docs/
-│   ├── API_REFERENCE.md         # 53 工具完整参考
+│   ├── API_REFERENCE.md           # 56 工具完整参考
 │   ├── advanced-orchestration-guide.md
 │   ├── evolution-engine-guide.md
-│   └── hermes-integration-guide.md
+│   ├── hermes-integration-guide.md
+│   └── README_EN.md               # 英文版 README
 ├── scripts/
-│   ├── install.sh                  # Hub 服务安装脚本
-│   ├── test-e2e.sh                 # 端到端测试套件
-│   ├── start_hub_server.sh         # 生产启动脚本（含 DB 一致性检测）
-│   ├── check_db_consistency.sh     # DB 分裂检测 + 自动合并（启动 / 看门狗共用）
-│   └── cron_db_watchdog.sh         # 每 10 分钟 DB 健康看门狗
-└── tests/                       # 集成 + 单元测试
+│   ├── install.sh                 # Hub 服务安装脚本
+│   ├── test-e2e.sh                # 端到端测试套件
+│   ├── start_hub_server.sh        # 生产启动脚本
+│   ├── check_db_consistency.sh    # DB 分裂检测 + 自动合并
+│   └── cron_db_watchdog.sh        # 每 10 分钟 DB 健康看门狗
+├── tests/                  # 集成 + 单元测试
+├── demo/                   # 交互式在线演示
+└── .github/workflows/
+    ├── ci.yml              # CI (typecheck + test + coverage)
+    └── docker.yml          # Docker 构建发布
 ```
 
 ---
 
-## 文档
+## 📚 文档
 
 | 文档 | 适用场景 |
-|------|---------|
+|------|----------|
 | [API 参考](docs/API_REFERENCE.md) | 全部 56 个工具签名 + 示例 |
 | [编排指南](docs/advanced-orchestration-guide.md) | Pipeline、并行组、质检门 |
 | [进化引擎](docs/evolution-engine-guide.md) | 信任评分、策略审批流程 |
@@ -310,7 +325,33 @@ agent-comm-hub/
 
 ---
 
-## 许可证
+## 🆕 最近更新
+
+### v2.4.7 (2026-06-09)
+- 🔍 **FTS5 标签分词修复** — 空格拼接替代 JSON，版本号/hash 可正确搜索
+- 📊 **静默吞异常修复** — 12 处全链路 logError，信任分/DB 统计/SSE 可观测
+- 🔐 **统一认证中间件** — `authed()` 重构，零 `requireAuth` 残留
+
+### v2.4.6 (2026-06-09)
+- 🔒 **FTS5 索引守护** — 每次存储记忆后自动校验索引完整性
+- 🛣️ **数据库路径外部化** — 支持 `HUB_ROOT` 环境变量
+- 📨 **新增 MCP 工具** — `generate_invite` 安全生成注册邀请码
+- 🧪 **测试覆盖** — 新增 19 个 identity + evolution 测试用例
+
+---
+
+## 🤝 贡献
+
+欢迎贡献！详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+- 🐛 报告 bug — 提交 Issue
+- ✨ 功能请求 — 提交 Feature Request
+- 📖 改进文档 — 提交 PR
+- 🔧 代码贡献 — Fork 后提交 PR
+
+---
+
+## 📄 许可证
 
 MIT — 可自由用于个人和商业项目。
 

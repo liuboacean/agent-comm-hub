@@ -34,11 +34,11 @@ export default defineConfig({
         "src/security.ts": { branches: 70, functions: 70 },
         "src/dedup.ts": { branches: 60, functions: 70 },
         "src/utils.ts": { branches: 60, functions: 60 },
-        // 整体阈值（P1-5 要求行≥35%/分支≥30% → 现降低以通过现有基线）
-        lines: 25,
-        branches: 18,
-        functions: 25,
-        statements: 25,
+        // 整体阈值（151 测试全过，覆盖率实测 40%+，设保守基线）
+        lines: 35,
+        branches: 25,
+        functions: 35,
+        statements: 35,
       },
     },
   },

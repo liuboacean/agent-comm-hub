@@ -49,15 +49,29 @@ function isPopulatedDb(dbPath: string): boolean {
  *   - 测试环境（vitest / NODE_ENV=test）严格遵循显式 DB_PATH，不做自动恢复，
  *     以保证单元测试始终使用隔离的测试库（如 ./test_ci.db）。
  */
+/**
+ * 判断给定的 DB_PATH 值是否为「有效可用的字符串路径」。
+ *
+ * 防御点：避免 better-sqlite3 以字面量 `"undefined"` 作为文件名在 cwd 创建游离文件。
+ *   - Node 中 `process.env.X = undefined` 会被隐式 coerce 为字符串 `"undefined"`；
+ *   - 该字符串非空，被 `if (process.env.DB_PATH)` 判定为 truthy，
+ *     于是 resolveDbPath 直接返回 `"undefined"`，最终 better-sqlite3 把它当成相对路径
+ *     文件名，在仓库根目录创建 `undefined` / `undefined-shm` / `undefined-wal`。
+ *   - 因此必须显式排除值为 `"undefined"`（字面量）以及空串 / 非字符串的情况。
+ */
+function isValidDbPath(p: unknown): p is string {
+  return typeof p === "string" && p.trim().length > 0 && p !== "undefined";
+}
+
 function resolveDbPath(): string {
   // 测试环境：严格尊重显式 DB_PATH，避免回退到项目里真实的数据库污染用例
   const isTestEnv = process.env.VITEST === "true" || process.env.NODE_ENV === "test";
-  if (isTestEnv && process.env.DB_PATH) {
+  if (isTestEnv && isValidDbPath(process.env.DB_PATH)) {
     return process.env.DB_PATH;
   }
 
   const candidates: string[] = [];
-  if (process.env.DB_PATH) {
+  if (isValidDbPath(process.env.DB_PATH)) {
     candidates.push(process.env.DB_PATH);
   }
   // 当前工作目录

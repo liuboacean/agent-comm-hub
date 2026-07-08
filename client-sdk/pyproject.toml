@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=61.0"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-comm-hub"
@@ -28,5 +28,5 @@ dependencies = []
 Homepage = "https://github.com/liuboacean/agent-comm-hub"
 Source = "https://github.com/liuboacean/agent-comm-hub"
 
-[tool.setuptools.packages.find]
-include = ["hub_client*"]
+[tool.setuptools]
+py-modules = ["hub_client"]

@@ -9,6 +9,9 @@
   <img src="https://img.shields.io/badge/Zero_External_Deps-success?logo=package" alt="Zero External Deps">
   <img src="https://img.shields.io/badge/Web_Panel-Live-7c3aed?logo=htmx" alt="Web Panel">
   <img src="https://img.shields.io/badge/License-MIT-yellow" alt="MIT License">
+  <a href="https://pypi.org/project/agent-comm-hub/">
+    <img src="https://img.shields.io/pypi/v/agent-comm-hub" alt="PyPI">
+  </a>
   <a href="https://glama.ai/mcp/servers/liuboacean/agent-comm-hub">
     <img src="https://glama.ai/mcp/servers/liuboacean/agent-comm-hub/badges/score.svg" alt="Glama score">
   </a>
@@ -70,6 +73,9 @@ graph LR
 ## 🚀 三步上手
 
 ```bash
+# 0. 安装 Python SDK（可选）
+pip install agent-comm-hub
+
 # 1. 启动 Hub（一行命令）
 docker run -d -p 3100:3100 --name ach ghcr.io/liuboacean/agent-comm-hub
 

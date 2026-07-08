@@ -3,40 +3,87 @@
  * 消息 + 任务 两张表，进程重启数据不丢失
  */
 import Database from "better-sqlite3";
-import { existsSync } from "fs";
-import { join, resolve } from "path";
+import * as fs from "fs";
+import { join, dirname, resolve } from "path";
+import { fileURLToPath } from "url";
 import { logger, logError } from "./logger.js";
 import { getErrorMessage } from "./types.js";
 const HUB_DIR = process.env.HUB_ROOT
     || (process.env.HOME ? join(process.env.HOME, ".agent-comm-hub") : process.cwd());
 /**
- * 四级回退解析 DB 路径，防止忘记设置 DB_PATH 时静默使用 dist/comm_hub.db。
- * 这是 2026-05-15 双 DB 分裂事故的永久防护。
+ * 判断给定路径的 SQLite 文件是否为「有数据的库」（至少 memories 表有记录）。
+ * 用于从「双 DB 分裂 / 误指向空库」的场景中自动恢复到有数据的库。
+ * 以只读方式打开，任何异常（如被其它进程锁定）都安全返回 false。
+ */
+function isPopulatedDb(dbPath) {
+    try {
+        const probe = new Database(dbPath, { readonly: true, fileMustExist: true });
+        try {
+            const row = probe.prepare("SELECT COUNT(*) AS cnt FROM memories").get();
+            return row.cnt > 0;
+        }
+        finally {
+            probe.close();
+        }
+    }
+    catch {
+        return false;
+    }
+}
+/**
+ * 解析 DB 路径，优先保证连回「有数据」的库，避免记忆库 / 进化引擎显示为空。
  *
- * 优先级：
+ * 候选位置（按优先级）：
  *   1. DB_PATH 环境变量（显式指定）
  *   2. 当前工作目录的 comm_hub.db（与 stdio.js 一致）
  *   3. HUB_ROOT 环境变量 或 ~/.agent-comm-hub/comm_hub.db（通用 fallback）
- *   4. 明确报错终止（不静默回退到 dist/）
+ *   4. 项目根目录的 comm_hub.db（从模块自身位置反推，处理从 dist/ 或 skills 目录启动）
+ *
+ * 健壮性增强（修复 780fc6a 回归 + 双 DB 分裂）：
+ *   - 若解析出的库为空（误指向了新建的空库），而其它候选位置存在「有数据」的库，
+ *     则自动回退到该有数据的库，避免记忆库 / 进化引擎「全部归零」的假象。
+ *   - 若任何位置都不存在库文件，仍自动创建 fallback（保留 780fc6a 对 Glama/Docker
+ *     等未设置 CI 的容器环境的兼容，避免构建失败），不再区分 CI / 本地。
+ *   - 测试环境（vitest / NODE_ENV=test）严格遵循显式 DB_PATH，不做自动恢复，
+ *     以保证单元测试始终使用隔离的测试库（如 ./test_ci.db）。
  */
 function resolveDbPath() {
-    // 第 1 级：环境变量优先
-    if (process.env.DB_PATH) {
+    // 测试环境：严格尊重显式 DB_PATH，避免回退到项目里真实的数据库污染用例
+    const isTestEnv = process.env.VITEST === "true" || process.env.NODE_ENV === "test";
+    if (isTestEnv && process.env.DB_PATH) {
         return process.env.DB_PATH;
     }
-    // 第 2 级：当前工作目录
-    const cwdPath = resolve("comm_hub.db");
-    if (existsSync(cwdPath)) {
-        return cwdPath;
+    const candidates = [];
+    if (process.env.DB_PATH) {
+        candidates.push(process.env.DB_PATH);
     }
-    // 第 3 级：硬编码 fallback
+    // 当前工作目录
+    candidates.push(resolve("comm_hub.db"));
+    // 硬编码 fallback：HUB_ROOT 或 ~/.agent-comm-hub
     if (HUB_DIR) {
-        const homePath = join(HUB_DIR, "comm_hub.db");
-        if (existsSync(homePath)) {
-            return homePath;
-        }
+        candidates.push(join(HUB_DIR, "comm_hub.db"));
     }
-    // 第 4 级：自动创建 fallback（Docker/Glama/无持久化环境）
+    // 项目根目录（从当前模块位置反推，处理从 dist/ 或 skills 目录启动）
+    const here = dirname(fileURLToPath(import.meta.url));
+    const projectRoot = resolve(here, "..", "..");
+    if (projectRoot !== resolve(".")) {
+        candidates.push(join(projectRoot, "comm_hub.db"));
+    }
+    const existing = candidates.filter((p) => fs.existsSync(p));
+    if (existing.length > 0) {
+        // 优先回退到「有数据」的库，修复误指向空库导致记忆/进化归零的假象
+        const populated = existing.find((p) => isPopulatedDb(p));
+        if (populated) {
+            if (populated !== existing[0]) {
+                console.warn(`[db] 解析出的数据库 "${existing[0]}" 为空，已自动切换到有数据的库 "${populated}" 以避免数据丢失。`);
+            }
+            return populated;
+        }
+        // 所有候选都存在但都为空：使用优先级最高的（首个）
+        return existing[0];
+    }
+    // 任何位置都不存在库文件：自动创建 fallback（Docker/Glama/无持久化环境）。
+    // 保留 780fc6a 的自动创建行为，避免 Glama 等未设置 CI 的容器构建失败。
     const fallbackPath = resolve("comm_hub.db");
     console.warn(`[db] DB_PATH not set, creating fallback: ${fallbackPath}`);
     return fallbackPath;
@@ -716,7 +763,6 @@ export function vacuumDatabase() {
  * 获取数据库文件大小（字节）
  */
 export function getDbSize() {
-    const fs = require("fs");
     try {
         const stats = fs.statSync(DB_PATH);
         return stats.size;
@@ -735,7 +781,6 @@ export function getEnhancedDbStats() {
     let walSize = 0;
     const walPath = DB_PATH + "-wal";
     try {
-        const fs = require("fs");
         if (fs.existsSync(walPath)) {
             walSize = fs.statSync(walPath).size;
         }

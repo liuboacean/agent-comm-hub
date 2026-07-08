@@ -37,7 +37,7 @@ export async function startMcpStdio() {
     // Create MCP server — same config as HTTP transport
     const server = new McpServer({
         name: "agent-comm-hub",
-        version: "2.5.0",
+        version: "2.5.1",
     });
     registerTools(server, authContext);
     // Connect stdio transport

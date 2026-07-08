@@ -212,7 +212,7 @@ app.get("/health", (_req, res) => {
     }
     res.json({
         status: "ok",
-        version: "2.5.0",
+        version: "2.5.1",
         uptime: getPersistentUptime(),
         first_start_ms: serverStartTime,
         timestamp: Date.now(),
@@ -292,7 +292,7 @@ app.get("/health/detailed", (_req, res) => {
     }
     res.json({
         status: "ok",
-        version: "2.5.0",
+        version: "2.5.1",
         uptime: getPersistentUptime(),
         first_start_ms: serverStartTime,
         timestamp: Date.now(),
@@ -580,7 +580,7 @@ app.get("/", (_req, res) => res.redirect("/dashboard"));
 function createMcpServer(authContext) {
     const server = new McpServer({
         name: "agent-comm-hub",
-        version: "2.5.0",
+        version: "2.5.1",
     });
     registerTools(server, authContext);
     return server;
@@ -799,7 +799,7 @@ initServerStartTime();
 httpServer = app.listen(config.port, () => {
     logger.info("server_started", {
         module: "server",
-        version: "2.5.0",
+        version: "2.5.1",
         port: config.port,
         phase: "5b",
     });

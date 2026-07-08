@@ -1,11 +1,11 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/Node.js-24+-green?logo=node.js">
-    <img src="https://img.shields.io/badge/Node.js-24+-green?logo=node.js" alt="Node.js 24+">
+    <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/Node.js-22-green?logo=node.js">
+    <img src="https://img.shields.io/badge/Node.js-22-green?logo=node.js" alt="Node.js 22">
   </picture>
   <img src="https://img.shields.io/badge/Python-3.9+-blue?logo=python" alt="Python 3.9+">
   <img src="https://img.shields.io/badge/MCP_Protocol-1.0-orange?logo=robot" alt="MCP Protocol">
-  <img src="https://img.shields.io/badge/151_Tests-Passing-3fb950?logo=vitest" alt="151 Tests">
+  <img src="https://img.shields.io/badge/159_Tests-Passing-3fb950?logo=vitest" alt="159 Tests">
   <img src="https://img.shields.io/badge/Zero_External_Deps-success?logo=package" alt="Zero External Deps">
   <img src="https://img.shields.io/badge/Web_Panel-Live-7c3aed?logo=htmx" alt="Web Panel">
   <a href="https://github.com/liuboacean/agent-comm-hub/actions/workflows/ci.yml">
@@ -114,7 +114,7 @@ print('✅ 消息已发送')
 | MCP 工具 | **56 个** |
 | Python SDK 方法 | **68 个** |
 | TypeScript SDK 方法 | **35 个** |
-| 单元测试 | **151 个 ✅** |
+| 单元测试 | **159 个 ✅** |
 | 数据库表 | **32 张** |
 | 外部依赖 | **0** |
 | 消息延迟 | **< 50ms** |
@@ -267,6 +267,16 @@ skillhub install agent-comm-hub
 
 ---
 
+## ⚠️ Node 版本要求（重要）
+
+本项目依赖原生模块 **`better-sqlite3`，它是按 Node 22（NODE_MODULE_VERSION 127）编译的**。因此：
+
+- 🔒 **运行 Hub（`dist/src/server.js` 或 `dist/src/stdio.js`）必须用 Node 22 启动**。若使用 Node 24（或更高），会因 ABI 不匹配立即抛出 `ERR_DLOPEN_FAILED` 崩溃，无法启动。
+- 🧪 **CI 中的 Node 24 仅用于跑单元测试**（且涉及 stdio 启动的冒烟用例已条件化 `skip`）。`package.json` 里 `engines.node` 声明的 `>=24` 是历史遗留的 CI 声明，**与实际运行约束冲突，请以本节的 Node 22 为准**。
+- ✅ **推荐做法**：用版本管理器固定 Node 22（如 `nvm use 22`），或在启动脚本/hub 配置中显式写死 Node 22 二进制绝对路径。
+
+---
+
 ## 🔌 给 Agent 配置 MCP
 
 ### Stdio（推荐）
@@ -274,13 +284,15 @@ skillhub install agent-comm-hub
 {
   "mcpServers": {
     "agent-comm-hub": {
-      "command": "node",
+      "command": "/path/to/node22/bin/node",
       "args": ["dist/src/stdio.js"],
       "env": { "HUB_AUTH_TOKEN": "your-key", "DB_PATH": "./comm_hub.db" }
     }
   }
 }
 ```
+
+> ⚠️ **必须用 Node 22 二进制启动**（例如绝对路径 `/path/to/node22/bin/node`），**不要**用 Node 24。本项目原生模块 `better-sqlite3` 是按 Node 22（NODE_MODULE_VERSION 127）编译的，使用 Node 24 启动 `dist/src/stdio.js` 或 `dist/src/server.js` 会立即 `ERR_DLOPEN_FAILED` ABI 崩溃。
 
 ### HTTP + SSE
 ```json
@@ -323,7 +335,7 @@ agent-comm-hub/
 │   ├── hub_client.py          # Python SDK（68 方法，零依赖）
 │   └── agent-client.ts        # TypeScript SDK（35 方法）
 ├── deploy/                    # Docker Compose + 监控
-├── tests/                     # 151 个测试
+├── tests/                     # 159 个测试
 └── docs/                      # 完整文档
 ```
 
@@ -343,6 +355,17 @@ agent-comm-hub/
 ---
 
 ## 🆕 更新历史
+
+<details>
+<summary><strong>v2.5.1</strong> (2026-07-08) — 稳定性修复 + Node 22 约束锁定</summary>
+
+- 🐛 **`get_db_stats` 修复** — ESM 模块误用 `require("fs")` 导致 `require is not defined`，改 `import * as fs`
+- 🔄 **DB 路径容错** — `resolveDbPath` 新增空库自动回退，修复误连空库导致的记忆库/进化引擎"数据归零"假象
+- 🔒 **Node 22 锁定** — 启动脚本固定 Node 22，匹配 better-sqlite3 原生模块（Node 24 会 ABI 崩溃）
+- 🧪 **防护测试** — 新增 stdio/Hub 必须用 Node 22 的契约测试，防止被误改回 Node 24
+- 🧹 **测试卫生** — 修复 unit 测试在仓库根生成 `undefined*` 游离文件（`isValidDbPath` 守卫）
+
+</details>
 
 <details>
 <summary><strong>v2.5.0</strong> (2026-07-07) — Web 管理面板 + 备份模块</summary>

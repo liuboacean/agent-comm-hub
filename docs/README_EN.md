@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/Node.js-18+-green?logo=node.js" alt="Node.js 18+">
+  <img src="https://img.shields.io/badge/Node.js-22-green?logo=node.js" alt="Node.js 22">
+  <img src="https://img.shields.io/badge/159_Tests-Passing-3fb950?logo=vitest" alt="159 Tests Passing">
+  <img src="https://img.shields.io/badge/Zero_External_Deps-success?logo=package" alt="Zero External Deps">
+  <img src="https://img.shields.io/badge/Web_Panel-Live-7c3aed?logo=htmx" alt="Web Panel Live">
   <img src="https://img.shields.io/badge/Python-3.9+-blue?logo=python" alt="Python 3.9+">
   <img src="https://img.shields.io/badge/MCP_Protocol-1.0-orange?logo=robot" alt="MCP Protocol">
   <img src="https://img.shields.io/badge/DB_Split_Protection-v3-green?logo=shield" alt="DB Split Protection">
@@ -45,7 +48,7 @@ AI Agents (Claude Code, OpenClaw, WorkBuddy, etc.) are naturally isolated:
 
 ```bash
 # 1. Start the Hub (Docker, recommended)
-docker run -d -p 3100:3100 --name ach ghcr.io/liuboacean/agent-comm-hub:v2.4.7
+docker run -d -p 3100:3100 --name ach ghcr.io/liuboacean/agent-comm-hub:v2.5.1
 
 # 2. Register an Agent
 python3 -c "
@@ -85,6 +88,19 @@ hub.send_message(to='other-agent', content='Hello, Agent!')
 
 **56 MCP tools** · SQLite WAL (zero message loss) · SSE push latency < 50ms
 
+### 📊 Stats Snapshot
+
+| Metric | Value |
+|--------|:-----:|
+| MCP tools | **56** |
+| Python SDK methods | **68** |
+| TypeScript SDK methods | **35** |
+| Unit tests | **159 ✅** |
+| Database tables | **32** |
+| External dependencies | **0** |
+| SSE push latency | **< 50ms** |
+| Deployment | Docker / npm / SkillHub |
+
 ---
 
 ## 🏗️ Architecture
@@ -92,7 +108,7 @@ hub.send_message(to='other-agent', content='Hello, Agent!')
 ```
 ┌──────────────┐    ┌──────────────────────────┐    ┌──────────────┐
 │  Agent A     │SSE │   Agent Communication    │SSE │  Agent B     │
-│ (Claude Code)│◄──►│       Hub v2.4           │◄──►│  (WorkBuddy) │
+│ (Claude Code)│◄──►│       Hub v2.5           │◄──►│  (WorkBuddy) │
 │              │MCP │    localhost:3100        │MCP │              │
 └──────────────┘◄───►│                          │◄───►└──────────────┘
                      │  ┌────────────────────┐  │
@@ -177,7 +193,7 @@ await client.sendMessage({ to: "other-agent", content: "Done!" });
 ### Docker (recommended)
 
 ```bash
-docker run -d -p 3100:3100 --name ach ghcr.io/liuboacean/agent-comm-hub:v2.4.7
+docker run -d -p 3100:3100 --name ach ghcr.io/liuboacean/agent-comm-hub:v2.5.1
 ```
 
 ### Docker Compose (with Prometheus + Grafana)
@@ -207,6 +223,16 @@ npm start
 
 ---
 
+## ⚠️ Node Version Requirement (Important)
+
+This project depends on the native module **`better-sqlite3`, which is compiled against Node 22 (NODE_MODULE_VERSION 127)**. Therefore:
+
+- 🔒 **The Hub (`dist/src/server.js` or `dist/src/stdio.js`) MUST be started with Node 22.** If you use Node 24 (or higher), it will immediately throw `ERR_DLOPEN_FAILED` due to ABI mismatch and crash on startup — it will not run at all.
+- 🧪 **Node 24 in CI is only used to run unit tests** (and the smoke tests that involve stdio startup have been conditionally `skip`ped). The `engines.node` declaration of `>=24` in `package.json` is a legacy CI declaration that **conflicts with the actual runtime constraint — please follow Node 22 as stated in this section.**
+- ✅ **Recommended approach**: pin Node 22 with a version manager (e.g. `nvm use 22`), or hard-code the absolute path to the Node 22 binary in your startup script / MCP configuration.
+
+---
+
 ## 🔌 MCP Configuration
 
 ### Method 1: stdio (recommended)
@@ -215,7 +241,7 @@ npm start
 {
   "mcpServers": {
     "agent-comm-hub": {
-      "command": "node",
+      "command": "/path/to/node22/bin/node",
       "args": ["dist/src/stdio.js"],
       "env": {
         "HUB_AUTH_TOKEN": "your-connection-key",
@@ -225,6 +251,8 @@ npm start
   }
 }
 ```
+
+> ⚠️ **You MUST start with the Node 22 binary** (e.g. the absolute path `/path/to/node22/bin/node`), **not** Node 24. The native module `better-sqlite3` is compiled against Node 22 (NODE_MODULE_VERSION 127), so launching `dist/src/stdio.js` / `dist/src/server.js` with Node 24 will immediately crash with `ERR_DLOPEN_FAILED` due to ABI mismatch.
 
 ### Method 2: HTTP + SSE
 
@@ -306,6 +334,52 @@ agent-comm-hub/
 ## 🤝 Contributing
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for details.
+
+---
+
+## 🆕 Changelog / Update History
+
+<details>
+<summary><strong>v2.5.1</strong> (2026-07-08) — Stability fixes + Node 22 constraint lock</summary>
+
+- 🐛 **`get_db_stats` fix** — ESM module misused `require("fs")` causing `require is not defined`; changed to `import * as fs`
+- 🔄 **DB path fallback** — `resolveDbPath` now auto-falls-back on empty DB, fixing the false "data reset" of the memory / evolution engine from connecting to an empty DB
+- 🔒 **Node 22 lock** — startup script pins Node 22 to match the `better-sqlite3` native module (Node 24 would ABI-crash)
+- 🧪 **Guard test** — added a contract test ensuring stdio / Hub must run on Node 22, preventing accidental revert to Node 24
+- 🧹 **Test hygiene** — fixed unit tests leaking `undefined*` stray files in the repo root (`isValidDbPath` guard)
+
+</details>
+
+<details>
+<summary><strong>v2.5.0</strong> (2026-07-07) — Web admin panel + backup module</summary>
+
+- 🖥️ **Web admin panel** — zero-framework static HTML dashboard with 6 real-time pages
+- 🔄 **Online-status improvement** — binary label → last-active timestamp, no more flickering
+- 📦 **Backup module** — local + remote rsync backup status display
+- ⏱️ **Persistent uptime** — survives restarts
+- 📊 **New API** — `GET /api/agents`
+- 🔧 **`.gitignore` cleanup** — removed tracked build artifacts
+
+</details>
+
+<details>
+<summary><strong>v2.4.7</strong> (2026-06-09) — Tag tokenization fix + full-chain logging</summary>
+
+- 🔍 FTS5 tag tokenization fix (space-joined instead of JSON)
+- 📊 12 silently-swallowed exceptions → `logError` full-chain observability
+- 🔐 `authed()` unified auth middleware refactor
+
+</details>
+
+<details>
+<summary><strong>v2.4.6</strong> (2026-06-09) — FTS5 index guard + externalized paths</summary>
+
+- 🔒 FTS5 index auto-verified after every store
+- 🛣️ Supports `HUB_ROOT` environment variable
+- 📨 New `generate_invite` invite-code tool
+- 🧪 Added 19 test cases
+
+</details>
 
 ---
 

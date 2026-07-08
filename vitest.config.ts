@@ -5,7 +5,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
-    include: ["tests/unit/**/*.test.ts"],
+    include: ["tests/unit/**/*.test.ts", "tests/integration/**/*.test.ts"],
     // 让 vitest 直接 transform TS 源码（不依赖预编译的 .js）
     // 这样 v8 coverage 能正确映射到 .ts 文件
     transformMode: {

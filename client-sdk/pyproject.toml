@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-comm-hub"
-version = "0.1.0"
+version = "2.5.1"
 description = "Python SDK for Agent Communication Hub — multi-agent messaging, task scheduling, shared memory"
 readme = "README_PYPI.md"
 license = {text = "MIT"}

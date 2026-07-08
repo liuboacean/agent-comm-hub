@@ -1,6 +1,6 @@
 {
   "name": "@liuboacean/agent-comm-hub",
-  "version": "2.4.5",
+  "version": "2.5.1",
   "description": "Production-grade multi-agent communication client SDK for Agent Communication Hub — zero external dependencies",
   "type": "module",
   "main": "agent-client.js",

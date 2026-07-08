@@ -8,6 +8,9 @@
   <img src="https://img.shields.io/badge/151_Tests-Passing-3fb950?logo=vitest" alt="151 Tests">
   <img src="https://img.shields.io/badge/Zero_External_Deps-success?logo=package" alt="Zero External Deps">
   <img src="https://img.shields.io/badge/Web_Panel-Live-7c3aed?logo=htmx" alt="Web Panel">
+  <a href="https://github.com/liuboacean/agent-comm-hub/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/liuboacean/agent-comm-hub/ci.yml?branch=master&logo=githubactions&label=CI" alt="CI">
+  </a>
   <img src="https://img.shields.io/badge/License-MIT-yellow" alt="MIT License">
   <a href="https://pypi.org/project/agent-comm-hub/">
     <img src="https://img.shields.io/pypi/v/agent-comm-hub" alt="PyPI">

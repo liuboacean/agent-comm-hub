@@ -15,6 +15,9 @@
   <a href="https://pypi.org/project/agent-comm-hub/">
     <img src="https://img.shields.io/pypi/v/agent-comm-hub" alt="PyPI">
   </a>
+  <a href="https://www.npmjs.com/package/@liuboacean/agent-comm-hub">
+    <img src="https://img.shields.io/npm/v/@liuboacean/agent-comm-hub" alt="npm">
+  </a>
   <a href="https://glama.ai/mcp/servers/liuboacean/agent-comm-hub">
     <img src="https://glama.ai/mcp/servers/liuboacean/agent-comm-hub/badges/score.svg" alt="Glama score">
   </a>

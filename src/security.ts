@@ -116,6 +116,8 @@ export const TOOL_PERMISSIONS: Record<string, PermissionLevel> = {
   delete_memory:   "member",
   // 记忆检索 — member 及以上（T1：补充到矩阵）
   search_memories: "member",
+  // 消息检索 — member 及以上（T9 回归修复：此前遗漏导致 fail-closed 误杀；工具内 effectiveAgentId 已做数据隔离）
+  search_messages: "member",
   // 管理 — 仅 admin
   revoke_token:     "admin",
   set_trust_score:  "admin",

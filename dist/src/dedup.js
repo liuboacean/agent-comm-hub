@@ -2,7 +2,10 @@
  * dedup.ts — 消息去重模块 (Phase 2)
  *
  * 功能：
- *   - 消息完整性校验：msg_hash = sha256(sender + receiver + content + nonce)
+ *   - 去重哈希 computeDedupHash = sha256(sender:receiver:content)：刻意【不含 nonce】，
+ *     仅用于检测完全相同的消息（防重复发送）
+ *   - 完整性哈希 computeMsgHash = sha256(sender:receiver:content:nonce)：【含 nonce】，
+ *     用于防篡改 + 客户端校验
  *   - per-sender 递增 nonce 管理（SQLite 持久化，Phase 2）
  *   - dedup_cache 表操作（isDuplicate / recordHash）
  *   - TTL 定时清理（15min）

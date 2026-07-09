@@ -54,6 +54,8 @@ export function rateLimiter(agentId) {
 export const TOOL_PERMISSIONS = {
     // 注册免认证
     register_agent: "public",
+    // 邀请码生成 — 仅 admin（T1：补充到矩阵，避免 fail-closed 误杀）
+    generate_invite: "admin",
     // 心跳与查询 — member 及以上
     heartbeat: "member",
     query_agents: "member",
@@ -67,11 +69,17 @@ export const TOOL_PERMISSIONS = {
     acknowledge_message: "member",
     mark_consumed: "member",
     check_consumed: "member",
+    // 消息批量确认 — member 及以上（T1：补充到矩阵）
+    batch_acknowledge_messages: "member",
     // 记忆 — member 及以上
     store_memory: "member",
     recall_memory: "member",
     list_memories: "member",
     delete_memory: "member",
+    // 记忆检索 — member 及以上（T1：补充到矩阵）
+    search_memories: "member",
+    // 消息检索 — member 及以上（T9 回归修复：此前遗漏导致 fail-closed 误杀；工具内 effectiveAgentId 已做数据隔离）
+    search_messages: "member",
     // 管理 — 仅 admin
     revoke_token: "admin",
     set_trust_score: "admin",
@@ -97,6 +105,15 @@ export const TOOL_PERMISSIONS = {
     reject_handoff: "member",
     add_quality_gate: "member",
     evaluate_quality_gate: "member",
+    // Phase 4b Day 5: Pipeline 编排（T1：补充到矩阵，避免 fail-closed 误杀）
+    create_pipeline: "member",
+    get_pipeline: "member",
+    list_pipelines: "member",
+    add_task_to_pipeline: "member",
+    activate_agent: "member",
+    deactivate_agent: "member",
+    pause_pipeline: "member",
+    resume_pipeline: "member",
     // Phase 4b Day 4: 分级审批
     propose_strategy_tiered: "member",
     check_veto_window: "member",
@@ -117,18 +134,27 @@ export const TOOL_PERMISSIONS = {
  * @returns true=允许, false=拒绝
  */
 export function checkPermission(toolName, role) {
+    // fail-closed：未注册工具一律拒绝（T1 安全加固，修复原 fail-open 漏洞）
     const level = TOOL_PERMISSIONS[toolName];
-    if (!level) {
-        // 未注册的工具默认 member 可访问
-        return true;
-    }
+    if (!level)
+        return false;
     if (level === "public")
         return true;
     if (level === "member")
-        return true;
+        return role != null; // 已认证即可（admin/group_admin 亦满足）
     if (level === "admin")
         return role === "admin";
     return false;
+}
+/**
+ * MCP handler 内角色护栏：要求调用者为 admin，否则抛错（T1 安全加固）。
+ * 用于管理类工具的 authed() 回调首行（参照 generate_invite 现有写法）。
+ * @throws Error 当 ctx.role !== "admin"
+ */
+export function requireAdmin(ctx) {
+    if (ctx.role !== "admin") {
+        throw new Error(`Admin role required for ${ctx.agentId}`);
+    }
 }
 /**
  * 获取权限级别（用于返回错误信息）
@@ -175,6 +201,60 @@ export function optionalAuthMiddleware(req, res, next) {
     }
     const ctx = verifyToken(token);
     req.auth = { agent: ctx ?? undefined }; // undefined 不是 null
+    next();
+}
+// ─── 受保护端点中间件（T3 安全加固）──────────────────
+/** 判断请求是否来自 loopback（127.0.0.1 / ::1，含 IPv4-mapped 前缀）*/
+function isLoopback(req) {
+    const raw = req.ip ?? req.socket?.remoteAddress;
+    if (!raw)
+        return false;
+    const ip = raw.replace(/^::ffff:/, ""); // 剥离 IPv4-mapped 前缀
+    return ip === "127.0.0.1" || ip === "::1" || ip === "localhost";
+}
+/**
+ * 内部监控端点认证（/health、/health/detailed、/metrics）
+ * 规则：loopback（本地探针 / Prometheus scraper 同源）或携带有效 HUB_AUTH_TOKEN 才放行。
+ */
+export function internalMonitorAuth(req, res, next) {
+    if (isLoopback(req)) {
+        next();
+        return;
+    }
+    const token = extractToken(req);
+    if (!token) {
+        res.status(401).json({ error: "Missing authentication token" });
+        return;
+    }
+    const ctx = verifyToken(token);
+    if (!ctx) {
+        res.status(401).json({ error: "Invalid or expired token" });
+        return;
+    }
+    req.auth = { agent: ctx };
+    next();
+}
+/**
+ * 管理端点认证（REST）：要求有效 HUB_AUTH_TOKEN 且 role==='admin'。
+ * 用于 /dashboard、/api/status、/api/agents、/api/audit/tail。
+ * 注意：不识别 loopback 放行（D4：/dashboard 强制 admin 鉴权）。
+ */
+export function requireAdminApi(req, res, next) {
+    const token = extractToken(req);
+    if (!token) {
+        res.status(401).json({ error: "Missing authentication token" });
+        return;
+    }
+    const ctx = verifyToken(token);
+    if (!ctx) {
+        res.status(401).json({ error: "Invalid or expired token" });
+        return;
+    }
+    if (ctx.role !== "admin") {
+        res.status(403).json({ error: "Admin role required" });
+        return;
+    }
+    req.auth = { agent: ctx };
     next();
 }
 /** 从 Header 或 Query 提取 Token */

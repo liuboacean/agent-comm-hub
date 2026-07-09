@@ -18,7 +18,7 @@ import { registerTools } from "./tools.js";
 import { registerClient, removeClient, pushToAgent, onlineAgents, drainAllClients, startZombieCleanup, stopZombieCleanup } from "./sse.js";
 import { getDbStats, db, scheduleCleanup, stopCleanup } from "./db.js";
 import { messageRepo, taskRepo, consumedRepo } from "./repo/sqlite-impl.js";
-import { authMiddleware, optionalAuthMiddleware, createInviteCode, auditLog, rateLimiter, } from "./security.js";
+import { authMiddleware, optionalAuthMiddleware, internalMonitorAuth, requireAdminApi, createInviteCode, auditLog, rateLimiter, } from "./security.js";
 import { startHeartbeatMonitor, stopHeartbeatMonitor } from "./identity.js";
 import { startDedupCleanup, stopDedupCleanup } from "./dedup.js";
 import { rebuildFtsIndex } from "./memory.js";
@@ -199,7 +199,7 @@ app.get("/events/:agent_id", optionalAuthMiddleware, (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 // Phase 5b: 增强健康检查端点（免认证）
 // ═══════════════════════════════════════════════════════════════
-app.get("/health", (_req, res) => {
+app.get("/health", internalMonitorAuth, (_req, res) => {
     const stats = getDbStats();
     const mem = process.memoryUsage();
     let dbSize = 0;
@@ -266,7 +266,7 @@ app.get("/health", (_req, res) => {
 // ═══════════════════════════════════════════════════════════════
 // P2-5: 详细健康检查端点（免认证）
 // ═══════════════════════════════════════════════════════════════
-app.get("/health/detailed", (_req, res) => {
+app.get("/health/detailed", internalMonitorAuth, (_req, res) => {
     const stats = getDbStats();
     const mem = process.memoryUsage();
     const agents = onlineAgents();
@@ -319,7 +319,7 @@ app.get("/health/detailed", (_req, res) => {
 // ═══════════════════════════════════════════════════════════════
 // Phase 5b: Prometheus Metrics 端点（免认证）
 // ═══════════════════════════════════════════════════════════════
-app.get("/metrics", (_req, res) => {
+app.get("/metrics", internalMonitorAuth, (_req, res) => {
     res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
     // Phase 3.1: 拼接 Hub 数据库指标（agents / messages / trust_scores）
     const hubMetrics = collectHubMetrics(db);
@@ -457,7 +457,7 @@ setMessageRateLimiter(msgRateLimiter);
 /**
  * GET /api/status — 面板总览指标（免认证，仅读数据）
  */
-app.get("/api/status", (_req, res) => {
+app.get("/api/status", requireAdminApi, (_req, res) => {
     const agents = activationOrch.getAllAgentStates();
     const agentStateCount = {};
     for (const a of agents) {
@@ -523,7 +523,7 @@ app.get("/api/status", (_req, res) => {
 /**
  * GET /api/agents — 所有 Agent 列表（含详情）
  */
-app.get("/api/agents", (_req, res) => {
+app.get("/api/agents", requireAdminApi, (_req, res) => {
     try {
         const rows = db.prepare("SELECT agent_id, name, role, status, trust_score, last_heartbeat, created_at FROM agents ORDER BY last_heartbeat DESC").all();
         const now = Date.now();
@@ -561,7 +561,7 @@ app.get("/api/agents", (_req, res) => {
 /**
  * GET /api/audit/tail — 审计日志尾部
  */
-app.get("/api/audit/tail", (req, res) => {
+app.get("/api/audit/tail", requireAdminApi, (req, res) => {
     const n = Math.min(parseInt(req.query.n ?? "50", 10), 500);
     try {
         const rows = db.prepare("SELECT id, ts, action, operator, target, details FROM audit_log ORDER BY id DESC LIMIT ?").all(n);
@@ -572,7 +572,7 @@ app.get("/api/audit/tail", (req, res) => {
     }
 });
 // 挂载 Dashboard 静态资源（同时提供 / 和 /dashboard 入口）
-app.use("/dashboard", createDashboardRouter());
+app.use("/dashboard", requireAdminApi, createDashboardRouter());
 app.get("/", (_req, res) => res.redirect("/dashboard"));
 // ═══════════════════════════════════════════════════════════════
 // MCP 端点：Stateless 模式

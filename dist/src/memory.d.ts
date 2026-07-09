@@ -75,8 +75,12 @@ export declare function deleteMemory(memoryId: string, agentId: string, role: st
 };
 /**
  * 获取记忆统计信息
+ * @param caller 调用者上下文（可选）。若传入且非 admin，则裁剪 by_agent 防止泄露他人记忆分布（T5 守卫）。
+ *               当前该函数未被任何 MCP 工具暴露（死代码），加守卫以防未来误暴露。
  */
-export declare function getMemoryStats(): MemoryStats;
+export declare function getMemoryStats(caller?: {
+    role: string;
+}): MemoryStats;
 /**
  * 为所有已有 memories 重建 FTS 索引（Phase 2 Migration）
  * 在 server.ts 启动时调用一次

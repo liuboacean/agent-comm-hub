@@ -282,8 +282,10 @@ export function deleteMemory(memoryId, agentId, role) {
 // ─── 记忆统计 ────────────────────────────────────────────
 /**
  * 获取记忆统计信息
+ * @param caller 调用者上下文（可选）。若传入且非 admin，则裁剪 by_agent 防止泄露他人记忆分布（T5 守卫）。
+ *               当前该函数未被任何 MCP 工具暴露（死代码），加守卫以防未来误暴露。
  */
-export function getMemoryStats() {
+export function getMemoryStats(caller) {
     try {
         const totalRow = db.prepare(`SELECT COUNT(*) as cnt FROM memories`).get();
         let ftsEntries = 0;
@@ -296,10 +298,12 @@ export function getMemoryStats() {
         }
         const byAgentRows = db.prepare(`SELECT agent_id, COUNT(*) as cnt FROM memories GROUP BY agent_id`).all();
         const byScopeRows = db.prepare(`SELECT scope, COUNT(*) as cnt FROM memories GROUP BY scope`).all();
-        const byAgent = {};
+        const rawByAgent = {};
         for (const row of byAgentRows) {
-            byAgent[row.agent_id] = row.cnt;
+            rawByAgent[row.agent_id] = row.cnt;
         }
+        // T5 守卫：非 admin 调用者不暴露他人记忆分布
+        const byAgent = caller && caller.role !== "admin" ? {} : rawByAgent;
         const byScope = {};
         for (const row of byScopeRows) {
             byScope[row.scope] = row.cnt;

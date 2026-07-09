@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { auditLog, revokeToken as revokeTokenFromSecurity, recalculateTrustScore, } from "../security.js";
+import { requireAdmin, auditLog, revokeToken as revokeTokenFromSecurity, recalculateTrustScore, } from "../security.js";
 import { registerAgent as registerAgentFromIdentity, heartbeat as heartbeatFromIdentity, queryAgents as queryAgentsFromIdentity, clearOfflineNotification, updateAgentTrustScore, } from "../identity.js";
 import { onlineAgents } from "../sse.js";
 import { db } from "../db.js";
@@ -129,6 +129,7 @@ export function registerIdentityTools(server, authContext) {
     server.tool("revoke_token", "吊销 API Token，使其立即失效。仅 admin 可调用。", {
         token_id: z.string().describe("要吊销的 Token ID"),
     }, authed(authContext, "revoke_token", async (ctx, { token_id }) => {
+        requireAdmin(ctx); // T4: admin 角色护栏
         const success = revokeTokenFromSecurity(token_id);
         if (success) {
             auditLog("tool_revoke_token", ctx.agentId, token_id);
@@ -162,6 +163,7 @@ export function registerIdentityTools(server, authContext) {
         agent_id: z.string().describe("目标 Agent ID"),
         delta: z.number().min(-100).max(100).describe("信任分增量（正数加分，负数扣分）"),
     }, authed(authContext, "set_trust_score", async (ctx, { agent_id, delta }) => {
+        requireAdmin(ctx); // T4: admin 角色护栏
         const result = updateAgentTrustScore(agent_id, delta, ctx.agentId);
         if (!result.ok) {
             return mcpFail(result.error, "set_trust_score");

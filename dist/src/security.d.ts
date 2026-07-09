@@ -30,6 +30,12 @@ export declare const TOOL_PERMISSIONS: Record<string, PermissionLevel>;
  */
 export declare function checkPermission(toolName: string, role: AgentRole): boolean;
 /**
+ * MCP handler 内角色护栏：要求调用者为 admin，否则抛错（T1 安全加固）。
+ * 用于管理类工具的 authed() 回调首行（参照 generate_invite 现有写法）。
+ * @throws Error 当 ctx.role !== "admin"
+ */
+export declare function requireAdmin(ctx: AuthContext): void;
+/**
  * 获取权限级别（用于返回错误信息）
  */
 export declare function getRequiredPermission(toolName: string): PermissionLevel | undefined;
@@ -44,6 +50,17 @@ export declare function authMiddleware(req: Request, res: Response, next: NextFu
  * ⚠️ 关键：未认证时 auth 必须为 undefined，不能创建默认 authContext
  */
 export declare function optionalAuthMiddleware(req: Request, res: Response, next: NextFunction): void;
+/**
+ * 内部监控端点认证（/health、/health/detailed、/metrics）
+ * 规则：loopback（本地探针 / Prometheus scraper 同源）或携带有效 HUB_AUTH_TOKEN 才放行。
+ */
+export declare function internalMonitorAuth(req: Request, res: Response, next: NextFunction): void;
+/**
+ * 管理端点认证（REST）：要求有效 HUB_AUTH_TOKEN 且 role==='admin'。
+ * 用于 /dashboard、/api/status、/api/agents、/api/audit/tail。
+ * 注意：不识别 loopback 放行（D4：/dashboard 强制 admin 鉴权）。
+ */
+export declare function requireAdminApi(req: Request, res: Response, next: NextFunction): void;
 /**
  * 生成邀请码（明文）
  * @returns 明文邀请码

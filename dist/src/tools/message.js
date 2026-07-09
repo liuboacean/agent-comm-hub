@@ -7,7 +7,7 @@ import { auditLog } from "../security.js";
 import { resolveAgentId } from "../identity.js";
 import { dedupMessage, validateMessageBody } from "../dedup.js";
 import { logError } from "../logger.js";
-import { withRetry, authed, mcpError } from "../utils.js";
+import { withRetry, authed, mcpError, mcpFail } from "../utils.js";
 import { getErrorMessage } from "../types.js";
 /** 全局 RateLimiter 实例，由 server.ts 在启动时注入 */
 export let messageRateLimiter = null;
@@ -249,10 +249,11 @@ export function registerMessageTools(server, authContext) {
         try {
             const conditions = ["content LIKE ?"];
             const params = [`%${query}%`];
-            if (agent_id) {
-                conditions.push("(from_agent = ? OR to_agent = ?)");
-                params.push(agent_id, agent_id);
-            }
+            // T5：强制数据隔离——仅允许查询本人收发消息；
+            // 仅 admin 且显式传 agent_id 时，才放宽到指定 Agent（非 admin 传他人 agent_id 自动归一到本人）
+            const effectiveAgentId = (ctx.role === "admin" && agent_id) ? agent_id : ctx.agentId;
+            conditions.push("(from_agent = ? OR to_agent = ?)");
+            params.push(effectiveAgentId, effectiveAgentId);
             const where = conditions.join(" AND ");
             const messages = db.prepare(`SELECT id, from_agent, to_agent, content, type, status, created_at
            FROM messages WHERE ${where}
@@ -294,6 +295,10 @@ export function registerMessageTools(server, authContext) {
         status: z.enum(["unread", "delivered"]).optional().default("unread").describe("要确认的消息状态，默认 unread"),
         limit: z.number().int().min(1).max(500).default(100).describe("最多确认的消息数量，默认 100，上限 500"),
     }, authed(authContext, "batch_acknowledge_messages", async (ctx, { agent_id, from_agent, before, after, status, limit }) => {
+        // T5：权限校验——仅能批量确认本人消息，admin 可代任意 Agent
+        if (agent_id !== ctx.agentId && ctx.role !== "admin") {
+            return mcpFail("Permission denied: cannot acknowledge messages for another agent", "batch_acknowledge_messages");
+        }
         try {
             // 构建查询条件
             const conditions = ["to_agent = ?"];

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getEnhancedDbStats, archiveOldMessages, archiveOldAuditLogs, vacuumDatabase, getDbSize } from "../db.js";
-import { auditLog, recalculateTrustScore, recalculateAllTrustScores } from "../security.js";
+import { auditLog, requireAdmin, recalculateTrustScore, recalculateAllTrustScores } from "../security.js";
 import { setAgentRole as setAgentRoleFromIdentity } from "../identity.js";
 import { logError } from "../logger.js";
 import { authed, mcpError, mcpFail } from "../utils.js";
@@ -17,6 +17,7 @@ export function registerSecurityTools(server, authContext) {
         role: z.enum(["admin", "member", "group_admin"]).describe("新角色"),
         managed_group_id: z.string().optional().describe("管理组 ID（仅 group_admin 角色需要）"),
     }, authed(authContext, "set_agent_role", async (ctx, { agent_id, role, managed_group_id }) => {
+        requireAdmin(ctx); // T4: admin 角色护栏
         const result = setAgentRoleFromIdentity(agent_id, role, ctx.agentId, managed_group_id);
         if (!result.ok) {
             return mcpFail(result.error, "set_agent_role");
@@ -46,6 +47,7 @@ export function registerSecurityTools(server, authContext) {
     server.tool("recalculate_trust_scores", "手动触发信任评分重算。基于多因子自动计算：verified capabilities (+3)、approved strategies (+2)、positive feedback (+1)、negative feedback (-2)、rejected applications (-3)、revoked tokens (-10)。不传 agent_id 则重算全部。仅 admin 可调用。", {
         agent_id: z.string().optional().describe("目标 Agent ID（不传则重算全部 Agent）"),
     }, authed(authContext, "recalculate_trust_scores", async (ctx, { agent_id }) => {
+        requireAdmin(ctx); // T4: admin 角色护栏
         try {
             if (agent_id) {
                 const score = recalculateTrustScore(agent_id);
@@ -84,7 +86,8 @@ export function registerSecurityTools(server, authContext) {
     // v2.3 Phase 3.2: 数据库维护工具（admin only）
     // ────────────────────────────────────────────────────
     // Tool DB1: get_db_stats — admin only
-    server.tool("get_db_stats", "获取数据库统计信息。包括各表行数、数据库文件大小、WAL 大小、最后归档时间等。仅 admin 可调用。", {}, authed(authContext, "get_db_stats", async (_ctx) => {
+    server.tool("get_db_stats", "获取数据库统计信息。包括各表行数、数据库文件大小、WAL 大小、最后归档时间等。仅 admin 可调用。", {}, authed(authContext, "get_db_stats", async (ctx) => {
+        requireAdmin(ctx); // T4: admin 角色护栏
         try {
             const stats = getEnhancedDbStats();
             return {
@@ -112,7 +115,8 @@ export function registerSecurityTools(server, authContext) {
             .describe("归档多少天前的数据（messages 默认 30 天，audit_log 默认 90 天）"),
         vacuum: z.boolean().optional().default(false)
             .describe("归档后是否执行 VACUUM 压缩数据库文件"),
-    }, authed(authContext, "archive_data", async (_ctx, { type, days, vacuum }) => {
+    }, authed(authContext, "archive_data", async (ctx, { type, days, vacuum }) => {
+        requireAdmin(ctx); // T4: admin 角色护栏
         try {
             const daysForType = days ?? (type === "messages" ? 30 : 90);
             let archivedCount = 0;
@@ -127,7 +131,7 @@ export function registerSecurityTools(server, authContext) {
                 vacuumDatabase();
             }
             const dbSize = getDbSize();
-            auditLog("tool_archive_data", authContext.agentId, `type=${type}, days=${daysForType}, archived=${archivedCount}, vacuum=${vacuum}`);
+            auditLog("tool_archive_data", ctx.agentId, `type=${type}, days=${daysForType}, archived=${archivedCount}, vacuum=${vacuum}`);
             return {
                 content: [{
                         type: "text",

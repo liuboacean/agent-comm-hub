@@ -208,19 +208,32 @@ export function feedbackStrategy(strategyId, agentId, feedback, options) {
     const now = Date.now();
     const applied = options?.applied ? 1 : 0;
     try {
-        const result = db.prepare(`INSERT INTO strategy_feedback (strategy_id, agent_id, feedback, comment, applied, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`).run(strategyId, agentId, feedback, options?.comment ?? null, applied, now);
-        // 更新计数器
+        // T7：UPSERT（与 provideFeedback 一致），允许更新 apply_strategy 自动建的 neutral 占位，
+        // 而非因 UNIQUE(strategy_id, agent_id) 冲突被拒绝。
+        const prevRow = db.prepare(`SELECT feedback FROM strategy_feedback WHERE strategy_id = ? AND agent_id = ?`).get(strategyId, agentId);
+        db.prepare(`
+      INSERT INTO strategy_feedback (strategy_id, agent_id, feedback, comment, applied, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(strategy_id, agent_id) DO UPDATE SET
+        feedback = excluded.feedback,
+        comment = excluded.comment,
+        applied = excluded.applied,
+        created_at = excluded.created_at
+    `).run(strategyId, agentId, feedback, options?.comment ?? null, applied, now);
+        // 计数器修正：先回退旧值（若已存在），再累加新值，避免重复计数
+        if (prevRow) {
+            db.prepare(`UPDATE strategies SET feedback_count = feedback_count - 1 WHERE id = ?`).run(strategyId);
+            if (prevRow.feedback === "positive") {
+                db.prepare(`UPDATE strategies SET positive_count = positive_count - 1 WHERE id = ?`).run(strategyId);
+            }
+        }
         db.prepare(`UPDATE strategies SET feedback_count = feedback_count + 1,
        positive_count = positive_count + CASE WHEN ? = 'positive' THEN 1 ELSE 0 END
        WHERE id = ?`).run(feedback, strategyId);
-        return { ok: true, feedback_id: result.lastInsertRowid };
+        const row = db.prepare(`SELECT id FROM strategy_feedback WHERE strategy_id = ? AND agent_id = ?`).get(strategyId, agentId);
+        return { ok: true, feedback_id: row.id };
     }
     catch (err) {
-        // UNIQUE 约束冲突 = 重复反馈
-        if (err instanceof Error && err.message.includes("UNIQUE")) {
-            return { ok: false, error: "You have already provided feedback for this strategy" };
-        }
         return { ok: false, error: `Failed to submit feedback: ${getErrorMessage(err)}` };
     }
 }
@@ -602,14 +615,16 @@ export function provideFeedback(params) {
  */
 export function scoreAppliedStrategies() {
     const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    // 查找 7 天前创建的 neutral 反馈
+    // 查找 7 天前创建、且已实际采纳（sf.applied=1）的 neutral 反馈（T7 修复：原 s.approved 列不存在，
+    // 改用 s.status='approved'，并加 sf.applied=1 约束——未验证已应用的反馈不降分）
     const staleFeedbacks = db.prepare(`
     SELECT sf.strategy_id, sf.agent_id, sf.id as feedback_id, s.title
     FROM strategy_feedback sf
     JOIN strategies s ON s.id = sf.strategy_id
     WHERE sf.feedback = 'neutral'
       AND sf.created_at < ?
-      AND s.approved = 1
+      AND s.status = 'approved'
+      AND sf.applied = 1
   `).all(sevenDaysAgo);
     const details = [];
     let scored = 0;

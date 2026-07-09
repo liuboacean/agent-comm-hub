@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { pushToAgent } from "../sse.js";
-import { auditLog, recalculateTrustScore } from "../security.js";
+import { auditLog, recalculateTrustScore, requireAdmin } from "../security.js";
 import { logError } from "../logger.js";
 import { shareExperience, proposeStrategy, proposeStrategyTiered, listStrategies, searchStrategies, applyStrategy, feedbackStrategy, provideFeedback, scoreAppliedStrategies, approveStrategy, getEvolutionStatus, checkVetoWindow, vetoStrategy as vetoStrategyFromEvolution, } from "../evolution.js";
 import { authed, mcpFail } from "../utils.js";
@@ -203,6 +203,7 @@ export function registerEvolutionTools(server, authContext) {
         action: z.enum(["approve", "reject"]).describe("审批动作"),
         reason: z.string().max(1000).describe("审批理由"),
     }, authed(authContext, "approve_strategy", async (ctx, { strategy_id, action, reason }) => {
+        requireAdmin(ctx); // T4: admin 角色护栏
         const result = approveStrategy(strategy_id, ctx.agentId, action, reason);
         if (!result.ok) {
             return mcpFail(result.error, "approve_strategy");
@@ -253,6 +254,7 @@ export function registerEvolutionTools(server, authContext) {
     }));
     // Tool A3: score_applied_strategies — admin only (Phase 2.2)
     server.tool("score_applied_strategies", "自动评分已采纳策略：将 7 天前采纳但仍为 neutral 反馈的策略降为 negative。应定期调用。", {}, authed(authContext, "score_applied_strategies", async (ctx) => {
+        requireAdmin(ctx); // T4: admin 角色护栏
         const result = scoreAppliedStrategies();
         auditLog("tool_score_applied_strategies", ctx.agentId, `scored=${result.scored}`);
         return {
@@ -332,6 +334,7 @@ export function registerEvolutionTools(server, authContext) {
         strategy_id: z.number().describe("策略 ID"),
         reason: z.string().max(1000).describe("撤回理由"),
     }, authed(authContext, "veto_strategy", async (ctx, { strategy_id, reason }) => {
+        requireAdmin(ctx); // T4: admin 角色护栏
         const result = vetoStrategyFromEvolution(strategy_id, ctx.agentId, reason);
         if (!result.ok) {
             return mcpFail(result.error, "veto_strategy");

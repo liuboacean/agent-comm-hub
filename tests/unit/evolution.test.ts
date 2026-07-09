@@ -308,7 +308,7 @@ describe("Evolution Engine", () => {
       expect(strat.positive_count).toBe(1);
     });
 
-    it("feedback_strategy prevents duplicate feedback from same agent", () => {
+    it("feedback_strategy upserts (overwrites) duplicate feedback from same agent", () => {
       const prop = proposeStrategy(
         "Dedup Feedback",
         "Only one feedback per agent in the system.",
@@ -329,8 +329,24 @@ describe("Evolution Engine", () => {
         { comment: "Changed mind." },
       );
 
-      expect(result.ok).toBe(false);
-      expect(result.error).toBeDefined();
+      // T7 安全加固：feedback_strategy 改为 UPSERT（与 provideFeedback 一致），
+      // 同一 agent 重复反馈应覆盖旧值而非被拒绝。
+      expect(result.ok).toBe(true);
+
+      // 验证 UPSERT 覆盖了之前的 positive 评价
+      const fb = testDb.prepare(
+        `SELECT * FROM strategy_feedback WHERE strategy_id = ? AND agent_id = ?`
+      ).get(strategyId, "agent_002") as any;
+      expect(fb).toBeDefined();
+      expect(fb.feedback).toBe("negative");
+      expect(fb.comment).toBe("Changed mind.");
+
+      // 反馈计数不应重复累加（仍应为 1）
+      const strat = testDb.prepare(
+        `SELECT * FROM strategies WHERE id = ?`
+      ).get(strategyId) as any;
+      expect(strat.feedback_count).toBe(1);
+      expect(strat.positive_count).toBe(0);
     });
 
     it("feedback_strategy allows feedback on pending strategies (status check at MCP layer)", () => {

@@ -226,9 +226,10 @@ describe("security.ts", () => {
       expect(checkPermission("revoke_token", "group_admin")).toBe(false);
     });
 
-    it("should allow unregistered tools for any role", () => {
-      expect(checkPermission("unknown_tool_xyz", "member")).toBe(true);
-      expect(checkPermission("unknown_tool_xyz", "admin")).toBe(true);
+    it("should DENY unregistered tools for any role (fail-closed)", () => {
+      // T1 安全加固：未注册工具一律拒绝（修复原 fail-open 漏洞）
+      expect(checkPermission("unknown_tool_xyz", "member")).toBe(false);
+      expect(checkPermission("unknown_tool_xyz", "admin")).toBe(false);
     });
 
     it("should cover all admin-only tools", () => {

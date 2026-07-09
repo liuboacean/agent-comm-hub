@@ -1,7 +1,7 @@
 ---
 name: agent-comm-hub
-description: "多智能体消息转发与上下文共享中间件 — 基于 MCP 协议实现 agent 间通信与任务协同。支持多 Agent 接入，提供标准 MCP 工具接口和本地 SQLite 存储。"
-version: "2.5.5"
+description: "本地多智能体通信 Hub（MCP stdio / HTTP-SSE），提供消息、任务编排、共享记忆、进化引擎、RBAC、审计哈希链，暴露 56 个 MCP 工具 + Web 管理面板"
+version: "3.0.12"
 category: autonomous-ai-agents
 triggers:
   - "hub"
@@ -13,9 +13,18 @@ triggers:
   - "QClaw"
   - "send_message"
   - "assign_task"
+permissions:
+  network:
+    binds: ["localhost:3100"]
+    outbound: ["rsync 备份推送 → 远程备份主机"]
+  filesystem:
+    read-only: ["DB_PATH（SQLite 库）", "uploads/（附件目录）", "web/dist（面板静态资源）"]
+  env:
+    required: ["HUB_AUTH_TOKEN"]
+    optional: ["DB_PATH", "CORS_ORIGINS", "PORT", "LOG_LEVEL", "UPLOAD_DIR", "MAX_FILE_SIZE", "TOKEN_EXPIRE_DAYS", "DEDUP_TTL", "RATE_LIMIT_*"]
 env:
-  HUB_KEY:
-    description: "stdio mode connection key for agent authentication"
+  HUB_AUTH_TOKEN:
+    description: "stdio / REST 认证 Token（必填）。启动时校验，运行时请求级取自 Authorization: Bearer / ?token= / x-api-key"
     required: true
     secret: true
 ---
@@ -34,7 +43,7 @@ env:
 │  (Hermes)    │◄───────►│  (stdio)                    │◄───────►│ (WorkBuddy)  │
 │              │  MCP    │                              │  MCP    │              │
 └──────────────┘◄───────►│  SQLite WAL + 30 表          │◄───────►└──────────────┘
-                          │  53 MCP 工具 + 4 级权限     │
+                          │  56 MCP 工具 + RBAC 权限     │
                           │  上下文暂存 + 建议闭环       │
                           └──────────────┬──────────────┘
                                          │
@@ -123,13 +132,13 @@ env:
 
 ## 核心能力
 
-### 53 个 MCP 工具（v2.4.0）
+### 56 个 MCP 工具（当前版本）
 
 #### Identity 身份 (6)
 
 | 工具 | 功能 |
 |------|------|
-| `register_agent` | 注册新 Agent，需提供 HUB_KEY 认证 |
+| `register_agent` | 注册新 Agent，需提供 HUB_AUTH_TOKEN 认证 |
 | `heartbeat` | Agent 心跳上报，维持在线状态，每 3 次连续心跳记录 +1 |
 | `query_agents` | 查询 Agent 列表，支持状态/角色筛选 |
 | `get_online_agents` | 获取当前在线 Agent 列表 |
@@ -247,7 +256,7 @@ inbox → assigned → [waiting] → in_progress → completed / failed / cancel
 
 ## 接入配置（stdio 模式）
 
-在 MCP 配置文件中添加 Hub 为 stdio 服务器，提供 `HUB_KEY` 环境变量进行认证。Hub 通过 stdio 传输 MCP 协议，Agent 的 LLM 可直接调用 Hub 工具。
+在 MCP 配置文件中添加 Hub 为 stdio 服务器，提供 `HUB_AUTH_TOKEN` 环境变量进行认证。Hub 通过 stdio 传输 MCP 协议，Agent 的 LLM 可直接调用 Hub 工具。**stdio 模式必须设置 HUB_AUTH_TOKEN，缺失将拒绝启动。**
 
 ```json
 {
@@ -256,7 +265,7 @@ inbox → assigned → [waiting] → in_progress → completed / failed / cancel
       "command": "node",
       "args": ["<hub-install-path>/stdio.js"],
       "env": {
-        "HUB_KEY": "your-connection-key"
+        "HUB_AUTH_TOKEN": "your-connection-key"
       }
     }
   }
@@ -296,7 +305,7 @@ inbox → assigned → [waiting] → in_progress → completed / failed / cancel
 
 | 级别 | 说明 | 可用工具范围 |
 |------|------|----------|
-| **authenticated** | 已认证（HUB_KEY） | register_agent（初始注册） |
+| **authenticated** | 已认证（HUB_AUTH_TOKEN） | register_agent（初始注册） |
 | **member** | 已注册 Agent | 消息 `send_message`/`acknowledge_message` + 任务 `assign_task`/`get_task_status` |
 | **group_manager** | 并行组管理 | 任务协同 + Pipeline 工具（不含暂存/经验） |
 | **full** | 完整权限 | 全部工具（含运维与建议管理） |
@@ -334,7 +343,7 @@ inbox → assigned → [waiting] → in_progress → completed / failed / cancel
 
 | 配置项 | 说明 |
 |--------|------|
-| `HUB_KEY` | stdio 模式连接密钥，所有 Agent 接入必须提供，用于身份认证与消息完整性校验 |
+| `HUB_AUTH_TOKEN` | stdio / REST 模式认证 Token，所有 Agent 接入必须提供，用于身份认证与消息完整性校验 |
 | 4 级权限模型 | authenticated → member → group_manager → full，逐级授权 |
 | CORS 白名单 | 默认拒绝跨域，通过 `CORS_LIST` 显式配置允许的来源 |
 
@@ -342,7 +351,7 @@ inbox → assigned → [waiting] → in_progress → completed / failed / cancel
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `HUB_KEY` | — | stdio 模式连接密钥（必填） |
+| `HUB_AUTH_TOKEN` | — | stdio / REST 认证 Token（必填） |
 | `DB_PATH` | ./comm_hub.db | SQLite 数据库路径 |
 | `LOG_LEVEL` | info | 日志级别：debug / info / warn / error |
 | `CORS_LIST` | (空) | CORS 白名单（逗号分隔），空=拒绝所有跨域 |

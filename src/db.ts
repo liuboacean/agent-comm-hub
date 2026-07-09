@@ -930,22 +930,14 @@ export function archiveOldMessages(days: number = 30): number {
 export function archiveOldAuditLogs(days: number = 90): number {
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
 
-  // 插入到归档表
+  // WORM（Write-Once-Read-Many）：仅复制审计日志到归档表，绝不物理删除源表记录（D2 安全加固）。
+  // audit_log_no_delete / audit_log_no_modify 防篡改触发器保持不变。
   const insertSql = `
     INSERT OR IGNORE INTO audit_log_archive (id, action, agent_id, target, details, ip_address, created_at, prev_hash, record_hash)
     SELECT id, action, agent_id, target, details, ip_address, created_at, prev_hash, record_hash
     FROM audit_log WHERE created_at < ? AND id NOT IN (SELECT id FROM audit_log_archive)
   `;
   const insertResult = db.prepare(insertSql).run(cutoff);
-
-  // 删除已归档的原始记录
-  // audit_log 有 BEFORE DELETE 触发器保护，需临时删除触发器再执行删除
-  db.exec(`DROP TRIGGER IF EXISTS audit_log_no_delete`);
-  db.exec(`DELETE FROM audit_log WHERE created_at < ? AND id IN (SELECT id FROM audit_log_archive)`);
-  db.exec(`
-    CREATE TRIGGER IF NOT EXISTS audit_log_no_delete BEFORE DELETE ON audit_log
-      BEGIN SELECT RAISE(ABORT, 'audit log is immutable'); END;
-  `);
 
   return insertResult.changes;
 }

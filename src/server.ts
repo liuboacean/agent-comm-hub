@@ -21,6 +21,8 @@ import { messageRepo, taskRepo, consumedRepo } from "./repo/sqlite-impl.js";
 import {
   authMiddleware,
   optionalAuthMiddleware,
+  internalMonitorAuth,
+  requireAdminApi,
   checkPermission,
   getRequiredPermission,
   createInviteCode,
@@ -229,7 +231,7 @@ app.get("/events/:agent_id", optionalAuthMiddleware, (req: Request, res: Respons
 // ═══════════════════════════════════════════════════════════════
 // Phase 5b: 增强健康检查端点（免认证）
 // ═══════════════════════════════════════════════════════════════
-app.get("/health", (_req: Request, res: Response) => {
+app.get("/health", internalMonitorAuth, (_req: Request, res: Response) => {
   const stats = getDbStats();
   const mem = process.memoryUsage();
   let dbSize = 0;
@@ -293,7 +295,7 @@ app.get("/health", (_req: Request, res: Response) => {
 // ═══════════════════════════════════════════════════════════════
 // P2-5: 详细健康检查端点（免认证）
 // ═══════════════════════════════════════════════════════════════
-app.get("/health/detailed", (_req: Request, res: Response) => {
+app.get("/health/detailed", internalMonitorAuth, (_req: Request, res: Response) => {
   const stats = getDbStats();
   const mem = process.memoryUsage();
   const agents = onlineAgents();
@@ -346,7 +348,7 @@ app.get("/health/detailed", (_req: Request, res: Response) => {
 // ═══════════════════════════════════════════════════════════════
 // Phase 5b: Prometheus Metrics 端点（免认证）
 // ═══════════════════════════════════════════════════════════════
-app.get("/metrics", (_req: Request, res: Response) => {
+app.get("/metrics", internalMonitorAuth, (_req: Request, res: Response) => {
   res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
   // Phase 3.1: 拼接 Hub 数据库指标（agents / messages / trust_scores）
   const hubMetrics = collectHubMetrics(db);
@@ -499,7 +501,7 @@ setMessageRateLimiter(msgRateLimiter);
 /**
  * GET /api/status — 面板总览指标（免认证，仅读数据）
  */
-app.get("/api/status", (_req: Request, res: Response) => {
+app.get("/api/status", requireAdminApi, (_req: Request, res: Response) => {
   const agents = activationOrch.getAllAgentStates();
   const agentStateCount: Record<string, number> = {};
   for (const a of agents) {
@@ -571,7 +573,7 @@ app.get("/api/status", (_req: Request, res: Response) => {
 /**
  * GET /api/agents — 所有 Agent 列表（含详情）
  */
-app.get("/api/agents", (_req: Request, res: Response) => {
+app.get("/api/agents", requireAdminApi, (_req: Request, res: Response) => {
   try {
     const rows = db.prepare(
       "SELECT agent_id, name, role, status, trust_score, last_heartbeat, created_at FROM agents ORDER BY last_heartbeat DESC"
@@ -606,7 +608,7 @@ app.get("/api/agents", (_req: Request, res: Response) => {
 /**
  * GET /api/audit/tail — 审计日志尾部
  */
-app.get("/api/audit/tail", (req: Request, res: Response) => {
+app.get("/api/audit/tail", requireAdminApi, (req: Request, res: Response) => {
   const n = Math.min(parseInt((req.query.n as string) ?? "50", 10), 500);
   try {
     const rows = db.prepare(
@@ -619,7 +621,7 @@ app.get("/api/audit/tail", (req: Request, res: Response) => {
 });
 
 // 挂载 Dashboard 静态资源（同时提供 / 和 /dashboard 入口）
-app.use("/dashboard", createDashboardRouter());
+app.use("/dashboard", requireAdminApi, createDashboardRouter());
 app.get("/", (_req, res) => res.redirect("/dashboard"));
 
 // ═══════════════════════════════════════════════════════════════

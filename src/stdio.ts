@@ -20,19 +20,17 @@ import { verifyToken, type AuthContext } from "./security.js";
  * 也可作为独立入口（CLI 模式）
  */
 export async function startMcpStdio(): Promise<void> {
-  // 如果通过 server.ts 调用，HUB_AUTH_TOKEN 可能未设置，使用 glama-ci 兼容
+  // T2 安全加固：stdio 启动强制要求 HUB_AUTH_TOKEN，缺失/非法一律退出（不再有 admin 兜底分支）
   const token = process.env.HUB_AUTH_TOKEN;
-  let authContext: AuthContext | null = null;
+  if (!token) {
+    console.error("[stdio] ERROR: HUB_AUTH_TOKEN is required to start stdio transport");
+    process.exit(1);
+  }
 
-  if (token) {
-    authContext = verifyToken(token);
-    if (!authContext) {
-      console.error(`[stdio] ERROR: Invalid HUB_AUTH_TOKEN`);
-      process.exit(1);
-    }
-  } else {
-    // 无 Token 时使用 glama-ci（Glama 构建测试会 sed 替换此逻辑）
-    authContext = { agentId: "glama-ci", role: "admin" } as AuthContext;
+  const authContext = verifyToken(token);
+  if (!authContext) {
+    console.error("[stdio] ERROR: HUB_AUTH_TOKEN is required to start stdio transport (invalid token)");
+    process.exit(1);
   }
 
   console.error(`[stdio] Authenticated as ${authContext.agentId} (role: ${authContext.role})`);

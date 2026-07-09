@@ -5,7 +5,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { db, getEnhancedDbStats, archiveOldMessages, archiveOldAuditLogs, vacuumDatabase, getDbSize } from "../db.js";
-import { auditLog, recalculateTrustScore, recalculateAllTrustScores, type AuthContext } from "../security.js";
+import { auditLog, requireAdmin, recalculateTrustScore, recalculateAllTrustScores, type AuthContext } from "../security.js";
 import { setAgentRole as setAgentRoleFromIdentity } from "../identity.js";
 import { logError } from "../logger.js";
 import { withRetry, requireAuth, authed, mcpError, mcpFail } from "../utils.js";
@@ -28,6 +28,7 @@ export function registerSecurityTools(server: McpServer, authContext?: AuthConte
       managed_group_id:  z.string().optional().describe("管理组 ID（仅 group_admin 角色需要）"),
     },
     authed(authContext, "set_agent_role", async (ctx, { agent_id, role, managed_group_id }) => {
+      requireAdmin(ctx); // T4: admin 角色护栏
 
       const result = setAgentRoleFromIdentity(agent_id, role, ctx.agentId, managed_group_id);
 
@@ -66,6 +67,7 @@ export function registerSecurityTools(server: McpServer, authContext?: AuthConte
       agent_id: z.string().optional().describe("目标 Agent ID（不传则重算全部 Agent）"),
     },
     authed(authContext, "recalculate_trust_scores", async (ctx, { agent_id }) => {
+      requireAdmin(ctx); // T4: admin 角色护栏
 
       try {
         if (agent_id) {
@@ -110,7 +112,8 @@ export function registerSecurityTools(server: McpServer, authContext?: AuthConte
     "get_db_stats",
     "获取数据库统计信息。包括各表行数、数据库文件大小、WAL 大小、最后归档时间等。仅 admin 可调用。",
     {},
-    authed(authContext, "get_db_stats", async (_ctx) => {
+    authed(authContext, "get_db_stats", async (ctx) => {
+      requireAdmin(ctx); // T4: admin 角色护栏
 
       try {
         const stats = getEnhancedDbStats();
@@ -145,7 +148,8 @@ export function registerSecurityTools(server: McpServer, authContext?: AuthConte
       vacuum: z.boolean().optional().default(false)
               .describe("归档后是否执行 VACUUM 压缩数据库文件"),
     },
-    authed(authContext, "archive_data", async (_ctx, { type, days, vacuum }) => {
+    authed(authContext, "archive_data", async (ctx, { type, days, vacuum }) => {
+      requireAdmin(ctx); // T4: admin 角色护栏
 
       try {
         const daysForType = days ?? (type === "messages" ? 30 : 90);
@@ -164,7 +168,7 @@ export function registerSecurityTools(server: McpServer, authContext?: AuthConte
 
         const dbSize = getDbSize();
 
-        auditLog("tool_archive_data", authContext!.agentId,
+        auditLog("tool_archive_data", ctx.agentId,
           `type=${type}, days=${daysForType}, archived=${archivedCount}, vacuum=${vacuum}`);
 
         return {

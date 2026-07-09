@@ -9,7 +9,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { pushToAgent } from "../sse.js";
-import { auditLog, recalculateTrustScore, type AuthContext } from "../security.js";
+import { auditLog, recalculateTrustScore, requireAdmin, type AuthContext } from "../security.js";
 import { logError } from "../logger.js";
 import {
   shareExperience,
@@ -289,6 +289,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
       reason:      z.string().max(1000).describe("审批理由"),
     },
     authed(authContext, "approve_strategy", async (ctx, { strategy_id, action, reason }) => {
+      requireAdmin(ctx); // T4: admin 角色护栏
 
       const result = approveStrategy(strategy_id, ctx.agentId, action, reason);
 
@@ -359,6 +360,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
     "自动评分已采纳策略：将 7 天前采纳但仍为 neutral 反馈的策略降为 negative。应定期调用。",
     {},
     authed(authContext, "score_applied_strategies", async (ctx) => {
+      requireAdmin(ctx); // T4: admin 角色护栏
 
       const result = scoreAppliedStrategies();
 
@@ -467,6 +469,7 @@ export function registerEvolutionTools(server: McpServer, authContext?: AuthCont
       reason:      z.string().max(1000).describe("撤回理由"),
     },
     authed(authContext, "veto_strategy", async (ctx, { strategy_id, reason }) => {
+      requireAdmin(ctx); // T4: admin 角色护栏
 
       const result = vetoStrategyFromEvolution(strategy_id, ctx.agentId, reason);
 

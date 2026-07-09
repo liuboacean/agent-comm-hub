@@ -8,6 +8,7 @@ import { z } from "zod";
 import {
   checkPermission,
   getRequiredPermission,
+  requireAdmin,
   auditLog,
   revokeToken as revokeTokenFromSecurity,
   recalculateTrustScore,
@@ -188,6 +189,7 @@ export function registerIdentityTools(server: McpServer, authContext?: AuthConte
       token_id: z.string().describe("要吊销的 Token ID"),
     },
     authed(authContext, "revoke_token", async (ctx, { token_id }) => {
+      requireAdmin(ctx); // T4: admin 角色护栏
 
       const success = revokeTokenFromSecurity(token_id);
       if (success) {
@@ -229,6 +231,7 @@ export function registerIdentityTools(server: McpServer, authContext?: AuthConte
       delta:    z.number().min(-100).max(100).describe("信任分增量（正数加分，负数扣分）"),
     },
     authed(authContext, "set_trust_score", async (ctx, { agent_id, delta }) => {
+      requireAdmin(ctx); // T4: admin 角色护栏
 
       const result = updateAgentTrustScore(agent_id, delta, ctx.agentId);
 

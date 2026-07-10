@@ -17,6 +17,7 @@ export var HubErrorCode;
     HubErrorCode["PERMISSION_DENIED"] = "HUB_2001";
     HubErrorCode["TOKEN_EXPIRED"] = "HUB_2002";
     HubErrorCode["TOKEN_INVALID"] = "HUB_2003";
+    HubErrorCode["OBJECT_ACCESS_DENIED"] = "HUB_2004";
     // Agent 3xxx
     HubErrorCode["AGENT_NOT_FOUND"] = "HUB_3000";
     HubErrorCode["AGENT_OFFLINE"] = "HUB_3001";

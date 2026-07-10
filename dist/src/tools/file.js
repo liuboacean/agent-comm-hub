@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { attachStmt } from "../db.js";
 import { messageRepo } from "../repo/sqlite-impl.js";
 import { pushToAgent } from "../sse.js";
+import { assertOwns } from "../security.js";
 import { logError } from "../logger.js";
 import { incrementMcpCall } from "../metrics.js";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
@@ -29,6 +30,8 @@ export function registerFileTools(server, authContext) {
             if (!msg) {
                 return { content: [{ type: "text", text: JSON.stringify({ error: `Message ${message_id} not found` }) }] };
             }
+            // T5：对象级授权——仅消息参与者或 admin 可上传附件
+            assertOwns("message", message_id, ctx);
             // Base64 解码
             const buffer = Buffer.from(content_base64, "base64");
             const fileSize = buffer.length;
@@ -95,6 +98,8 @@ export function registerFileTools(server, authContext) {
             if (!attach) {
                 return { content: [{ type: "text", text: JSON.stringify({ error: `Attachment ${attachment_id} not found` }) }] };
             }
+            // T5：对象级授权——仅附件所属消息的参与者或 admin 可下载
+            assertOwns("attachment", attachment_id, ctx);
             if (!existsSync(attach.storage_path)) {
                 return { content: [{ type: "text", text: JSON.stringify({ error: "File not found on disk" }) }] };
             }
@@ -126,6 +131,8 @@ export function registerFileTools(server, authContext) {
         message_id: z.string().describe("消息 ID"),
     }, authed(authContext, "list_attachments", async (ctx, { message_id }) => {
         try {
+            // T5：对象级授权——仅消息参与者或 admin 可列出附件
+            assertOwns("message", message_id, ctx);
             const attachments = attachStmt.listByMessage.all(message_id);
             incrementMcpCall("list_attachments", "success", ctx.role);
             return {

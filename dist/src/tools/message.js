@@ -3,7 +3,7 @@ import { randomUUID } from "crypto";
 import { db } from "../db.js";
 import { messageRepo } from "../repo/sqlite-impl.js";
 import { pushToAgent } from "../sse.js";
-import { auditLog } from "../security.js";
+import { auditLog, assertOwns } from "../security.js";
 import { resolveAgentId } from "../identity.js";
 import { dedupMessage, validateMessageBody } from "../dedup.js";
 import { logError } from "../logger.js";
@@ -147,6 +147,10 @@ export function registerMessageTools(server, authContext) {
                     }],
             };
         }
+        // T5：发送者身份校验——from 必须等于调用方 agent_id
+        if (from !== ctx.agentId) {
+            return mcpFail(`Sender identity mismatch: from must equal your agent_id`);
+        }
         const results = {};
         const errors = [];
         let deliveredCount = 0;
@@ -199,7 +203,7 @@ export function registerMessageTools(server, authContext) {
     server.tool("acknowledge_message", "标记消息为已处理（acknowledged）。调用此工具后该消息不会再出现在未处理消息列表中。Hermes 处理完 WorkBuddy 发来的消息并回复后，必须调用此工具。", {
         message_id: z.string().describe("消息 ID"),
         agent_id: z.string().describe("确认方 Agent ID，如 hermes"),
-    }, authed(authContext, "acknowledge_message", async (_ctx, { message_id, agent_id }) => {
+    }, authed(authContext, "acknowledge_message", async (ctx, { message_id, agent_id }) => {
         try {
             const msg = await withRetry(() => messageRepo.getById(message_id), "acknowledge_message:lookup");
             if (!msg) {
@@ -210,6 +214,8 @@ export function registerMessageTools(server, authContext) {
                         }],
                 };
             }
+            // T5：对象级授权——仅接收方或 admin 可确认
+            assertOwns("message", message_id, ctx, "recipient");
             await withRetry(() => messageRepo.markAcknowledged(message_id), "acknowledge_message:update");
             return {
                 content: [{

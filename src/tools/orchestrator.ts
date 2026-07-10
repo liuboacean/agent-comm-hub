@@ -14,7 +14,7 @@ import { randomUUID } from "crypto";
 import { type Task, db } from "../db.js";
 import { taskRepo } from "../repo/sqlite-impl.js";
 import { pushToAgent } from "../sse.js";
-import { auditLog, type AuthContext } from "../security.js";
+import { auditLog, type AuthContext, assertOwns } from "../security.js";
 import {
   addDependency as addDep,
   removeDependency as removeDep,
@@ -30,7 +30,7 @@ import {
   getPipelineStatus,
   addTaskToPipeline,
 } from "../orchestrator.js";
-import { requireAuth, authed, mcpError } from "../utils.js";
+import { requireAuth, authed, mcpError, mcpFail } from "../utils.js";
 import { ActivationOrchestrator } from "../orchestrator.js";
 
 /** 全局 ActivationOrchestrator 实例，由 server.ts 注入 */
@@ -59,7 +59,12 @@ export function registerOrchestratorTools(server: McpServer, authContext?: AuthC
                      .describe("执行任务所需背景信息，减少执行方反复询问"),
       priority:    z.enum(["low", "normal", "high", "urgent"]).default("normal"),
     },
-    authed(authContext, "assign_task", async (_ctx, { from, to, description, context, priority }) => {
+    authed(authContext, "assign_task", async (ctx, { from, to, description, context, priority }) => {
+
+      // T5：发送者身份校验——from 必须等于调用方 agent_id
+      if (from !== ctx.agentId) {
+        return mcpFail(`Sender identity mismatch: from must equal your agent_id`);
+      }
 
       const task: Task = {
         id:          `task_${Date.now()}_${randomUUID().slice(0, 6)}`,
@@ -128,7 +133,13 @@ export function registerOrchestratorTools(server: McpServer, authContext?: AuthC
       progress: z.number().min(0).max(100).optional().default(0)
                   .describe("完成百分比，0-100"),
     },
-    authed(authContext, "update_task_status", async (_ctx, { task_id, agent_id, status, result, progress }) => {
+    authed(authContext, "update_task_status", async (ctx, { task_id, agent_id, status, result, progress }) => {
+
+      // T5：对象级授权——仅任务参与者或 admin 可更新
+      assertOwns("task", task_id, ctx);
+      if (agent_id !== ctx.agentId) {
+        return mcpFail(`Task update identity mismatch: agent_id must equal your agent_id`);
+      }
 
       const task = taskRepo.getById(task_id);
       if (!task) {
@@ -178,7 +189,10 @@ export function registerOrchestratorTools(server: McpServer, authContext?: AuthC
     {
       task_id: z.string(),
     },
-    authed(authContext, "get_task_status", async (_ctx, { task_id }) => {
+    authed(authContext, "get_task_status", async (ctx, { task_id }) => {
+
+      // T5：对象级授权——仅任务参与者或 admin 可查询
+      assertOwns("task", task_id, ctx);
 
       const task = taskRepo.getById(task_id);
       return {

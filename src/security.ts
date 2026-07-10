@@ -248,19 +248,19 @@ function getResourceOwners(
     }
     case "task": {
       const row = db.prepare(
-        `SELECT creator, assigned_agent, parallel_group_id FROM tasks WHERE id = ?`
+        `SELECT assigned_by, assigned_to, parallel_group FROM tasks WHERE id = ?`
       ).get(resourceId) as any;
       if (!row) return [];
       const owners: string[] = [];
-      if (row.creator) owners.push(row.creator);
-      if (row.assigned_agent && row.assigned_agent !== row.creator) owners.push(row.assigned_agent);
-      if (row.parallel_group_id) {
+      if (row.assigned_by) owners.push(row.assigned_by);
+      if (row.assigned_to && row.assigned_to !== row.assigned_by) owners.push(row.assigned_to);
+      if (row.parallel_group) {
         const members = db.prepare(
-          `SELECT member_agent_id FROM parallel_group_members WHERE group_id = ?`
-        ).all(row.parallel_group_id) as any[];
+          `SELECT assigned_to FROM tasks WHERE parallel_group = ? AND id != ?`
+        ).all(row.parallel_group, resourceId) as any[];
         for (const m of members) {
-          if (m.member_agent_id && !owners.includes(m.member_agent_id)) {
-            owners.push(m.member_agent_id);
+          if (m.assigned_to && !owners.includes(m.assigned_to)) {
+            owners.push(m.assigned_to);
           }
         }
       }

@@ -1,7 +1,7 @@
 ---
 name: agent-comm-hub
 description: "本地多智能体通信 Hub（MCP stdio / HTTP-SSE），提供消息、任务编排、共享记忆、进化引擎、RBAC、审计哈希链，暴露 56 个 MCP 工具 + Web 管理面板"
-version: "3.0.13"
+version: "3.0.14"
 category: autonomous-ai-agents
 triggers:
   - "hub"
@@ -31,7 +31,7 @@ env:
 
 # Agent Communication Hub
 
-> 多智能体消息转发与上下文共享中间件 — **v2.5.0**
+> 多智能体消息转发与上下文共享中间件 — **v3.0.14**
 
 让两个或多个独立 AI 智能体之间实现**实时双向通信**和**上下文自动同步**。基于 MCP 协议 + stdio 模式，消息本地持久化，延迟 < 50ms。
 
@@ -314,8 +314,19 @@ inbox → assigned → [waiting] → in_progress → completed / failed / cancel
 
 > 初始分数 50，公式：`base(50) + verified_capabilities*3 + approved_strategies*2 + positive_feedback*1 - negative_feedback*2`，clamp(0,100)。
 
-## v2.4.0 更新要点
+## 版本历史
 
+### v3.0.x（安全加固）
+| 类别 | 内容 | 说明 |
+|------|------|------|
+| 权限模型 | fail-closed 权限矩阵 | `checkPermission` 未注册工具默认拒绝；`TOOL_PERMISSIONS` 全量登记，杜绝 fail-open |
+| 认证 | stdio 强制认证 | 缺失 `HUB_AUTH_TOKEN` 直接 `process.exit(1)`，移除 glama-ci admin 兜底 |
+| 角色护栏 | admin 校验 | 9 个 admin 类工具 handler 首行 `requireAdmin(ctx)` |
+| HTTP 中间件 | 分级放行 | `/health`、`/metrics` 仅内网/loopback 或 token 放行；`/dashboard`、`/api/*` 需 token + admin |
+| 审计 | WORM 不可篡改 | 审计日志仅归档不删源，保留 `no_delete` / `no_modify` 触发器 |
+| 数据归属 | 域隔离 | `search_messages` 强制本人收发域；记忆统计按 agent 隔离，admin 才指定他人 |
+
+### v2.4.0
 | Phase | 内容 | 变更 |
 |-------|------|------|
 | **A** | tools.ts 拆分 | 2687 行 → 8 模块 + 30 行入口 + utils.ts |

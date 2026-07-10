@@ -8,7 +8,7 @@
  *   4. 文件工具：upload_file / download_file / list_attachments
  *   5. 任务工具：assign_task / update_task_status / get_task_status
  *   6. admin 绕过：admin 可操作任意资源
- *   7. /health 端点收敛：不包含 backup/sse/db.size，version 为 3.0.14
+ *   7. /health 端点收敛：不包含 backup/sse/db.size，version 动态等于 package.json
  *
  * 测试策略：
  *   - 使用 in-memory SQLite 隔离测试数据
@@ -905,12 +905,15 @@ describe("4. 任务工具 IDOR 防护", () => {
 // 5. /health 端点收敛测试
 // ═══════════════════════════════════════════════════════════
 describe("5. /health 端点收敛", () => {
+  // 动态读取 package.json 版本，避免硬编码导致 CI 版本断言失配
+  const pkg = JSON.parse(
+    fs.readFileSync(new URL("../../package.json", import.meta.url), "utf-8")
+  ) as { version: string };
 
   it("/health 不应包含 backup 字段", () => {
     const mem = process.memoryUsage();
     const healthResponse = {
       status: "ok",
-      version: "3.0.15",
       timestamp: Date.now(),
       memory: {
         rss: Math.round(mem.rss / 1024 / 1024),
@@ -923,13 +926,11 @@ describe("5. /health 端点收敛", () => {
     expect(healthResponse).not.toHaveProperty("sse");
     expect(healthResponse).not.toHaveProperty("db");
     expect(healthResponse.status).toBe("ok");
-    expect(healthResponse.version).toBe("3.0.15");
   });
 
   it("/health/detailed 不应包含 backup 字段", () => {
     const detailedResponse = {
       status: "ok",
-      version: "3.0.15",
       timestamp: Date.now(),
       memory: { rss_mb: 10, heap_used_mb: 5, heap_total_mb: 20 },
       agents: { online: 0, online_ids: [] },
@@ -941,17 +942,18 @@ describe("5. /health 端点收敛", () => {
     expect(detailedResponse).not.toHaveProperty("backup");
     expect(detailedResponse).not.toHaveProperty("sse");
     expect(detailedResponse.db).not.toHaveProperty("size");
-    expect(detailedResponse.version).toBe("3.0.15");
   });
 
-  it("HUB_VERSION 应等于 package.json 的版本 3.0.15", () => {
-    const pkg = JSON.parse(
-      fs.readFileSync(
-        new URL("../../package.json", import.meta.url),
-        "utf-8"
-      )
-    );
-    expect(pkg.version).toBe("3.0.15");
+  it("版本号一致性：package.json === SKILL.md(frontmatter + 徽标)", () => {
+    const skill = fs.readFileSync(new URL("../../SKILL.md", import.meta.url), "utf-8");
+    // 仅取 frontmatter（首个 --- 代码块）内的 version
+    const frontmatter = skill.split("---")[1] ?? skill;
+    const fm = frontmatter.match(/version:\s*"(\d+\.\d+\.\d+)"/);
+    expect(fm, "SKILL.md frontmatter 应含 version: \"x.y.z\"").not.toBeNull();
+    expect(fm![1]).toBe(pkg.version);
+    const badge = skill.match(/\*\*v(\d+\.\d+\.\d+)\*\*/);
+    expect(badge, "SKILL.md 应含版本徽标 **vX.Y.Z**").not.toBeNull();
+    expect(badge![1]).toBe(pkg.version);
   });
 
   it("server.ts /health 和 /health/detailed 路由不应引用 backup", () => {

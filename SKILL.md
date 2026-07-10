@@ -1,7 +1,7 @@
 ---
 name: agent-comm-hub
 description: "本地多智能体通信 Hub（MCP stdio / HTTP-SSE），提供消息、任务编排、共享记忆、进化引擎、RBAC、审计哈希链，暴露 56 个 MCP 工具 + Web 管理面板"
-version: "3.0.12"
+version: "3.0.13"
 category: autonomous-ai-agents
 triggers:
   - "hub"

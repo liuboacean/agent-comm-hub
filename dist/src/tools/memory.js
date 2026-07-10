@@ -175,9 +175,10 @@ export function registerMemoryTools(server, authContext) {
                 const windowMs = offline_window_days * 86400_000;
                 const since = Date.now() - windowMs;
                 const fallbackScope = scope === "all" ? "(scope='collective' OR scope='group')" : `scope='${scope}'`;
+                // T5：离线回退 SQL 加 agent_id 过滤，防止泄露其他 Agent 的 private memories
                 const fallbackRows = db.prepare(`SELECT id, agent_id, title, content, scope, tags, source_agent_id, source_task_id, created_at
-             FROM memories WHERE ${fallbackScope} AND created_at > ?
-             ORDER BY created_at DESC LIMIT ?`).all(since, limit);
+             FROM memories WHERE ${fallbackScope} AND agent_id = ? AND created_at > ?
+             ORDER BY created_at DESC LIMIT ?`).all(ctx.agentId, since, limit);
                 if (fallbackRows.length > 0) {
                     results = fallbackRows.map(r => ({
                         ...r,

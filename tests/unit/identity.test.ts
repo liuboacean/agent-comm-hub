@@ -198,12 +198,21 @@ describe("Identity", () => {
   });
 
   describe("set_trust_score", () => {
+    let adminId: string;
+
+    beforeEach(() => {
+      // 注册一个 admin agent 用于权限验证
+      const adminInvite = createInviteCode("admin", testDb);
+      const adminResult = registerAgent(adminInvite, "admin-agent", []);
+      adminId = adminResult.agentId!;
+    });
+
     it("set_trust_score adjusts trust value", () => {
       const inviteCode = createInviteCode("member", testDb);
       const regResult = registerAgent(inviteCode, "trust-agent", []);
       expect(regResult.success).toBe(true);
 
-      const result = updateAgentTrustScore(regResult.agentId!, 10, "admin_agent");
+      const result = updateAgentTrustScore(regResult.agentId!, 10, adminId);
 
       expect(result.ok).toBe(true);
       expect(result.new_score).toBe(60); // 50 + 10
@@ -221,16 +230,16 @@ describe("Identity", () => {
       expect(regResult.success).toBe(true);
 
       // Clamp to 0
-      const resultLow = updateAgentTrustScore(regResult.agentId!, -60, "admin_agent");
+      const resultLow = updateAgentTrustScore(regResult.agentId!, -60, adminId);
       expect(resultLow.new_score).toBe(0);
 
       // Clamp to 100
-      const resultHigh = updateAgentTrustScore(regResult.agentId!, 100, "admin_agent");
+      const resultHigh = updateAgentTrustScore(regResult.agentId!, 100, adminId);
       expect(resultHigh.new_score).toBe(100);
     });
 
     it("set_trust_score returns error for non-existent agent", () => {
-      const result = updateAgentTrustScore("nonexistent_agent", 10, "admin_agent");
+      const result = updateAgentTrustScore("nonexistent_agent", 10, adminId);
       expect(result.ok).toBe(false);
     });
   });

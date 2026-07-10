@@ -430,7 +430,7 @@ export function registerCapability(input: CapabilityInput): { id: string } {
   const id = `cap_${now}_${randomUUID().slice(0, 6)}`;
 
   db.prepare(
-    `INSERT INTO agent_capabilities VALUES (?,?,?,?,?,?)`
+    `INSERT INTO agent_capabilities VALUES (?,?,?,?,?,?,?)`
   ).run(
     id,
     input.agent_id,

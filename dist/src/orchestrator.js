@@ -290,7 +290,7 @@ export function getPipelineStatus(pipelineId) {
 export function registerCapability(input) {
     const now = Date.now();
     const id = `cap_${now}_${randomUUID().slice(0, 6)}`;
-    db.prepare(`INSERT INTO agent_capabilities VALUES (?,?,?,?,?,?)`).run(id, input.agent_id, input.capability, input.params ? JSON.stringify(input.params) : null, input.verified ? 1 : 0, input.verified ? now : null, now);
+    db.prepare(`INSERT INTO agent_capabilities VALUES (?,?,?,?,?,?,?)`).run(id, input.agent_id, input.capability, input.params ? JSON.stringify(input.params) : null, input.verified ? 1 : 0, input.verified ? now : null, now);
     auditLog("register_capability", input.agent_id, id, `capability=${input.capability}`);
     // Phase 5a Day 2: 验证的能力影响信任评分
     if (input.verified) {

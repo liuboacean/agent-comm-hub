@@ -385,6 +385,14 @@ export function updateAgentTrustScore(
     return { ok: false, error: `Agent ${agentId} not found` };
   }
 
+  // 验证操作者是否是 admin
+  if (operatorId) {
+    const operator = db.prepare(`SELECT role FROM agents WHERE agent_id=?`).get(operatorId) as any;
+    if (!operator || operator.role !== "admin") {
+      return { ok: false, error: "Only admin can update trust scores" };
+    }
+  }
+
   const current = row.trust_score;
   const newScore = Math.max(TRUST_SCORE_MIN, Math.min(TRUST_SCORE_MAX, current + delta));
 
@@ -416,6 +424,12 @@ export function setAgentRole(
 
   if (!agent) {
     return { ok: false, error: `Agent ${agentId} not found` };
+  }
+
+  // 验证操作者是否是 admin
+  const operator = db.prepare(`SELECT role FROM agents WHERE agent_id=?`).get(operatorId) as any;
+  if (!operator || operator.role !== "admin") {
+    return { ok: false, error: "Only admin can change agent roles" };
   }
 
   const oldRole = agent.role;

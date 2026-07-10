@@ -1,14 +1,16 @@
 ---
 name: agent-comm-hub
 description: "本地多智能体通信 Hub（MCP stdio / HTTP-SSE），提供消息、任务编排、共享记忆、进化引擎、RBAC、审计哈希链，暴露 56 个 MCP 工具 + Web 管理面板"
-version: "3.0.15"
+version: "3.0.16"
 category: autonomous-ai-agents
 triggers:
-  - "hub"
-  - "Hub"
   - "agent-comm-hub"
-  - "通信"
-  - "消息"
+  - "AgentCommHub"
+  - "ACH"
+  - "agent-comm"
+  - "agent_comm_hub"
+  - "通信hub"
+  - "消息hub"
   - "workbuddy"
   - "QClaw"
   - "send_message"
@@ -31,7 +33,7 @@ env:
 
 # Agent Communication Hub
 
-> 多智能体消息转发与上下文共享中间件 — **v3.0.15**
+> 多智能体消息转发与上下文共享中间件 — **v3.0.16**
 
 让两个或多个独立 AI 智能体之间实现**实时双向通信**和**上下文自动同步**。基于 MCP 协议 + stdio 模式，消息本地持久化，延迟 < 50ms。
 
@@ -326,6 +328,11 @@ inbox → assigned → [waiting] → in_progress → completed / failed / cancel
 | 审计 | WORM 不可篡改 | 审计日志仅归档不删源，保留 `no_delete` / `no_modify` 触发器 |
 | 数据归属 | 域隔离 | `search_messages` 强制本人收发域；记忆统计按 agent 隔离，admin 才指定他人 |
 | 对象级授权 | assertOwns 中间件 | message/attachment/task 三族工具插入 `assertOwns()` 归属校验（HUB_2004）；`/health` 收敛（删除内网 IP/路径泄露） |
+| sender 校验 | send_message 身份守卫 | broadcast_message + send_message 均强制 `from === ctx.agentId`，杜绝身份伪造 |
+| memory 降级 | search_memories 补 agent_id 过滤 | FTS5 离线回退 SQL 增加 `agent_id = ?`，防止越权泄漏 |
+| 内部函数 | setAgentRole/updateAgentTrustScore 加 admin 校验 | 底层函数不再信任 `operatorId`，显式查库验证 admin 身份 |
+| SQL 修复 | registerCapability 占位符 | 6→7 个占位符匹配实际 7 个字段值，修复运行时崩溃 |
+| triggers 收窄 | SKILL.md 触发词 | 移除 `Hub`/`通信`/`消息` 过宽泛触发词，改用具体标识
 
 ### v2.4.0
 | Phase | 内容 | 变更 |

@@ -75,6 +75,21 @@ export function registerMessageTools(server: McpServer, authContext?: AuthContex
         };
       }
 
+      // T5：发送者身份校验——from 必须等于调用方 agent_id（与 broadcast_message 一致）
+      if (resolvedFrom !== ctx.agentId) {
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              success: false,
+              error: "Sender identity mismatch: 'from' must equal your authenticated agent_id",
+              code: "INVALID_SENDER",
+            }),
+          }],
+          isError: true,
+        };
+      }
+
       // 限流检查（P2-8）
       if (messageRateLimiter) {
         const decision = messageRateLimiter.consume(resolvedFrom, 1);

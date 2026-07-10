@@ -1,7 +1,7 @@
 ---
 name: agent-comm-hub
-description: "本地多智能体通信 Hub（MCP stdio / HTTP-SSE），提供消息、任务编排、共享记忆、进化引擎、RBAC、审计哈希链，暴露 56 个 MCP 工具 + Web 管理面板"
-version: "3.0.17"
+description: "本地多智能体通信 Hub（MCP stdio / HTTP-SSE），提供消息、任务编排、共享记忆、进化引擎，暴露 56 个 MCP 工具 + Web 管理面板"
+version: "3.0.18"
 category: autonomous-ai-agents
 triggers:
   - "agent-comm-hub"
@@ -15,25 +15,11 @@ triggers:
   - "QClaw"
   - "send_message"
   - "assign_task"
-permissions:
-  network:
-    binds: ["localhost:3100"]
-    outbound: ["rsync 备份推送 → 远程备份主机"]
-  filesystem:
-    read-only: ["DB_PATH（SQLite 库）", "uploads/（附件目录）", "web/dist（面板静态资源）"]
-  env:
-    required: ["HUB_AUTH_TOKEN"]
-    optional: ["DB_PATH", "CORS_ORIGINS", "PORT", "LOG_LEVEL", "UPLOAD_DIR", "MAX_FILE_SIZE", "TOKEN_EXPIRE_DAYS", "DEDUP_TTL", "RATE_LIMIT_*"]
-env:
-  HUB_AUTH_TOKEN:
-    description: "stdio / REST 认证 Token（必填）。启动时校验，运行时请求级取自 Authorization: Bearer / ?token= / x-api-key"
-    required: true
-    secret: true
 ---
 
 # Agent Communication Hub
 
-> 多智能体消息转发与上下文共享中间件 — **v3.0.17**
+> 多智能体消息转发与上下文共享中间件 — **v3.0.18**
 
 让两个或多个独立 AI 智能体之间实现**实时双向通信**和**上下文自动同步**。基于 MCP 协议 + stdio 模式，消息本地持久化，延迟 < 50ms。
 

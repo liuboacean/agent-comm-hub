@@ -9,7 +9,7 @@ import { randomUUID } from "crypto";
 import { type Message, db } from "../db.js";
 import { messageRepo } from "../repo/sqlite-impl.js";
 import { pushToAgent } from "../sse.js";
-import { auditLog, type AuthContext } from "../security.js";
+import { auditLog, type AuthContext, assertOwns } from "../security.js";
 import { resolveAgentId } from "../identity.js";
 import { dedupMessage, validateMessageBody } from "../dedup.js";
 import { logError } from "../logger.js";
@@ -180,6 +180,11 @@ export function registerMessageTools(server: McpServer, authContext?: AuthContex
         };
       }
 
+      // T5：发送者身份校验——from 必须等于调用方 agent_id
+      if (from !== ctx.agentId) {
+        return mcpFail(`Sender identity mismatch: from must equal your agent_id`);
+      }
+
       const results: Record<string, boolean> = {};
       const errors: string[] = [];
       let deliveredCount = 0;
@@ -243,7 +248,7 @@ export function registerMessageTools(server: McpServer, authContext?: AuthContex
       message_id: z.string().describe("消息 ID"),
       agent_id:   z.string().describe("确认方 Agent ID，如 hermes"),
     },
-    authed(authContext, "acknowledge_message", async (_ctx, { message_id, agent_id }) => {
+    authed(authContext, "acknowledge_message", async (ctx, { message_id, agent_id }) => {
 
       try {
         const msg = await withRetry(
@@ -258,6 +263,8 @@ export function registerMessageTools(server: McpServer, authContext?: AuthContex
             }],
           };
         }
+        // T5：对象级授权——仅接收方或 admin 可确认
+        assertOwns("message", message_id, ctx, "recipient");
         await withRetry(
           () => messageRepo.markAcknowledged(message_id),
           "acknowledge_message:update"

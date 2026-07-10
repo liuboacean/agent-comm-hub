@@ -29,8 +29,8 @@ import { ActivationOrchestrator } from "./orchestrator.js";
 import { RateLimiter } from "./ratelimit.js";
 import { setMessageRateLimiter } from "./tools/message.js";
 import { createDashboardRouter } from "./web/server.js";
-import { startBackupScheduler, stopBackupScheduler, getBackupStatus } from "./backup.js";
-import { readFileSync, existsSync } from "fs";
+import { startBackupScheduler, stopBackupScheduler } from "./backup.js";
+import { readFileSync } from "fs";
 // ═══════════════════════════════════════════════════════════════
 // Phase 6: 配置外部化（零依赖，所有配置有默认值）
 // ═══════════════════════════════════════════════════════════════
@@ -200,19 +200,10 @@ app.get("/events/:agent_id", optionalAuthMiddleware, (req, res) => {
 // Phase 5b: 增强健康检查端点（免认证）
 // ═══════════════════════════════════════════════════════════════
 app.get("/health", internalMonitorAuth, (_req, res) => {
-    const stats = getDbStats();
     const mem = process.memoryUsage();
-    let dbSize = 0;
-    try {
-        const row = db.prepare(`SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size()`).get();
-        dbSize = row?.size ?? 0;
-    }
-    catch (err) {
-        logError("health_db_size_query_failed", err, { module: "server" });
-    }
     res.json({
         status: "ok",
-        version: "2.5.1",
+        version: HUB_VERSION,
         uptime: getPersistentUptime(),
         first_start_ms: serverStartTime,
         timestamp: Date.now(),
@@ -221,46 +212,6 @@ app.get("/health", internalMonitorAuth, (_req, res) => {
             heap_used: Math.round(mem.heapUsed / 1024 / 1024),
             heap_total: Math.round(mem.heapTotal / 1024 / 1024),
         },
-        db: {
-            size: dbSize,
-            size_mb: Math.round(dbSize / 1024 / 1024 * 100) / 100,
-            tables: stats,
-        },
-        sse: {
-            active_connections: onlineAgents().length,
-        },
-        backup: (() => {
-            // 本地备份 + 远程 rsync 备份状态
-            const local = getBackupStatus();
-            let remoteLastBackup = null;
-            let remoteFiles = 0;
-            try {
-                const logPath = process.env.HUB_BACKUP_LOG || "";
-                if (logPath && existsSync(logPath)) {
-                    const log = readFileSync(logPath, "utf-8");
-                    const lastLine = log.trim().split("\n").filter(l => l.includes("推送成功")).pop();
-                    if (lastLine) {
-                        const match = lastLine.match(/^\[([^\]]+)\]/);
-                        if (match)
-                            remoteLastBackup = match[1];
-                    }
-                    remoteFiles = (log.match(/推送成功/g) || []).length;
-                }
-            }
-            catch { /* ignore */ }
-            return {
-                ...local,
-                remote: {
-                    host: "Acean@10.20.33.123",
-                    dir: "/home/Acean/hub-backups",
-                    enabled: remoteFiles > 0,
-                    last_push: remoteLastBackup,
-                    total_pushes: remoteFiles,
-                    method: "launchd + sqlite3 .backup + gzip + rsync → liubo-pc",
-                    schedule: "每 4 小时（launchd）",
-                },
-            };
-        })(),
     });
 });
 // ═══════════════════════════════════════════════════════════════
@@ -292,7 +243,7 @@ app.get("/health/detailed", internalMonitorAuth, (_req, res) => {
     }
     res.json({
         status: "ok",
-        version: "2.5.1",
+        version: HUB_VERSION,
         uptime: getPersistentUptime(),
         first_start_ms: serverStartTime,
         timestamp: Date.now(),
@@ -574,13 +525,14 @@ app.get("/api/audit/tail", requireAdminApi, (req, res) => {
 // 挂载 Dashboard 静态资源（同时提供 / 和 /dashboard 入口）
 app.use("/dashboard", requireAdminApi, createDashboardRouter());
 app.get("/", (_req, res) => res.redirect("/dashboard"));
+const HUB_VERSION = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf-8")).version;
 // ═══════════════════════════════════════════════════════════════
 // MCP 端点：Stateless 模式
 // ═══════════════════════════════════════════════════════════════
 function createMcpServer(authContext) {
     const server = new McpServer({
         name: "agent-comm-hub",
-        version: "2.5.1",
+        version: HUB_VERSION,
     });
     registerTools(server, authContext);
     return server;
@@ -799,7 +751,7 @@ initServerStartTime();
 httpServer = app.listen(config.port, () => {
     logger.info("server_started", {
         module: "server",
-        version: "2.5.1",
+        version: HUB_VERSION,
         port: config.port,
         phase: "5b",
     });

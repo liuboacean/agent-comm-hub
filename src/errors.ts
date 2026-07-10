@@ -19,6 +19,7 @@ export enum HubErrorCode {
   PERMISSION_DENIED  = "HUB_2001",
   TOKEN_EXPIRED      = "HUB_2002",
   TOKEN_INVALID      = "HUB_2003",
+  OBJECT_ACCESS_DENIED = "HUB_2004",
 
   // Agent 3xxx
   AGENT_NOT_FOUND    = "HUB_3000",

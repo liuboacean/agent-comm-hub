@@ -35,6 +35,8 @@ export declare function checkPermission(toolName: string, role: AgentRole): bool
  * @throws Error 当 ctx.role !== "admin"
  */
 export declare function requireAdmin(ctx: AuthContext): void;
+export type ResourceType = "message" | "attachment" | "task";
+export declare function assertOwns(resourceType: ResourceType, resourceId: string, ctx: AuthContext, mode?: "any" | "recipient"): void;
 /**
  * 获取权限级别（用于返回错误信息）
  */

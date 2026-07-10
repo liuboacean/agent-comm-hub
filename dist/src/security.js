@@ -10,6 +10,7 @@
 import { createHash, randomBytes } from "crypto";
 import { db } from "./db.js";
 import { logError } from "./logger.js";
+import { HubError, HubErrorCode } from "./errors.js";
 // ─── Token 工具函数 ──────────────────────────────────────
 /** SHA-256 哈希 */
 export function sha256(input) {
@@ -154,6 +155,67 @@ export function checkPermission(toolName, role) {
 export function requireAdmin(ctx) {
     if (ctx.role !== "admin") {
         throw new Error(`Admin role required for ${ctx.agentId}`);
+    }
+}
+export function assertOwns(resourceType, resourceId, ctx, mode) {
+    if (ctx.role === "admin")
+        return;
+    const owners = getResourceOwners(resourceType, resourceId, mode);
+    if (owners.length === 0)
+        return; // 资源不存在，让调用方按 not-found 处理
+    if (owners.includes(ctx.agentId))
+        return;
+    throw new HubError(HubErrorCode.OBJECT_ACCESS_DENIED, `Agent ${ctx.agentId} not authorized for ${resourceType} ${resourceId}`, { resourceType, resourceId, agentId: ctx.agentId });
+}
+function getResourceOwners(resourceType, resourceId, mode) {
+    switch (resourceType) {
+        case "message": {
+            const sql = mode === "recipient"
+                ? `SELECT to_agent FROM messages WHERE id = ?`
+                : `SELECT from_agent, to_agent FROM messages WHERE id = ?`;
+            const row = db.prepare(sql).get(resourceId);
+            if (!row)
+                return [];
+            const owners = [];
+            if (row.from_agent)
+                owners.push(row.from_agent);
+            if (row.to_agent)
+                owners.push(row.to_agent);
+            return owners;
+        }
+        case "attachment": {
+            const row = db.prepare(`SELECT m.from_agent, m.to_agent FROM attachments a
+         JOIN messages m ON a.message_id = m.id WHERE a.id = ?`).get(resourceId);
+            if (!row)
+                return [];
+            const owners = [];
+            if (row.from_agent)
+                owners.push(row.from_agent);
+            if (row.to_agent)
+                owners.push(row.to_agent);
+            return owners;
+        }
+        case "task": {
+            const row = db.prepare(`SELECT assigned_by, assigned_to, parallel_group FROM tasks WHERE id = ?`).get(resourceId);
+            if (!row)
+                return [];
+            const owners = [];
+            if (row.assigned_by)
+                owners.push(row.assigned_by);
+            if (row.assigned_to && row.assigned_to !== row.assigned_by)
+                owners.push(row.assigned_to);
+            if (row.parallel_group) {
+                const members = db.prepare(`SELECT assigned_to FROM tasks WHERE parallel_group = ? AND id != ?`).all(row.parallel_group, resourceId);
+                for (const m of members) {
+                    if (m.assigned_to && !owners.includes(m.assigned_to)) {
+                        owners.push(m.assigned_to);
+                    }
+                }
+            }
+            return owners;
+        }
+        default:
+            return [];
     }
 }
 /**

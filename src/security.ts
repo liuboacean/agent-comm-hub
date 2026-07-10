@@ -12,6 +12,7 @@ import type { Request, Response, NextFunction } from "express";
 import { db } from "./db.js";
 import { logError } from "./logger.js";
 import { getErrorMessage } from "./types.js";
+import { HubError, HubErrorCode } from "./errors.js";
 
 // ─── Express 类型扩展 ──────────────────────────────────
 declare global {
@@ -193,6 +194,80 @@ export function checkPermission(
 export function requireAdmin(ctx: AuthContext): void {
   if (ctx.role !== "admin") {
     throw new Error(`Admin role required for ${ctx.agentId}`);
+  }
+}
+
+// ─── 对象级授权（IDOR 防护） ────────────────────────────
+
+export type ResourceType = "message" | "attachment" | "task";
+
+export function assertOwns(
+  resourceType: ResourceType,
+  resourceId: string,
+  ctx: AuthContext,
+  mode?: "any" | "recipient"
+): void {
+  if (ctx.role === "admin") return;
+  const owners = getResourceOwners(resourceType, resourceId, mode);
+  if (owners.length === 0) return; // 资源不存在，让调用方按 not-found 处理
+  if (owners.includes(ctx.agentId)) return;
+  throw new HubError(
+    HubErrorCode.OBJECT_ACCESS_DENIED,
+    `Agent ${ctx.agentId} not authorized for ${resourceType} ${resourceId}`,
+    { resourceType, resourceId, agentId: ctx.agentId }
+  );
+}
+
+function getResourceOwners(
+  resourceType: ResourceType,
+  resourceId: string,
+  mode?: "any" | "recipient"
+): string[] {
+  switch (resourceType) {
+    case "message": {
+      const sql = mode === "recipient"
+        ? `SELECT to_agent FROM messages WHERE id = ?`
+        : `SELECT from_agent, to_agent FROM messages WHERE id = ?`;
+      const row = db.prepare(sql).get(resourceId) as any;
+      if (!row) return [];
+      const owners: string[] = [];
+      if (row.from_agent) owners.push(row.from_agent);
+      if (row.to_agent) owners.push(row.to_agent);
+      return owners;
+    }
+    case "attachment": {
+      const row = db.prepare(
+        `SELECT m.from_agent, m.to_agent FROM attachments a
+         JOIN messages m ON a.message_id = m.id WHERE a.id = ?`
+      ).get(resourceId) as any;
+      if (!row) return [];
+      const owners: string[] = [];
+      if (row.from_agent) owners.push(row.from_agent);
+      if (row.to_agent) owners.push(row.to_agent);
+      return owners;
+    }
+    case "task": {
+      const row = db.prepare(
+        `SELECT assigned_by, assigned_to, parallel_group FROM tasks WHERE id = ?`
+      ).get(resourceId) as any;
+      if (!row) return [];
+      const owners: string[] = [];
+      if (row.assigned_by) owners.push(row.assigned_by);
+      if (row.assigned_to && row.assigned_to !== row.assigned_by) owners.push(row.assigned_to);
+      if (row.parallel_group) {
+        const members = db.prepare(
+          `SELECT assigned_to FROM tasks WHERE parallel_group = ? AND id != ?`
+        ).all(row.parallel_group, resourceId) as any[];
+        for (const m of members) {
+          if (m.assigned_to && !owners.includes(m.assigned_to)) {
+            owners.push(m.assigned_to);
+          }
+        }
+      }
+      return owners;
+    }
+    default:
+      return [];
   }
 }
 

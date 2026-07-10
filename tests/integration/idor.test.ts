@@ -910,7 +910,7 @@ describe("5. /health 端点收敛", () => {
     const mem = process.memoryUsage();
     const healthResponse = {
       status: "ok",
-      version: "3.0.14",
+      version: "3.0.15",
       timestamp: Date.now(),
       memory: {
         rss: Math.round(mem.rss / 1024 / 1024),
@@ -923,13 +923,13 @@ describe("5. /health 端点收敛", () => {
     expect(healthResponse).not.toHaveProperty("sse");
     expect(healthResponse).not.toHaveProperty("db");
     expect(healthResponse.status).toBe("ok");
-    expect(healthResponse.version).toBe("3.0.14");
+    expect(healthResponse.version).toBe("3.0.15");
   });
 
   it("/health/detailed 不应包含 backup 字段", () => {
     const detailedResponse = {
       status: "ok",
-      version: "3.0.14",
+      version: "3.0.15",
       timestamp: Date.now(),
       memory: { rss_mb: 10, heap_used_mb: 5, heap_total_mb: 20 },
       agents: { online: 0, online_ids: [] },
@@ -941,17 +941,17 @@ describe("5. /health 端点收敛", () => {
     expect(detailedResponse).not.toHaveProperty("backup");
     expect(detailedResponse).not.toHaveProperty("sse");
     expect(detailedResponse.db).not.toHaveProperty("size");
-    expect(detailedResponse.version).toBe("3.0.14");
+    expect(detailedResponse.version).toBe("3.0.15");
   });
 
-  it("HUB_VERSION 应等于 package.json 的版本 3.0.14", () => {
+  it("HUB_VERSION 应等于 package.json 的版本 3.0.15", () => {
     const pkg = JSON.parse(
       fs.readFileSync(
         new URL("../../package.json", import.meta.url),
         "utf-8"
       )
     );
-    expect(pkg.version).toBe("3.0.14");
+    expect(pkg.version).toBe("3.0.15");
   });
 
   it("server.ts /health 和 /health/detailed 路由不应引用 backup", () => {

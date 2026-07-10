@@ -19,6 +19,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from "vitest";
 import Database from "better-sqlite3";
 import * as fs from "fs";
+import { HUB_VERSION } from "../../src/version.js";
 
 // ─── Mock 依赖模块 ──────────────────────────────────────────
 vi.mock("../../src/logger.js", () => ({
@@ -954,6 +955,9 @@ describe("5. /health 端点收敛", () => {
     const badge = skill.match(/\*\*v(\d+\.\d+\.\d+)\*\*/);
     expect(badge, "SKILL.md 应含版本徽标 **vX.Y.Z**").not.toBeNull();
     expect(badge![1]).toBe(pkg.version);
+    // 运行时版本（src/version.ts ← package.json）也须与 package.json 一致，
+    // 堵上「仅改运行时常量而 package.json 不动」的间接性缺口。
+    expect(HUB_VERSION).toBe(pkg.version);
   });
 
   it("server.ts /health 和 /health/detailed 路由不应引用 backup", () => {

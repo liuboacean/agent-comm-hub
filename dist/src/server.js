@@ -30,7 +30,7 @@ import { RateLimiter } from "./ratelimit.js";
 import { setMessageRateLimiter } from "./tools/message.js";
 import { createDashboardRouter } from "./web/server.js";
 import { startBackupScheduler, stopBackupScheduler } from "./backup.js";
-import { readFileSync } from "fs";
+import { HUB_VERSION } from "./version.js";
 // ═══════════════════════════════════════════════════════════════
 // Phase 6: 配置外部化（零依赖，所有配置有默认值）
 // ═══════════════════════════════════════════════════════════════
@@ -525,7 +525,7 @@ app.get("/api/audit/tail", requireAdminApi, (req, res) => {
 // 挂载 Dashboard 静态资源（同时提供 / 和 /dashboard 入口）
 app.use("/dashboard", requireAdminApi, createDashboardRouter());
 app.get("/", (_req, res) => res.redirect("/dashboard"));
-const HUB_VERSION = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf-8")).version;
+// HUB_VERSION 由 ./version.js 统一从 package.json 读取（单一真相源）
 // ═══════════════════════════════════════════════════════════════
 // MCP 端点：Stateless 模式
 // ═══════════════════════════════════════════════════════════════

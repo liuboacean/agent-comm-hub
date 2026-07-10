@@ -1,7 +1,7 @@
 ---
 name: agent-comm-hub
 description: "本地多智能体通信 Hub（MCP stdio / HTTP-SSE），提供消息、任务编排、共享记忆、进化引擎、RBAC、审计哈希链，暴露 56 个 MCP 工具 + Web 管理面板"
-version: "3.0.14"
+version: "3.0.15"
 category: autonomous-ai-agents
 triggers:
   - "hub"
@@ -31,7 +31,7 @@ env:
 
 # Agent Communication Hub
 
-> 多智能体消息转发与上下文共享中间件 — **v3.0.14**
+> 多智能体消息转发与上下文共享中间件 — **v3.0.15**
 
 让两个或多个独立 AI 智能体之间实现**实时双向通信**和**上下文自动同步**。基于 MCP 协议 + stdio 模式，消息本地持久化，延迟 < 50ms。
 
@@ -325,6 +325,7 @@ inbox → assigned → [waiting] → in_progress → completed / failed / cancel
 | HTTP 中间件 | 分级放行 | `/health`、`/metrics` 仅内网/loopback 或 token 放行；`/dashboard`、`/api/*` 需 token + admin |
 | 审计 | WORM 不可篡改 | 审计日志仅归档不删源，保留 `no_delete` / `no_modify` 触发器 |
 | 数据归属 | 域隔离 | `search_messages` 强制本人收发域；记忆统计按 agent 隔离，admin 才指定他人 |
+| 对象级授权 | assertOwns 中间件 | message/attachment/task 三族工具插入 `assertOwns()` 归属校验（HUB_2004）；`/health` 收敛（删除内网 IP/路径泄露） |
 
 ### v2.4.0
 | Phase | 内容 | 变更 |

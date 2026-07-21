@@ -5,7 +5,7 @@ set -e
 
 INSTALL_DIR="${1:-$HOME/agent-comm-hub}"
 
-echo "=== Agent Communication Hub v2.2 安装 ==="
+echo "=== Agent Communication Hub v3.0.19 安装 ==="
 echo ""
 
 echo "[1/4] 从 GitHub 克隆..."
@@ -16,6 +16,12 @@ git clone https://github.com/liuboacean/agent-comm-hub.git "$INSTALL_DIR" 2>/dev
 
 cd "$INSTALL_DIR"
 
+# 版本固定：读取 package.json 的 version 并切到对应 git tag（与 B 层权威源一致）
+HUB_VERSION=$(node -p "require('./package.json').version" 2>/dev/null || echo "3.0.19")
+echo "目标版本：v$HUB_VERSION"
+git -C "$INSTALL_DIR" checkout "v$HUB_VERSION" 2>/dev/null \
+  || echo "     ⚠️ 未找到 v$HUB_VERSION tag，使用默认分支（请确认版本一致性）"
+
 echo "[2/4] 安装 npm 依赖..."
 npm install --production 2>&1 | tail -1
 
@@ -23,16 +29,12 @@ echo "[3/4] 编译 TypeScript..."
 npm run build 2>&1 | tail -1
 
 echo "[4/4] 验证..."
-if node dist/server.js --help 2>/dev/null; then
-    echo "     构建成功!"
+# v3 实际构建产物为 dist/src/server.js（注意：不要直接执行 server.js 验证，会启动服务并阻塞）
+if [ -f "dist/src/server.js" ]; then
+    echo "     编译产物验证通过 (dist/src/server.js)"
 else
-    # 验证编译产物存在
-    if [ -f "dist/server.js" ]; then
-        echo "     编译产物验证通过"
-    else
-        echo "     ⚠️ 编译产物不存在，请检查 TypeScript 编译"
-        exit 1
-    fi
+    echo "     ⚠️ 编译产物不存在 (dist/src/server.js)，请检查 TypeScript 编译"
+    exit 1
 fi
 
 echo ""

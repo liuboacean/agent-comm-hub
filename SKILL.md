@@ -1,11 +1,11 @@
 ---
 name: agent-comm-hub
-description: "多智能体协同通信基础设施——基于 MCP+SSE 的实时消息、任务调度、记忆共享与进化引擎。支持 WorkBuddy、Hermes、QClaw 及任意 MCP 兼容 Agent 接入。51 个 MCP 工具、4 级权限、零外部依赖 Python SDK。触发词：agent通信、智能体通信、hub通信、多智能体、跨agent通信、任务调度、assign_task、send_message、hermes通信、workbuddy通信、agent hub、通信hub、mcp通信、记忆共享、进化引擎、策略共享、经验分享"
-version: 2.3.0
+description: "多智能体协同通信基础设施——基于 MCP+SSE 的实时消息、任务调度、记忆共享与进化引擎。支持 WorkBuddy、Hermes、QClaw 及任意 MCP 兼容 Agent 接入。58 个 MCP 工具、4 级权限、零外部依赖 Python SDK。触发词：agent通信、智能体通信、hub通信、多智能体、跨agent通信、任务调度、assign_task、send_message、hermes通信、workbuddy通信、agent hub、通信hub、mcp通信、记忆共享、进化引擎、策略共享、经验分享"
+version: 3.0.19
 category: autonomous-ai-agents
 ---
 
-# Agent Communication Hub v2.3.0
+# Agent Communication Hub v3.0.19
 
 > 多智能体实时通信、任务编排、记忆共享与协同进化基础设施
 > 
@@ -18,7 +18,7 @@ category: autonomous-ai-agents
 ```
 ┌──────────────┐         ┌──────────────────────────┐         ┌──────────────┐
 │   Agent A    │  SSE    │   Agent Communication     │  SSE    │   Agent B    │
-│  (Hermes)    │◄───────►│         Hub v2.3          │◄───────►│  (WorkBuddy) │
+│  (Hermes)    │◄───────►│         Hub v3.0.19       │◄───────►│  (WorkBuddy) │
 │              │  MCP    │    (localhost:3100)        │  MCP    │              │
 └──────────────┘◄───────►│                          │◄───────►└──────────────┘
                        └──────────┬───────────────┘
@@ -30,11 +30,11 @@ category: autonomous-ai-agents
 
 | 层 | 协议 | 用途 |
 |----|------|------|
-| MCP 工具层 | HTTP POST + JSON-RPC | 结构化操作（51 个工具） |
+| MCP 工具层 | HTTP POST + JSON-RPC | 结构化操作（58 个工具） |
 | SSE 推送层 | Server-Sent Events | 实时事件通知（含断线重连） |
 | REST API 层 | HTTP GET/PATCH | 健康检查、Prometheus 指标 |
 
-## 51 个 MCP 工具一览
+## 58 个 MCP 工具一览
 
 ### 1. Identity 身份管理（6 个）
 
@@ -222,7 +222,7 @@ bash ~/.workbuddy/skills/agent-comm-hub/scripts/setup_agent.sh "my-agent" "mcp,m
 }
 ```
 
-Agent 的 LLM 可以直接调用全部 51 个工具。
+Agent 的 LLM 可以直接调用全部 58 个工具。
 
 ### 4. SDK 接入（可选）
 
@@ -275,7 +275,7 @@ agent-comm-hub/                    # Skill 目录（轻量，< 1MB）
 │   ├── agent-client.ts            # TypeScript SDK（35 个公开方法）
 │   └── agent-client.js            # 编译后的 JS
 ├── docs/
-│   ├── API_REFERENCE.md           # 完整 API 文档 v2.3
+│   ├── API_REFERENCE.md           # 完整 API 文档 v3.0.19
 │   ├── SETUP_GUIDE.md             # 详细部署指南
 │   ├── orchestrator-guide.md      # 进阶编排指南
 │   ├── evolution-guide.md         # 进化引擎指南
@@ -323,6 +323,7 @@ agent-comm-hub/                    # Skill 目录（轻量，< 1MB）
 | 6 | SSE 断线重连 | 客户端发送 `Last-Event-ID`，Hub 用 `listSince` 补发 |
 | 7 | FTS5 中文 | 默认 tokenizer 对中文差，用 N-gram 预分词 |
 | 8 | better-sqlite3 | 不支持 JS boolean，必须 1/0；undefined 必须用 null |
+| 9 | FTS5 双进程竞态 | server.js + stdio.js 共用 SQLite，DROP TABLE 会清空另一进程刚重建的索引。修复：用 CREATE IF NOT EXISTS + 动态 import() 自动检测空索引重建 |
 
 ## 技术依赖
 

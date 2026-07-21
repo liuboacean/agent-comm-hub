@@ -1,8 +1,8 @@
-# Agent Communication Hub — API 参考（v3.0.18）
+# Agent Communication Hub — API 参考（v3.0.19）
 
 > 本文档描述 Hub 服务端暴露的 **HTTP / SSE / MCP 端点**与鉴权方式，对应源码 `src/server.ts`、`src/security.ts`、`src/sse.ts`。
 >
-> - 当前版本：`3.0.18`（由 `src/version.ts` 从 `package.json` 读取，单一真相源）
+> - 当前版本：`3.0.19`（由 `src/version.ts` 从 `package.json` 读取，单一真相源）
 > - 通过 `/mcp` 暴露 **58 个 MCP 工具**（完整工具权限矩阵见 `src/security.ts` 的 `TOOL_PERMISSIONS`）
 > - 存储：SQLite（WAL 模式）
 
@@ -14,7 +14,7 @@
 |----|----|
 | 默认监听地址 | `http://localhost:3100` |
 | 协议 | HTTP + SSE + MCP（StreamableHTTP） |
-| 当前版本 | `3.0.18` |
+| 当前版本 | `3.0.19` |
 | MCP 工具数 | 58 |
 | 数据库 | SQLite（WAL） |
 

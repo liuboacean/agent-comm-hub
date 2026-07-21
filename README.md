@@ -29,7 +29,7 @@
 <p align="center">
   <strong>让 AI Agent 不再各自为战</strong><br>
   <em>实时消息 · 任务调度 · 共享记忆 · 信任进化 · Web 仪表盘</em><br>
-  <code>56 个 MCP 工具 · 零外部依赖 · 5 分钟部署</code>
+  <code>58 个 MCP 工具 · 零外部依赖 · 5 分钟部署</code>
 </p>
 
 <p align="center">
@@ -114,7 +114,7 @@ print('✅ 消息已发送')
 
 | 指标 | 值 |
 |------|:--:|
-| MCP 工具 | **56 个** |
+| MCP 工具 | **58 个** |
 | Python SDK 方法 | **68 个** |
 | TypeScript SDK 方法 | **35 个** |
 | 单元测试 | **159 个 ✅** |
@@ -348,12 +348,14 @@ agent-comm-hub/
 
 | 文档 | 适合谁 |
 |------|--------|
-| [API 参考](docs/API_REFERENCE.md) | 开发者（56 工具全签名） |
+| [API 参考](docs/API_REFERENCE.md) | 开发者（HTTP/SSE/MCP 端点 + Bearer 鉴权） |
 | [编排指南](docs/advanced-orchestration-guide.md) | 搭 Pipeline 高级玩家 |
-| [进化引擎](docs/evolution-engine-guide.md) | 想建 Agent 信任体系的团队 |
-| [Hermes 集成](docs/hermes-integration-guide.md) | Hermes 用户 |
+| 进化引擎指南 | 暂未发布（TODO：计划从 A 层 `evolution-guide.md` 同步） |
+| Hermes 集成指南 | 暂未发布（TODO：计划从 A 层 `hermes-integration-guide.md` 同步） |
 | [DB 三层防护](docs/hub-db-split-three-layer-protection.md) | 运维/稳定性保障 |
 | [English README](docs/README_EN.md) | English speakers |
+
+> 📌 **文档同步说明（B 层为权威源）**：服务端仓库（`agent-comm-hub-src`）是文档的单一权威来源。当前 `package.json` 的 `docs:sync` 脚本依赖 `scripts/sync-docs.ts`，**该文件尚未提供**，因此 A 层 Skill 分发包（`~/.workbuddy/skills/agent-comm-hub/`）需**手动同步**：将本仓库的 `docs/`、`SKILL.md`、`README.md` 复制到 A 层对应位置。后续若补充 `scripts/sync-docs.ts`，可用 `npm run docs:sync` 自动同步。
 
 ---
 

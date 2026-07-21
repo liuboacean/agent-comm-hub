@@ -13,7 +13,7 @@ echo "[2/3] 编译 TypeScript..."
 npm run build
 
 echo "[3/3] 验证构建..."
-node dist/server.js --help 2>/dev/null && echo "构建成功!" || echo "构建完成 (server.js 不需要 --help)"
+[ -f "dist/src/server.js" ] && echo "✅ 构建产物验证通过 (dist/src/server.js)" || echo "⚠️ 构建产物不存在: dist/src/server.js"
 
 echo ""
 echo "✅ 安装完成！使用以下命令启动："

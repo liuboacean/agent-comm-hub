@@ -168,6 +168,22 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_consumed_log       ON consumed_log(agent_id, resource);
 `);
 
+// ─── SSE 事件日志（D1）：全局单调 seq，支持重连精确补发 + 首连补发 ──
+// delivered=0 表示尚未成功投递，用于首连补发；id 即 SSE 的 Last-Event-ID
+db.exec(`
+  CREATE TABLE IF NOT EXISTS event_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id    TEXT NOT NULL,
+    event_type  TEXT NOT NULL,
+    payload     TEXT NOT NULL,
+    delivered   INTEGER NOT NULL DEFAULT 0,
+    created_at  INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_event_log_agent        ON event_log(agent_id, id);
+  CREATE INDEX IF NOT EXISTS idx_event_log_undelivered  ON event_log(agent_id, delivered, id);
+`);
+
 // ─── Phase 4a Migration: tasks 表新增字段 ──────────────
 // 必须在 taskStmt.insert 之前执行
 try {
@@ -402,10 +418,11 @@ db.exec(`
     name          TEXT NOT NULL,
     role          TEXT NOT NULL DEFAULT 'member',   -- 'admin' | 'member'
     api_token     TEXT,                              -- SHA-256 hash
-    status        TEXT NOT NULL DEFAULT 'offline',  -- 'online' | 'offline'
+    status        TEXT NOT NULL DEFAULT 'offline',  -- 'online' | 'offline'（在线状态，与激活态区分）
     trust_score   INTEGER NOT NULL DEFAULT 50,      -- Phase 2 Day 4: 信任分 0-100
     last_heartbeat INTEGER,
-    created_at    INTEGER NOT NULL
+    created_at    INTEGER NOT NULL,
+    activation_state TEXT                           -- D2: registered|active|suspended|retired（激活态持久化）
   );
 
   CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
@@ -743,6 +760,7 @@ try {
     const colNames = agentCols.map((c) => c.name);
     const colMigrations: [string, string][] = [
       ["managed_group_id", "ALTER TABLE agents ADD COLUMN managed_group_id TEXT"],
+      ["activation_state", "ALTER TABLE agents ADD COLUMN activation_state TEXT"],
     ];
     for (const [col, sql] of colMigrations) {
       if (!colNames.includes(col)) {
@@ -886,6 +904,7 @@ export function getDbStats(): Record<string, number> {
     "pipelines", "pipeline_tasks",
     "task_dependencies", "quality_gates",
     "attachments",
+    "event_log",
     "messages_archive", "audit_log_archive",
   ];
   const stats: Record<string, number> = {};

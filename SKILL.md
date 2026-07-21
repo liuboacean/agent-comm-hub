@@ -1,6 +1,6 @@
 ---
 name: agent-comm-hub
-description: "本地多智能体通信 Hub（MCP stdio / HTTP-SSE），提供消息、任务编排、共享记忆、进化引擎，暴露 56 个 MCP 工具 + Web 管理面板"
+description: "本地多智能体通信 Hub（MCP stdio / HTTP-SSE），提供消息、任务编排、共享记忆、进化引擎，暴露 58 个 MCP 工具 + Web 管理面板"
 version: "3.0.18"
 category: autonomous-ai-agents
 triggers:
@@ -31,7 +31,7 @@ triggers:
 │  (Hermes)    │◄───────►│  (stdio)                    │◄───────►│ (WorkBuddy)  │
 │              │  MCP    │                              │  MCP    │              │
 └──────────────┘◄───────►│  SQLite WAL + 30 表          │◄───────►└──────────────┘
-                          │  56 MCP 工具 + RBAC 权限     │
+                          │  58 MCP 工具 + RBAC 权限     │
                           │  上下文暂存 + 建议闭环       │
                           └──────────────┬──────────────┘
                                          │
@@ -120,7 +120,7 @@ triggers:
 
 ## 核心能力
 
-### 56 个 MCP 工具（当前版本）
+### 58 个 MCP 工具（当前版本）
 
 #### Identity 身份 (6)
 
@@ -145,8 +145,8 @@ triggers:
 
 | 工具 | 功能 |
 |------|------|
-| `send_file` | 发送文件附件（Base64，10MB 限制），关联到消息 |
-| `receive_file` | 接收附件，返回 Base64 编码内容 |
+| `upload_file` | 发送文件附件（Base64，10MB 限制），关联到消息 |
+| `download_file` | 接收附件，返回 Base64 编码内容 |
 | `list_attachments` | 列出附件，支持按消息/Agent 筛选 |
 
 #### Task 任务 (3)

@@ -695,6 +695,10 @@ export function registerOrchestratorTools(server: McpServer, authContext?: AuthC
       agent_id: z.string().describe("目标 Agent ID"),
     },
     authed(authContext, "activate_agent", async (ctx, { agent_id }) => {
+      // D8 修复：对象级鉴权 —— 仅 admin 或该 agent 自身可激活
+      if (ctx.role !== "admin" && ctx.agentId !== agent_id) {
+        return mcpFail(`Permission denied: you can only activate your own agent (${ctx.agentId}), or must be admin`);
+      }
       const result = activationOrch?.activateAgent(agent_id, ctx.agentId);
       if (!result) {
         return { content: [{ type: "text", text: JSON.stringify({ success: false, error: "Activation orchestrator not initialized" }) }], isError: true };
@@ -713,6 +717,10 @@ export function registerOrchestratorTools(server: McpServer, authContext?: AuthC
       agent_id: z.string().describe("目标 Agent ID"),
     },
     authed(authContext, "deactivate_agent", async (ctx, { agent_id }) => {
+      // D8 修复：对象级鉴权 —— 仅 admin 或该 agent 自身可挂起
+      if (ctx.role !== "admin" && ctx.agentId !== agent_id) {
+        return mcpFail(`Permission denied: you can only deactivate your own agent (${ctx.agentId}), or must be admin`);
+      }
       const result = activationOrch?.deactivateAgent(agent_id, ctx.agentId);
       if (!result) {
         return { content: [{ type: "text", text: JSON.stringify({ success: false, error: "Activation orchestrator not initialized" }) }], isError: true };

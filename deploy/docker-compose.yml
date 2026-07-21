@@ -48,9 +48,12 @@ services:
   #   container_name: ach-hub
   #   environment:
   #     PORT: "3100"
-  #     DB_PATH: /app/comm_hub.db
+  #     MODE: "http"
+  #     DB_PATH: /app/data/comm_hub.db
   #   ports:
   #     - "3100:3100"
+  #   volumes:
+  #     - hub_data:/app/data
   #   extra_hosts:
   #     - "host.docker.internal:host-gateway"
   #   networks:
@@ -63,3 +66,4 @@ networks:
 volumes:
   prometheus_data:
   grafana_data:
+  hub_data:

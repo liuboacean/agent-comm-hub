@@ -149,6 +149,7 @@ export const TOOL_PERMISSIONS: Record<string, PermissionLevel> = {
   get_pipeline:             "member",
   list_pipelines:           "member",
   add_task_to_pipeline:     "member",
+  // D8: 角色门控为 member（已认证即可），对象级鉴权在 handler 内强制 self||admin
   activate_agent:           "member",
   deactivate_agent:         "member",
   pause_pipeline:           "member",
@@ -315,7 +316,8 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
  * ⚠️ 关键：未认证时 auth 必须为 undefined，不能创建默认 authContext
  */
 export function optionalAuthMiddleware(req: Request, res: Response, next: NextFunction): void {
-  const token = extractToken(req);
+  // D7 修复：SSE/MCP 端点仅接受 Authorization: Bearer，拒绝 ?token= 与 x-api-key
+  const token = extractTokenBearerOnly(req);
 
   if (!token) {
     (req as any).auth = { agent: undefined };
@@ -401,6 +403,19 @@ function extractToken(req: Request): string | null {
   const apiKey = req.headers["x-api-key"] as string | undefined;
   if (apiKey) {
     return apiKey;
+  }
+  return null;
+}
+
+/**
+ * 仅从 Authorization: Bearer <token> 提取令牌（D7）。
+ * 用于 SSE(/events) 与 MCP(/mcp) 端点：不接受 query-string ?token= 或 x-api-key，
+ * 避免令牌进入访问日志 / 代理日志 / 浏览器历史造成泄露。
+ */
+function extractTokenBearerOnly(req: Request): string | null {
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith("Bearer ")) {
+    return authHeader.slice(7).trim();
   }
   return null;
 }

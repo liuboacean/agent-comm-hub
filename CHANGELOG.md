@@ -1,5 +1,15 @@
 # Changelog
 
+## [3.0.19] - Unreleased — 文档与版本一致性修复 (D10)
+
+### Fixed
+- 文档工具数统一为 **58**（与 `src/security.ts` 的 `TOOL_PERMISSIONS` 矩阵一致）：README 与 SKILL.md 中残留的 56 / 53 全部更正
+- 新建 `docs/API_REFERENCE.md`：准确的 HTTP / SSE / MCP 端点速查，含 Bearer 鉴权与 SSE `Last-Event-ID` 断线重连说明
+- 修复 README 三处死链：`API_REFERENCE.md`（已新建）、`evolution-engine-guide.md` 与 `hermes-integration-guide.md`（标注 TODO，计划从 A 层同步）
+- SKILL.md 文件传输工具名更正：`send_file` / `receive_file` → `upload_file` / `download_file`
+- A 层 `install.sh`：构建产物路径 `dist/server.js` → `dist/src/server.js`；新增版本固定（从 `package.json` 读取 version 并 `git checkout v<version>`）
+- 在 README 注明 B 层为文档权威源；因 `scripts/sync-docs.ts` 暂缺，A 层 Skill 分发包需手动同步
+
 ## [2.5.0] - 2026-07-07
 
 ### Added

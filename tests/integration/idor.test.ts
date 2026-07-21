@@ -19,6 +19,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from "vitest";
 import Database from "better-sqlite3";
 import * as fs from "fs";
+import os from "os";
+import path from "path";
 import { HUB_VERSION } from "../../src/version.js";
 
 // ─── Mock 依赖模块 ──────────────────────────────────────────
@@ -238,8 +240,8 @@ function createTestDb(): Database.Database {
 // ─── 测试数据种子 ─────────────────────────────────────────
 const NOW = Date.now();
 
-// create a temp file for download tests
-const TEMP_DIR = fs.mkdtempSync("idor-test-");
+// create a temp file for download tests（使用系统临时目录，避免落在仓库 cwd 触发删除拦截）
+const TEMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "idor-test-"));
 const TEMP_FILE = TEMP_DIR + "/test.txt";
 fs.writeFileSync(TEMP_FILE, "hello world");
 

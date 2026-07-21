@@ -2,7 +2,7 @@
 # Agent Communication Hub — Dockerfile
 # ============================================================
 # Build:  docker build -t liuboacean/agent-comm-hub .
-# Run:    docker run -d -p 3100:3100 --name ach liuboacean/agent-comm-hub
+# Run:    docker run -d -p 3100:3100 -v ach-data:/app/data --name ach liuboacean/agent-comm-hub
 # Health: docker inspect --format='{{.State.Health.Status}}' ach
 # ============================================================
 
@@ -49,7 +49,10 @@ RUN addgroup -g 1001 -S ach && \
 
 ENV NODE_ENV=production
 ENV PORT=3100
-ENV DB_PATH=/app/comm_hub.db
+# D5: 数据库持久化到挂载卷 /app/data；宿主机须挂载卷，否则容器重建即丢数据
+ENV DB_PATH=/app/data/comm_hub.db
+# D3: 容器内默认以 HTTP 模式启动（docker run -d 无 TTY，避免误激活 stdio 分支导致退出）
+ENV MODE=http
 
 # Copy built artifacts from builder
 COPY --from=builder --chown=ach:ach /app/dist              ./dist
@@ -66,6 +69,9 @@ COPY --chown=ach:ach scripts     ./scripts
 # Create data directory with correct permissions
 RUN mkdir -p /app/data && chown ach:ach /app/data
 
+# D5: 声明持久化卷，便于挂载宿主机目录以持久化 SQLite 数据库
+VOLUME /app/data
+
 # Switch to non-root user
 USER ach
 
@@ -75,5 +81,5 @@ EXPOSE 3100
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD wget -qO- http://localhost:3100/health || exit 1
 
-# Default command
-CMD ["node", "dist/src/server.js"]
+# D3: 默认 HTTP 模式启动；如需 stdio 模式须显式指定（如 docker run -e MODE=stdio ... 或 --stdio）
+CMD ["node", "dist/src/server.js", "--mode", "http"]

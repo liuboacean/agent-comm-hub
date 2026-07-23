@@ -275,7 +275,7 @@ skillhub install agent-comm-hub
 本项目依赖原生模块 **`better-sqlite3`，它是按 Node 22（NODE_MODULE_VERSION 127）编译的**。因此：
 
 - 🔒 **运行 Hub（`dist/src/server.js` 或 `dist/src/stdio.js`）必须用 Node 22 启动**。若使用 Node 24（或更高），会因 ABI 不匹配立即抛出 `ERR_DLOPEN_FAILED` 崩溃，无法启动。
-- 🧪 **CI 中的 Node 24 仅用于跑单元测试**（且涉及 stdio 启动的冒烟用例已条件化 `skip`）。`package.json` 里 `engines.node` 声明的 `>=24` 是历史遗留的 CI 声明，**与实际运行约束冲突，请以本节的 Node 22 为准**。
+- 🧪 **CI 中的 Node 24 仅用于跑单元测试**（且涉及 stdio 启动的冒烟用例已条件化 `skip`）。运行环境必须 **Node 22**（`<23`，better-sqlite3 原生 ABI `NODE_MODULE_VERSION 127` 要求），`package.json` 的 `engines.node` 即声明为 `">=22 <23"`。**不要用 Node 24 跑服务**，否则 `better-sqlite3` 会因 ABI 不匹配报 `ERR_DLOPEN_FAILED` 启动崩溃。
 - ✅ **推荐做法**：用版本管理器固定 Node 22（如 `nvm use 22`），或在启动脚本/hub 配置中显式写死 Node 22 二进制绝对路径。
 
 ---

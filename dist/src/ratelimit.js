@@ -65,15 +65,6 @@ export class RateLimiter {
         this.globalBucket.tokens -= tokens;
         return { allowed: true, retryAfterMs: 0 };
     }
-    /**
-     * 获取限流 Top N（从 metrics 读取）
-     * 返回 [{agent_id, count}] 按 count 降序
-     */
-    getTopLimited(n = 10) {
-        // 通过 metrics 的 rate_limit_total 计数统计
-        // 实际由面板端点从 metrics 拉取
-        return [];
-    }
     /** 重置所有桶（测试用） */
     reset() {
         this.agentBuckets.clear();

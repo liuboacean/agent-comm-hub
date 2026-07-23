@@ -106,6 +106,17 @@ export const db = new Database(DB_PATH);
 // 开启 WAL 模式，提升并发读写性能
 db.pragma("journal_mode = WAL");
 db.pragma("synchronous = NORMAL");
+// P1-2 修复：better-sqlite3 默认 busy_timeout=0，并发写（HTTP handler / SSE push /
+// 后台调度）会直接抛 SQLITE_BUSY，而大量调用点吞错导致静默丢数据。
+// 设为 5s 让写者等待而非失败；配合事务保证多语句原子性。
+db.pragma("busy_timeout = 5000");
+db.pragma("foreign_keys = ON");
+// WAL 自动 checkpoint 策略：PASSIVE（不阻塞读写），避免 WAL 文件无限增长。
+db.pragma("wal_autocheckpoint = 1000");
+// 辅助事务包装：将一组写操作包成原子事务，任一失败整体回滚。
+export function transaction(fn) {
+    return db.transaction(fn)();
+}
 // ─── 建表 ──────────────────────────────────────────────
 db.exec(`
   CREATE TABLE IF NOT EXISTS messages (
@@ -381,23 +392,43 @@ try {
 catch (e) {
     logger.warn("db_migration_warning", { module: "db", column: "fts_tokens", table: "memories", error: getErrorMessage(e) });
 }
-// FTS5 虚拟表（独立存储模式 + fts_tokens 列）
-// 注意：不再在模块加载时 DROP TABLE，避免多进程（server.js + stdio.js）
-// 竞态导致 FTS 索引被清空。Phase 2 旧版 migration 已完成。
+// FTS5 虚拟表 —— P1-4/P1-5 修复：增加 `memory_id UNINDEXED` 列作为精确关联键。
+// 旧版是「独立存储 + 按 title/content 值相等 JOIN/DELETE」，导致内容相同的两条记忆互相串台
+// （召回重复/误匹配，删除一条会连带干掉另一条的索引）。
+// 改用 memory_id（= memories.id 的 TEXT UUID，UNINDEXED 仅存储不分词）作为关联键：
+//   召回用 `fts.memory_id = m.id` 精确关联；删除用 `WHERE memory_id = ?` 精确命中。
 try {
-    db.exec(`
-    CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-      title,
-      content,
-      tags,
-      fts_tokens
-    );
-  `);
+    const memFtsInfo = db.prepare(`PRAGMA table_info(memories_fts)`).all();
+    const hasMemoryId = memFtsInfo.some(c => c.name === "memory_id");
+    if (memFtsInfo.length > 0 && !hasMemoryId) {
+        // 旧结构（无 memory_id）：迁移到新结构，并从 memories 重新灌入 memory_id
+        logger.info("db_fts5_migrate_start", { module: "db", table: "memories_fts" });
+        const rows = db.prepare(`SELECT id, title, content, tags, fts_tokens FROM memories`).all();
+        db.exec(`DROP TABLE IF EXISTS memories_fts`);
+        db.exec(`
+      CREATE VIRTUAL TABLE memories_fts USING fts5(
+        title, content, tags, fts_tokens, memory_id UNINDEXED
+      );
+    `);
+        const ins = db.prepare(`INSERT INTO memories_fts (title, content, tags, fts_tokens, memory_id) VALUES (?, ?, ?, ?, ?)`);
+        const migrate = db.transaction(() => {
+            for (const r of rows) {
+                ins.run(r.title, r.content, r.tags, r.fts_tokens, r.id);
+            }
+        });
+        migrate();
+        logger.info("db_fts5_migrate_done", { module: "db", table: "memories_fts", rows: rows.length });
+    }
+    else {
+        db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+        title, content, tags, fts_tokens, memory_id UNINDEXED
+      );
+    `);
+    }
 }
 catch (e) {
-    if (!getErrorMessage(e).includes("already exists")) {
-        logger.warn("db_fts5_init_warning", { module: "db", error: getErrorMessage(e) });
-    }
+    logger.warn("db_fts5_init_warning", { module: "db", error: getErrorMessage(e) });
 }
 // 模块初始化时检查并重建 FTS 索引（如果为空）
 // 这个调用对 server.js 冗余（server.ts 也会调），但对 stdio.js 等

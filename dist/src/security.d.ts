@@ -20,6 +20,8 @@ export declare function generateToken(): string;
 /** 验证 Token 并返回 AuthContext，失败返回 null */
 export declare function verifyToken(plainToken: string): AuthContext | null;
 export declare function rateLimiter(agentId: string): boolean;
+/** 认证前限流：按客户端 IP + 全局桶双重限制。超限返回 false。 */
+export declare function preAuthRateLimit(req: Request): boolean;
 /** 工具访问级别 */
 type PermissionLevel = "public" | "member" | "admin";
 export declare const TOOL_PERMISSIONS: Record<string, PermissionLevel>;

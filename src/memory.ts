@@ -125,10 +125,10 @@ export function storeMemory(
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(id, agentId, title, content, ftsTokens, scope, tagsStr, sourceAgentId, sourceTaskId, now, now);
 
-    // 同步写入 FTS5 索引
+    // 同步写入 FTS5 索引（P1-4/P1-5 修复：携带 memory_id 作精确关联键）
     db.prepare(
-      `INSERT INTO memories_fts (title, content, tags, fts_tokens) VALUES (?, ?, ?, ?)`
-    ).run(title, content, tagsStr, ftsTokens);
+      `INSERT INTO memories_fts (title, content, tags, fts_tokens, memory_id) VALUES (?, ?, ?, ?, ?)`
+    ).run(title, content, tagsStr, ftsTokens, id);
 
     const memory: MemoryEntry = {
       id,
@@ -196,7 +196,7 @@ export function recallMemory(
       sql = `
         SELECT m.*, COALESCE(a.trust_score, 50) AS source_trust_score
         FROM memories m
-        JOIN memories_fts fts ON m.title = fts.title AND m.content = fts.content
+        JOIN memories_fts fts ON fts.memory_id = m.id
         LEFT JOIN agents a ON m.agent_id = a.agent_id
         WHERE memories_fts MATCH ?
         AND (m.agent_id = ? OR m.scope IN ('group', 'collective'))
@@ -208,7 +208,7 @@ export function recallMemory(
       sql = `
         SELECT m.*, COALESCE(a.trust_score, 50) AS source_trust_score
         FROM memories m
-        JOIN memories_fts fts ON m.title = fts.title AND m.content = fts.content
+        JOIN memories_fts fts ON fts.memory_id = m.id
         LEFT JOIN agents a ON m.agent_id = a.agent_id
         WHERE memories_fts MATCH ?
         AND m.agent_id = ? AND m.scope = 'private'
@@ -220,7 +220,7 @@ export function recallMemory(
       sql = `
         SELECT m.*, COALESCE(a.trust_score, 50) AS source_trust_score
         FROM memories m
-        JOIN memories_fts fts ON m.title = fts.title AND m.content = fts.content
+        JOIN memories_fts fts ON fts.memory_id = m.id
         LEFT JOIN agents a ON m.agent_id = a.agent_id
         WHERE memories_fts MATCH ?
         AND (m.agent_id = ? OR m.scope IN ('group', 'collective'))
@@ -234,7 +234,7 @@ export function recallMemory(
       sql = `
         SELECT m.*, COALESCE(a.trust_score, 50) AS source_trust_score
         FROM memories m
-        JOIN memories_fts fts ON m.title = fts.title AND m.content = fts.content
+        JOIN memories_fts fts ON fts.memory_id = m.id
         LEFT JOIN agents a ON m.agent_id = a.agent_id
         WHERE memories_fts MATCH ?
         AND m.scope = 'collective'
@@ -335,11 +335,12 @@ export function deleteMemory(
       return { ok: false, error: "Permission denied: can only delete own memories" };
     }
 
-    // 删除 FTS 索引（通过 title + content 匹配）
+    // 删除 FTS 索引（P1-4 修复：按 memory_id 精确命中，不再按 title+content 值相等
+    // 误删内容相同的其他记忆）
     try {
       db.prepare(
-        `DELETE FROM memories_fts WHERE title = ? AND content = ?`
-      ).run(memory.title, memory.content);
+        `DELETE FROM memories_fts WHERE memory_id = ?`
+      ).run(memoryId);
 
       // Phase 5a Day 2: 审计 FTS 索引删除
       auditLog("delete_memory_fts", agentId, memoryId, `title=${memory.title?.slice(0, 50) ?? "null"}`);
@@ -437,13 +438,13 @@ export function rebuildFtsIndex(): void {
     ).all() as Pick<MemoryRow, "id" | "title" | "content" | "tags" | "source_agent_id" | "source_task_id">[];
 
     const insertFts = db.prepare(
-      `INSERT INTO memories_fts (title, content, tags, fts_tokens) VALUES (?, ?, ?, ?)`
+      `INSERT INTO memories_fts (title, content, tags, fts_tokens, memory_id) VALUES (?, ?, ?, ?, ?)`
     );
 
     const rebuildBatch = db.transaction((mems: Pick<MemoryRow, "id" | "title" | "content" | "tags" | "source_agent_id" | "source_task_id">[]) => {
       for (const m of mems) {
         const tokens = buildFtsTokens(m.title ?? null, m.content);
-        insertFts.run(m.title, m.content, m.tags ?? null, tokens);
+        insertFts.run(m.title, m.content, m.tags ?? null, tokens, m.id);
       }
     });
 

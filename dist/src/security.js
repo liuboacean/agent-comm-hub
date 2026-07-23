@@ -52,6 +52,37 @@ export function rateLimiter(agentId) {
     entry.count++;
     return entry.count <= RATE_LIMIT_MAX;
 }
+// ─── P1-3 修复：认证前置限流（防令牌爆破 / 未认证请求耗尽资源）───
+// 原 rateLimiter 仅在 verifyToken 成功后才调用，无 token/无效 token 的恶意请求
+// 零节流（可被用来爆破令牌或打爆 /mcp）。此处改为先按「客户端 IP + 全局」限流。
+const preAuthMap = new Map();
+const PRE_AUTH_WINDOW = parseInt(process.env.PRE_AUTH_WINDOW ?? "1000", 10); // 1 秒窗口
+const PRE_AUTH_MAX = parseInt(process.env.PRE_AUTH_MAX ?? "60", 10); // 每 IP 每秒 60 请求
+const preAuthGlobal = { count: 0, windowStart: Date.now() };
+const PRE_AUTH_GLOBAL_MAX = parseInt(process.env.PRE_AUTH_GLOBAL_MAX ?? "600", 10); // 全局每秒 600
+function clientIp(req) {
+    const raw = req.ip ?? req.socket?.remoteAddress ?? "unknown";
+    return raw.replace(/^::ffff:/, "");
+}
+/** 认证前限流：按客户端 IP + 全局桶双重限制。超限返回 false。 */
+export function preAuthRateLimit(req) {
+    const now = Date.now();
+    if (now - preAuthGlobal.windowStart > PRE_AUTH_WINDOW) {
+        preAuthGlobal.count = 0;
+        preAuthGlobal.windowStart = now;
+    }
+    preAuthGlobal.count++;
+    if (preAuthGlobal.count > PRE_AUTH_GLOBAL_MAX)
+        return false;
+    const ip = clientIp(req);
+    const entry = preAuthMap.get(ip);
+    if (!entry || now - entry.windowStart > PRE_AUTH_WINDOW) {
+        preAuthMap.set(ip, { count: 1, windowStart: now });
+        return true;
+    }
+    entry.count++;
+    return entry.count <= PRE_AUTH_MAX;
+}
 export const TOOL_PERMISSIONS = {
     // 注册免认证
     register_agent: "public",
@@ -231,6 +262,11 @@ export function getRequiredPermission(toolName) {
  * 无有效 Token → 401
  */
 export function authMiddleware(req, res, next) {
+    // P1-3 修复：认证前置限流（防令牌爆破 / 资源耗尽）
+    if (!preAuthRateLimit(req)) {
+        res.status(429).json({ error: "Rate limit exceeded" });
+        return;
+    }
     const token = extractToken(req);
     if (!token) {
         res.status(401).json({ error: "Missing authentication token" });
@@ -304,6 +340,11 @@ export function internalMonitorAuth(req, res, next) {
  * 注意：不识别 loopback 放行（D4：/dashboard 强制 admin 鉴权）。
  */
 export function requireAdminApi(req, res, next) {
+    // P1-3 修复：认证前置限流（防 admin 端点爆破）
+    if (!preAuthRateLimit(req)) {
+        res.status(429).json({ error: "Rate limit exceeded" });
+        return;
+    }
     const token = extractToken(req);
     if (!token) {
         res.status(401).json({ error: "Missing authentication token" });
@@ -321,22 +362,11 @@ export function requireAdminApi(req, res, next) {
     req.auth = { agent: ctx };
     next();
 }
-/** 从 Header 或 Query 提取 Token */
+/** 从 Header 提取 Token（仅 Bearer，P2-6 修复：移除 ?token= 与 x-api-key 以免令牌泄漏到访问日志） */
 function extractToken(req) {
-    // Header: Authorization: Bearer <token>
     const authHeader = req.headers.authorization;
     if (authHeader?.startsWith("Bearer ")) {
         return authHeader.slice(7);
-    }
-    // Query: ?token=<token>
-    const queryToken = req.query.token;
-    if (queryToken) {
-        return queryToken;
-    }
-    // x-api-key header
-    const apiKey = req.headers["x-api-key"];
-    if (apiKey) {
-        return apiKey;
     }
     return null;
 }
@@ -506,7 +536,10 @@ export function recalculateTrustScore(agentId) {
     // 注意：strategy_applications 没有 status/rejected 列，无法直接统计拒绝数
     // 退而查 apply_strategy_fail 审计记录
     const rejectedApps = db.prepare(`SELECT COUNT(*) as cnt FROM audit_log WHERE action='apply_strategy' AND agent_id=? AND details LIKE '%fail%'`).get(agentId)?.cnt ?? 0;
-    const revokedTokens = db.prepare(`SELECT COUNT(*) as cnt FROM audit_log WHERE action='revoke_token' AND agent_id=?`).get(agentId)?.cnt ?? 0;
+    const revokedTokens = db.prepare(
+    // P2-1 修复：被吊销者记录在 target 列（见 tools/identity.ts 的 revoke_token），
+    // 此前按 agent_id（操作者 admin）统计会误扣管理员、漏扣被吊销者。
+    `SELECT COUNT(*) as cnt FROM audit_log WHERE action='revoke_token' AND target=?`).get(agentId)?.cnt ?? 0;
     // 注意：strategy_feedback.agent_id 是反馈者，不是提案者
     // 要查"别人给该 agent 策略的反馈"需要 JOIN strategies.proposer_id
     const positiveFb = db.prepare(`SELECT COUNT(*) as cnt FROM strategy_feedback sf

@@ -8,6 +8,7 @@
  */
 import type { Response } from "express";
 import { type StoredEvent } from "./repo/event-log.js";
+export declare const MAX_SSE_CONNECTIONS = 200;
 /**
  * 启动僵尸连接清理（每 5 分钟检测 1 次，心跳超时 10 分钟自动移除）
  */
@@ -19,12 +20,17 @@ export declare function stopZombieCleanup(): void;
 export declare function peekNextEventId(agentId: string): number;
 /**
  * 注册 Agent 的 SSE 连接
+ * @returns 本次连接的唯一 connId，调用方应在 close 回调中回传，
+ *          以便 removeClient 区分「旧连接关闭」与「当前连接关闭」。
  */
-export declare function registerClient(agentId: string, res: Response): void;
+export declare function registerClient(agentId: string, res: Response): number;
 /**
  * 移除 Agent 连接（断线时调用）
+ * @param connId 可选。传入时仅当该 agent 的「当前」连接 connId 与之匹配才移除，
+ *              用于忽略「已被新连接取代的旧 socket 的 close 事件」（P1-1 修复）。
+ *              不传（drain / 僵尸清理）则无条件移除。
  */
-export declare function removeClient(agentId: string): void;
+export declare function removeClient(agentId: string, connId?: number): void;
 /**
  * 向指定 Agent 推送事件。
  *

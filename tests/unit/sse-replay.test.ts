@@ -39,6 +39,10 @@ function createMockRes(): any {
   const writes: string[] = [];
   return {
     writes,
+    // 满足 sse.ts isWritable 检查（P2-5 修复）
+    writable: true,
+    writableEnded: false,
+    destroyed: false,
     write: (chunk: string) => { writes.push(chunk); return true; },
     end: () => true,
     setHeader: () => true,

@@ -13,6 +13,16 @@ import { eventLogRepo, type StoredEvent } from "./repo/event-log.js";
 // 在线 Agent 连接池
 const clients = new Map<string, Response>();
 
+// ─── P1-1 修复：每个连接分配唯一 connId ───────────────
+// 重连时旧 socket 的 close 事件若仍调用 removeClient，会误删「当前」新连接
+// （clients 里已是新 res），导致实时投递静默丢失。用 connId 比对：
+// 仅当 clients 中仍指向同一连接时才允许移除。
+let connSeq = 0;
+const clientConnIds = new Map<string, number>();
+
+// ─── P1-3 修复：SSE 连接数上限，防内存耗尽 DoS ───────
+export const MAX_SSE_CONNECTIONS = 200;
+
 // ─── 客户端去重：per-connection 递增 event_id ─────────────
 const clientEventCounters = new Map<string, number>();
 
@@ -35,8 +45,8 @@ export function startZombieCleanup(timeoutMs = 600_000): void {
       if (now - last > timeoutMs) {
         const res = clients.get(agentId);
         if (res) { try { res.end(); } catch { /* ignore close error */ } }
-        clients.delete(agentId);
-        clientEventCounters.delete(agentId);
+        // 传入当前 connId，仅当仍指向该连接时才移除
+        removeClient(agentId, clientConnIds.get(agentId));
         clientLastActivity.delete(agentId);
         logger.warn("sse_zombie_removed", { module: "sse", agent_id: agentId, idle_ms: now - last });
       }
@@ -65,8 +75,10 @@ export function peekNextEventId(agentId: string): number {
 
 /**
  * 注册 Agent 的 SSE 连接
+ * @returns 本次连接的唯一 connId，调用方应在 close 回调中回传，
+ *          以便 removeClient 区分「旧连接关闭」与「当前连接关闭」。
  */
-export function registerClient(agentId: string, res: Response): void {
+export function registerClient(agentId: string, res: Response): number {
   // 如果已有旧连接，先关掉（Agent 重启场景）
   const existing = clients.get(agentId);
   if (existing) {
@@ -75,19 +87,35 @@ export function registerClient(agentId: string, res: Response): void {
     }
   }
   clients.set(agentId, res);
+  const connId = ++connSeq;
+  clientConnIds.set(agentId, connId);
   // 重置 event counter
   clientEventCounters.set(agentId, 0);
   touchActivity(agentId);
-  logger.info("sse_client_connected", { module: "sse", agent_id: agentId, total: clients.size });
+  logger.info("sse_client_connected", { module: "sse", agent_id: agentId, total: clients.size, conn_id: connId });
+  return connId;
 }
 
 /**
  * 移除 Agent 连接（断线时调用）
+ * @param connId 可选。传入时仅当该 agent 的「当前」连接 connId 与之匹配才移除，
+ *              用于忽略「已被新连接取代的旧 socket 的 close 事件」（P1-1 修复）。
+ *              不传（drain / 僵尸清理）则无条件移除。
  */
-export function removeClient(agentId: string): void {
+export function removeClient(agentId: string, connId?: number): void {
+  if (connId !== undefined && clientConnIds.get(agentId) !== connId) {
+    // 旧连接的 close 事件：当前连接已更替，忽略，避免误删实时链路
+    return;
+  }
   clients.delete(agentId);
   clientEventCounters.delete(agentId);
+  clientConnIds.delete(agentId);
   logger.info("sse_client_disconnected", { module: "sse", agent_id: agentId, total: clients.size });
+}
+
+/** 连接是否仍可写（P2-5 修复：防 write-after-end 噪声） */
+function isWritable(res: Response): boolean {
+  return !res.writableEnded && !res.destroyed && res.writable;
 }
 
 /**
@@ -124,6 +152,10 @@ export function pushToAgent(agentId: string, event: object, dedupId?: string): b
     // 离线：事件已持久化，等待首连 / 重连补发
     return false;
   }
+  if (!isWritable(res)) {
+    // P2-5 修复：连接已关闭，勿写，退回离线补发路径
+    return false;
+  }
 
   // 2. 在线：以全局 seq 作为 SSE id 发送，仅成功才标记 delivered
   try {
@@ -149,6 +181,7 @@ export function pushToAgent(agentId: string, event: object, dedupId?: string): b
 export function writeStoredEvent(agentId: string, ev: StoredEvent): boolean {
   const res = clients.get(agentId);
   if (!res) return false;
+  if (!isWritable(res)) return false;
   try {
     const payload = JSON.parse(ev.payload) as Record<string, unknown>;
     payload._hub_event_id = ev.id;

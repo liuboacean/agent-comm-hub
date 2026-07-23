@@ -15,7 +15,7 @@ import express, { type Request, type Response, type NextFunction } from "express
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { registerTools } from "./tools.js";
-import { registerClient, removeClient, pushToAgent, onlineAgents, drainAllClients, startZombieCleanup, stopZombieCleanup, broadcastToAll, writeStoredEvent } from "./sse.js";
+import { registerClient, removeClient, pushToAgent, onlineAgents, drainAllClients, startZombieCleanup, stopZombieCleanup, broadcastToAll, writeStoredEvent, MAX_SSE_CONNECTIONS, connectedCount } from "./sse.js";
 import { eventLogRepo } from "./repo/event-log.js";
 import { getDbStats, db, scheduleCleanup, stopCleanup } from "./db.js";
 import { messageRepo, taskRepo, consumedRepo } from "./repo/sqlite-impl.js";
@@ -29,6 +29,7 @@ import {
   createInviteCode,
   auditLog,
   rateLimiter,
+  preAuthRateLimit,
   type AuthContext,
 } from "./security.js";
 import { startHeartbeatMonitor, clearOfflineNotification, stopHeartbeatMonitor } from "./identity.js";
@@ -156,8 +157,14 @@ app.get("/events/:agent_id", optionalAuthMiddleware, (req: Request, res: Respons
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders();
 
-  // 注册连接
-  registerClient(agent_id, res);
+  // 连接数上限（P1-3 修复：防内存耗尽 DoS）
+  if (connectedCount() >= MAX_SSE_CONNECTIONS) {
+    res.status(503).json({ error: "SSE connection limit reached" });
+    return;
+  }
+
+  // 注册连接（返回本次连接唯一 connId，供 close 回调回传）
+  const connId = registerClient(agent_id, res);
   incrementGauge("active_sse_connections");
 
   // 检查 Last-Event-ID（断线重连场景）
@@ -222,10 +229,10 @@ app.get("/events/:agent_id", optionalAuthMiddleware, (req: Request, res: Respons
     try { res.write(": ping\n\n"); } catch (_) { clearInterval(heartbeat); }
   }, config.sseHeartbeatInterval);
 
-  // 断线清理
+  // 断线清理（仅当本次连接仍是当前连接时才移除，P1-1 修复）
   req.on("close", () => {
     clearInterval(heartbeat);
-    removeClient(agent_id);
+    removeClient(agent_id, connId);
     decrementGauge("active_sse_connections");
   });
 });
@@ -589,6 +596,10 @@ app.get("/", (_req, res) => res.redirect("/dashboard"));
 // MCP 端点：Stateless 模式
 // ═══════════════════════════════════════════════════════════════
 
+// P1-3 修复：/mcp 并发在途计数，配合前置限流防止瞬时大量请求同时构造 McpServer
+const MAX_MCP_INFLIGHT = parseInt(process.env.MAX_MCP_INFLIGHT ?? "50", 10);
+let mcpInFlight = 0;
+
 function createMcpServer(authContext: AuthContext | undefined): McpServer {
   const server = new McpServer({
     name: "agent-comm-hub",
@@ -610,12 +621,35 @@ function extractToolName(req: express.Request): string | null {
 
 // POST /mcp
 app.post("/mcp", optionalAuthMiddleware, async (req: Request, res: Response) => {
+  // P1-3 修复：未认证请求此前零节流，可被用来无限制造 McpServer 打爆服务。
+  // 此处强制前置限流（按 IP + 全局），无论是否携带有效 token。
+  if (!preAuthRateLimit(req)) {
+    res.status(429).json({
+      jsonrpc: "2.0",
+      error: { code: -32001, message: "Rate limit exceeded" },
+      id: null,
+    });
+    return;
+  }
+
+  // 并发在途上限：防止瞬时大量请求同时构造 McpServer 耗尽内存/CPU
+  if (mcpInFlight >= MAX_MCP_INFLIGHT) {
+    res.status(503).json({
+      jsonrpc: "2.0",
+      error: { code: -32002, message: "Service temporarily unavailable (too many concurrent requests)" },
+      id: null,
+    });
+    return;
+  }
+  mcpInFlight++;
+
   const authContext: AuthContext | undefined = req.auth?.agent
     ? { agentId: req.auth.agent.agentId, role: req.auth.agent.role }
     : undefined;
 
   if (authContext) {
     if (!rateLimiter(authContext.agentId)) {
+      mcpInFlight--;
       res.status(429).json({
         jsonrpc: "2.0",
         error: { code: -32001, message: "Rate limit exceeded (10 req/s)" },
@@ -636,8 +670,10 @@ app.post("/mcp", optionalAuthMiddleware, async (req: Request, res: Response) => 
     res.on("close", () => {
       transport.close();
       server.close();
+      if (mcpInFlight > 0) mcpInFlight--;
     });
   } catch (error) {
+    if (mcpInFlight > 0) mcpInFlight--;
     logError("[MCP] handleRequest error", error, { module: "mcp", traceId: (req as any).traceId });
     if (!res.headersSent) {
       res.status(500).json({
@@ -738,10 +774,13 @@ let httpServer: ReturnType<typeof app.listen> | null = null;
 async function gracefulShutdown(signal: string): Promise<void> {
   logger.info("shutdown_initiated", { signal, module: "server" });
 
-  // 1. 停止接受新连接
+  // 1. 停止接受新连接（await 关闭回调，确保进行中的请求完成）
   if (httpServer) {
-    httpServer.close(() => {
-      logger.info("http_server_closed", { module: "server" });
+    await new Promise<void>((resolve) => {
+      httpServer!.close(() => {
+        logger.info("http_server_closed", { module: "server" });
+        resolve();
+      });
     });
   }
 
@@ -756,7 +795,8 @@ async function gracefulShutdown(signal: string): Promise<void> {
   stopCleanup();
   stopZombieCleanup();
 
-  // 4. 关闭数据库
+  // 4. 关闭数据库（等一个 tick，确保上面 drain / 异步落库完成后再关）
+  await new Promise((r) => setImmediate(r));
   try {
     db.close();
     logger.info("database_closed", { module: "server" });

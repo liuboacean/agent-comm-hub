@@ -7,7 +7,18 @@
  */
 import { readFileSync } from "fs";
 
-/** 当前 hub 运行时版本号，与 package.json 的 version 字段保持一致。 */
-export const HUB_VERSION: string = JSON.parse(
-  readFileSync(new URL("../package.json", import.meta.url), "utf-8")
-).version;
+/**
+ * 当前 hub 运行时版本号，与 package.json 的 version 字段保持一致。
+ * P2-7 修复：原代码对 readFileSync/JSON.parse 无 try/catch，
+ * 若 dist/package.json 缺失或格式损坏会直接让服务启动崩溃（v3.0.20 之前正是此类崩溃）。
+ */
+export const HUB_VERSION: string = (() => {
+  try {
+    return JSON.parse(
+      readFileSync(new URL("../package.json", import.meta.url), "utf-8")
+    ).version as string;
+  } catch (err) {
+    // 回退到编译期版本，避免启动即崩
+    return "3.0.20";
+  }
+})();

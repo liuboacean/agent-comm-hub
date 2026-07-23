@@ -1,6 +1,29 @@
 # Changelog
 
-## [3.0.19] - Unreleased — 文档与版本一致性修复 (D10)
+## [3.0.21] - 2026-07-23 — 审计修复（稳定性 / 安全 / 质量）
+
+### Fixed (P1 — 稳定性 / 安全)
+- **P1-1 SSE 重连竞态**：`registerClient`/`removeClient` 增加连接级 `connId` 校验，旧 socket 的 `close` 事件不再误删「当前」实时连接，重连后消息 / 任务 / 激活通知不再静默丢失
+- **P1-2 并发写 `SQLITE_BUSY`**：`db` 初始化增加 `busy_timeout=5000` + `foreign_keys=ON` + `wal_autocheckpoint`，消除 HTTP handler / SSE push / 后台调度并发写导致的静默丢数据
+- **P1-3 限流绕过**：认证前置 IP / 全局限流（防令牌爆破与未认证 `/mcp` 耗尽资源）；`/mcp` 增加并发在途上限（默认 50）防 DoS
+- **P1-4 / P1-5 FTS 值碰撞**：`memories_fts` 增加 `memory_id` 精确关联键（启动迁移旧表），召回按 `id` 关联、删除按 `id` 命中，内容相同的两条记忆不再互相串台（删除一条误伤另一条）
+
+### Fixed (P2 — 质量 / 文档)
+- **P2-1 信任分误扣**：`revoke_token` 审计将「被吊销者」写入 `target` 列，信任分公式改按 `target` 统计，管理员不再被误扣、被吊销者正确扣分
+- **P2-2 metrics 无界数组**：`counters` 改为 keyed `Map`，消除高基数标签下的 O(N) 扫描与内存增长
+- **P2-3 对象级授权**：并行组内跨任务访问保持协作语义（by-design）；资源不存在时正确交由调用方 404
+- **P2-4 优雅关闭顺序**：`await httpServer.close()` 后再关 DB，避免 WAL 写后关
+- **P2-5 SSE 写后关保护**：`pushToAgent` / `writeStoredEvent` 写前校验 `res` 可写
+- **P2-6 令牌泄漏**：受保护端点移除 `?token=` 与 `x-api-key` 接受，仅保留 Bearer
+- **P2-7 死代码清理**：移除 `RateLimiter.getTopLimited` 死桩；`version.ts` 增加 `readFileSync`/`JSON.parse` 的 `try/catch` 防启动崩溃
+- **P2-8 文档漂移**：README 修正 `engines.node` 声明（实际为 `>=22 <23`）；补齐 CHANGELOG；SKILL.md 版本号同步
+
+## [3.0.20] - 2026-07-23 — 构建产物固化
+
+### Fixed
+- 固化 `dist/package.json` 生成到 `build` 脚本与启动脚本，消除「安装即崩溃」类问题（`version.ts` 启动依赖 `../package.json`）
+
+## [3.0.19] - 2026-07-23 — 文档与版本一致性修复 (D10)
 
 ### Fixed
 - 文档工具数统一为 **58**（与 `src/security.ts` 的 `TOOL_PERMISSIONS` 矩阵一致）：README 与 SKILL.md 中残留的 56 / 53 全部更正

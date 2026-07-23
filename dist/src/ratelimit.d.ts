@@ -21,14 +21,6 @@ export declare class RateLimiter {
      * @returns Decision
      */
     consume(agentId: string, tokens?: number): Decision;
-    /**
-     * 获取限流 Top N（从 metrics 读取）
-     * 返回 [{agent_id, count}] 按 count 降序
-     */
-    getTopLimited(n?: number): Array<{
-        agent_id: string;
-        count: number;
-    }>;
     /** 重置所有桶（测试用） */
     reset(): void;
     /** 获取 Agent 当前令牌数（测试用） */

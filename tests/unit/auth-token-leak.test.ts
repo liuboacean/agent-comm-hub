@@ -87,14 +87,14 @@ function makeRes() {
 }
 
 describe("D7 token 鉴权 — URL query 必须拒绝，Bearer 必须接受", () => {
-  it("authMiddleware: ?token=... 查询串仍被接受（D7 仅对 SSE/MCP 的 optionalAuthMiddleware 移除 ?token；REST authMiddleware 保留 ?token 支持）", () => {
+  it("authMiddleware: ?token=... 查询串被拒绝（P2-6：extractToken 仅接受 Bearer，移除 ?token= 与 x-api-key 以免令牌泄漏到访问日志 / 代理日志）", () => {
     const req: any = { headers: {}, query: { token: validToken } };
     const res = makeRes();
     const next = vi.fn();
     authMiddleware(req, res, next);
-    expect(res.statusCode).toBe(0); // 未被 401
-    expect(next).toHaveBeenCalledOnce();
-    expect(req.auth?.agent?.agentId).toBe("agent_d7");
+    expect(res.statusCode).toBe(401); // 拒绝：无 Bearer 即 401
+    expect(next).not.toHaveBeenCalled();
+    expect(req.auth?.agent).toBeUndefined();
   });
 
   it("authMiddleware: Authorization: Bearer <token> → 接受并挂载 auth", () => {

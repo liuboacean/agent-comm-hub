@@ -139,6 +139,8 @@ import {
   verifyInviteCode,
   markInviteCodeUsed,
   createInviteCode,
+  preAuthRateLimit,
+  authMiddleware,
 } from "../../src/security.js";
 
 // ─── 测试 ─────────────────────────────────────────────────
@@ -302,6 +304,93 @@ describe("security.ts", () => {
       expect(rateLimiter(agent1)).toBe(false);
       // agent2 should still be allowed
       expect(rateLimiter(agent2)).toBe(true);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  // P1-3：认证前置限流（防令牌爆破 / 未认证请求耗尽资源）
+  // ═══════════════════════════════════════════════════════════
+  describe("preAuthRateLimit (P1-3)", () => {
+    const expectedMax = parseInt(process.env.PRE_AUTH_MAX ?? "60", 10);
+
+    function fakeReq(ip: string): any {
+      return { ip, socket: { remoteAddress: ip } };
+    }
+
+    it("should allow up to PRE_AUTH_MAX requests per IP per window", () => {
+      const ip = "203.0.113.10"; // TEST-NET-3，确定不会与本机/loopback 冲突
+      let allowed = 0;
+      for (let i = 0; i < expectedMax; i++) {
+        if (preAuthRateLimit(fakeReq(ip))) allowed++;
+      }
+      expect(allowed).toBe(expectedMax);
+    });
+
+    it("should block the (max+1)-th request from the same IP within the window", () => {
+      const ip = "203.0.113.11";
+      let blocked = false;
+      for (let i = 0; i < expectedMax + 1; i++) {
+        const ok = preAuthRateLimit(fakeReq(ip));
+        if (!ok) {
+          blocked = true;
+          break;
+        }
+      }
+      expect(blocked).toBe(true);
+    });
+
+    it("should isolate rate limits across different IPs", () => {
+      const ipA = "198.51.100.20";
+      const ipB = "198.51.100.21";
+      // 耗尽 A
+      let aAllowed = 0;
+      for (let i = 0; i < expectedMax; i++) {
+        if (preAuthRateLimit(fakeReq(ipA))) aAllowed++;
+      }
+      expect(aAllowed).toBe(expectedMax);
+      // 用同步紧凑循环立即再探一次 A，应被拒
+      expect(preAuthRateLimit(fakeReq(ipA))).toBe(false);
+      // 新 IP B 应仍可放行（隔离）
+      expect(preAuthRateLimit(fakeReq(ipB))).toBe(true);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  // P2-6：Token 仅接受 Authorization: Bearer，拒绝 ?token= 与 x-api-key
+  // ═══════════════════════════════════════════════════════════
+  describe("authMiddleware — token transport (P2-6)", () => {
+    function mockRes(): any {
+      const res: any = {
+        statusCode: 0,
+        body: undefined as unknown,
+        status(code: number) {
+          this.statusCode = code;
+          return this;
+        },
+        json(payload: unknown) {
+          this.body = payload;
+          return this;
+        },
+      };
+      return res;
+    }
+
+    it("should REJECT a request that only carries ?token= query string (no Bearer header)", () => {
+      const req: any = { ip: "127.0.0.1", headers: {}, query: { token: "leaked_in_query" } };
+      const res = mockRes();
+      let nextCalled = false;
+      authMiddleware(req, res, () => { nextCalled = true; });
+      expect(res.statusCode).toBe(401);
+      expect(nextCalled).toBe(false);
+    });
+
+    it("should REJECT a request that only carries x-api-key header (no Bearer header)", () => {
+      const req: any = { ip: "127.0.0.1", headers: { "x-api-key": "leaked_in_header" }, query: {} };
+      const res = mockRes();
+      let nextCalled = false;
+      authMiddleware(req, res, () => { nextCalled = true; });
+      expect(res.statusCode).toBe(401);
+      expect(nextCalled).toBe(false);
     });
   });
 
@@ -651,9 +740,11 @@ describe("security.ts", () => {
       ).run(stratId, Date.now());
 
       // 1 revoked token audit → -10
+      // P2-1 修复：被吊销者记录在 target 列（不再是 agent_id），
+      // 这里用 target='agent_score_4' 表达「agent_score_4 被吊销」，agent_id 为操作者 admin。
       testDb.prepare(
-        `INSERT INTO audit_log (id, action, agent_id, created_at, prev_hash, record_hash)
-         VALUES ('audit_rev_1', 'revoke_token', 'agent_score_4', ?, 'GENESIS', 'hash1')`
+        `INSERT INTO audit_log (id, action, agent_id, target, created_at, prev_hash, record_hash)
+         VALUES ('audit_rev_1', 'revoke_token', 'admin', 'agent_score_4', ?, 'GENESIS', 'hash1')`
       ).run(Date.now());
 
       const score = recalculateTrustScore("agent_score_4");
@@ -672,10 +763,11 @@ describe("security.ts", () => {
       ).run(Date.now());
 
       // 5 revoked tokens → -50 → clamp to 0
+      // P2-1 修复：吊销计数按 target 列；这里 target='agent_score_5' 表示「5 次被吊销」。
       for (let i = 0; i < 5; i++) {
         testDb.prepare(
-          `INSERT INTO audit_log (id, action, agent_id, created_at, prev_hash, record_hash)
-           VALUES (?, 'revoke_token', 'agent_score_5', ?, 'GENESIS', ?)`
+          `INSERT INTO audit_log (id, action, agent_id, target, created_at, prev_hash, record_hash)
+           VALUES (?, 'revoke_token', 'admin', 'agent_score_5', ?, 'GENESIS', ?)`
         ).run(`audit_rev_5_${i}`, Date.now(), `hash_${i}`);
       }
 

@@ -193,11 +193,13 @@ export function registerIdentityTools(server: McpServer, authContext?: AuthConte
 
       const success = revokeTokenFromSecurity(token_id);
       if (success) {
-        auditLog("tool_revoke_token", ctx.agentId, token_id);
+        // P2-1 修复：吊销审计必须把「被吊销者」写入 target，
+        // 否则信任分公式按 agent_id（=操作者 admin）统计会误扣管理员、漏扣被吊销者。
+        const tokenRow = db.prepare(`SELECT agent_id FROM auth_tokens WHERE token_id=?`).get(token_id) as any;
+        auditLog("tool_revoke_token", ctx.agentId, token_id, tokenRow?.agent_id);
 
         // Phase 5a Day 2: token 吊销影响信任评分
         try {
-          const tokenRow = db.prepare(`SELECT agent_id FROM auth_tokens WHERE token_id=?`).get(token_id) as any;
           if (tokenRow?.agent_id) {
             recalculateTrustScore(tokenRow.agent_id);
           }

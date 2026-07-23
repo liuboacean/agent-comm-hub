@@ -4,6 +4,7 @@
  */
 import { type Database as DatabaseType, type Statement } from "better-sqlite3";
 export declare const db: DatabaseType;
+export declare function transaction<T>(fn: () => T): T;
 export interface Message {
     id: string;
     from_agent: string;

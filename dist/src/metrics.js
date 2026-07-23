@@ -14,23 +14,20 @@
  *   - hub_messages_total{status} : Gauge
  *   - hub_trust_scores{agent_id} : Gauge
  */
-const counters = [];
+// P2-2 修复：原为无界数组 + 每次自增线性扫描（O(N)），高基数标签下内存/延迟退化。
+// 改为 keyed Map，key = 指标名 + 排序后的 labels，查找 O(1)。
+const counters = new Map();
+function counterKey(name, labels) {
+    const sorted = Object.entries(labels).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+    return name + "|" + sorted.map(([k, v]) => `${k}=${v}`).join(",");
+}
 function getOrCreateCounter(name, labels) {
-    for (const c of counters) {
-        if (c.labels._name !== name)
-            continue;
-        let match = true;
-        for (const k of Object.keys(labels)) {
-            if (c.labels[k] !== labels[k]) {
-                match = false;
-                break;
-            }
-        }
-        if (match)
-            return c;
-    }
+    const key = counterKey(name, labels);
+    const existing = counters.get(key);
+    if (existing)
+        return existing;
     const c = { _type: "counter", value: 0, labels: { _name: name, ...labels } };
-    counters.push(c);
+    counters.set(key, c);
     return c;
 }
 export function incrementCounter(name, labels = {}, value = 1) {
@@ -117,7 +114,7 @@ export function getMetricsOutput() {
     };
     const seenTypes = new Set();
     // Counters
-    for (const c of counters) {
+    for (const c of counters.values()) {
         const name = c.labels._name;
         seenTypes.add(name);
         const lbl = formatLabels(c.labels);
@@ -224,7 +221,7 @@ export function collectHubMetrics(db) {
  */
 export function getTopLimited(n = 10) {
     const agentCounts = new Map();
-    for (const c of counters) {
+    for (const c of counters.values()) {
         if (c.labels._name === "rate_limit_total") {
             const agentId = c.labels.agent_id ?? "unknown";
             const current = agentCounts.get(agentId) ?? 0;

@@ -92,6 +92,16 @@ export declare function archiveOldMessages(days?: number): number;
  */
 export declare function archiveOldAuditLogs(days?: number): number;
 /**
+ * 审计日志行数上限保护（WORM 安全）：当 audit_log 超过 maxRows 行时，
+ * 将最旧的溢出行**镜像**到 audit_log_archive（按 created_at/id 升序取最旧），
+ * 不删除源表记录（audit_log 为防篡改表，受 audit_log_no_delete 触发器保护）。
+ *
+ * 作用：audit_log 无限增长时，溢出行仍会被自动冷存到归档表，
+ * 避免「归档机制空转」、并为主表查询/文件体积提供冷存分流。
+ * 返回本次镜像的行数。
+ */
+export declare function enforceAuditLogCap(maxRows: number): number;
+/**
  * 执行数据库 VACUUM（释放空闲页面，紧缩数据库文件）
  * 建议在低峰期调用（如凌晨 3-5 点）
  */

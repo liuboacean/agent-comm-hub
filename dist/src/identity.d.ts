@@ -48,6 +48,28 @@ export declare function queryAgents(filters?: {
  */
 export declare function getAgent(agentId: string): AgentInfo | null;
 /**
+ * 统一「在线」判定：满足以下任一即在线
+ *   1. 存在活跃的 SSE 实时连接（可达，可实时派单）
+ *   2. 数据库心跳在阈值内（轮询型 Agent 仍存活）
+ * 解决老问题：Agent 已建立 SSE 连接却因心跳陈旧被判定为离线、无法派单。
+ */
+export declare function isAgentOnline(agentId: string): boolean;
+/**
+ * 返回当前所有「在线」Agent 的 ID（合并 SSE 连接 + 心跳在线）。
+ * 供 get_online_agents 工具、派单候选排序、/health、Prometheus 指标统一使用。
+ */
+export declare function getOnlineAgentIds(): string[];
+/**
+ * SSE 连接建立时调用：将 Agent 标记为在线（status + 刷新心跳时间戳），
+ * 使 agents 表与「SSE 已连」这一事实保持一致。
+ */
+export declare function markAgentSseOnline(agentId: string): void;
+/**
+ * SSE 连接断开时调用：若心跳也已陈旧，则将 Agent 标记为离线；
+ * 若仍有近期心跳（轮询型），保留在线状态。
+ */
+export declare function markAgentSseOffline(agentId: string): void;
+/**
  * 启动心跳超时检测定时器
  * - 90s 无心跳 → 标记 offline
  * - 5min 无心跳 → 通知其他在线 Agent

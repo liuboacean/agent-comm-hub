@@ -5,7 +5,8 @@
  */
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
-import { pushToAgent, onlineAgents } from "./sse.js";
+import { pushToAgent } from "./sse.js";
+import { getOnlineAgentIds } from "./identity.js";
 import { auditLog, recalculateTrustScore } from "./security.js";
 import { logError, logger } from "./logger.js";
 import { taskRepo } from "./repo/sqlite-impl.js";
@@ -311,7 +312,7 @@ export function suggestAssignee(taskId) {
     if (!task)
         throw new Error(`Task not found: ${taskId}`);
     const agents = getAll(`SELECT agent_id, name, status FROM agents WHERE role != 'admin' OR role IS NULL`);
-    const onlineSet = new Set(onlineAgents());
+    const onlineSet = new Set(getOnlineAgentIds());
     const results = [];
     for (const agent of agents) {
         let capability_match = false;

@@ -13,7 +13,7 @@
 import { randomUUID, randomBytes } from "crypto";
 import { db } from "./db.js";
 import { generateToken, sha256, verifyInviteCode, markInviteCodeUsed, auditLog, } from "./security.js";
-import { pushToAgent, onlineAgents } from "./sse.js";
+import { pushToAgent, onlineAgents, isAgentConnected } from "./sse.js";
 import { logger } from "./logger.js";
 // ─── 常量 ────────────────────────────────────────────────
 const HEARTBEAT_ONLINE_THRESHOLD = parseInt(process.env.HEARTBEAT_ONLINE_THRESHOLD ?? "90000", 10); // 90s → offline
@@ -161,6 +161,73 @@ export function getAgent(agentId) {
         capabilities: caps.map((c) => c.capability),
     };
 }
+// ─── 统一在线判定（SSE 实时连接 OR 近期心跳） ─────────────
+/**
+ * 统一「在线」判定：满足以下任一即在线
+ *   1. 存在活跃的 SSE 实时连接（可达，可实时派单）
+ *   2. 数据库心跳在阈值内（轮询型 Agent 仍存活）
+ * 解决老问题：Agent 已建立 SSE 连接却因心跳陈旧被判定为离线、无法派单。
+ */
+export function isAgentOnline(agentId) {
+    if (isAgentConnected(agentId))
+        return true;
+    try {
+        const row = db
+            .prepare(`SELECT last_heartbeat FROM agents WHERE agent_id=?`)
+            .get(agentId);
+        if (!row || row.last_heartbeat == null)
+            return false;
+        return Date.now() - row.last_heartbeat < HEARTBEAT_ONLINE_THRESHOLD;
+    }
+    catch {
+        return false;
+    }
+}
+/**
+ * 返回当前所有「在线」Agent 的 ID（合并 SSE 连接 + 心跳在线）。
+ * 供 get_online_agents 工具、派单候选排序、/health、Prometheus 指标统一使用。
+ */
+export function getOnlineAgentIds() {
+    const set = new Set(onlineAgents());
+    try {
+        const rows = db
+            .prepare(`SELECT agent_id FROM agents
+         WHERE status='online' AND last_heartbeat IS NOT NULL AND last_heartbeat > ?`)
+            .all(Date.now() - HEARTBEAT_ONLINE_THRESHOLD);
+        for (const r of rows)
+            set.add(r.agent_id);
+    }
+    catch { /* 表可能尚未就绪 */ }
+    return [...set];
+}
+/**
+ * SSE 连接建立时调用：将 Agent 标记为在线（status + 刷新心跳时间戳），
+ * 使 agents 表与「SSE 已连」这一事实保持一致。
+ */
+export function markAgentSseOnline(agentId) {
+    try {
+        db.prepare(`UPDATE agents SET status='online', last_heartbeat=? WHERE agent_id=?`)
+            .run(Date.now(), agentId);
+    }
+    catch { /* ignore */ }
+}
+/**
+ * SSE 连接断开时调用：若心跳也已陈旧，则将 Agent 标记为离线；
+ * 若仍有近期心跳（轮询型），保留在线状态。
+ */
+export function markAgentSseOffline(agentId) {
+    try {
+        const row = db
+            .prepare(`SELECT last_heartbeat FROM agents WHERE agent_id=?`)
+            .get(agentId);
+        const fresh = row?.last_heartbeat != null &&
+            Date.now() - row.last_heartbeat < HEARTBEAT_ONLINE_THRESHOLD;
+        if (!fresh) {
+            db.prepare(`UPDATE agents SET status='offline' WHERE agent_id=?`).run(agentId);
+        }
+    }
+    catch { /* ignore */ }
+}
 // ─── 心跳超时检测定时器（Day 3 核心） ────────────────────
 let heartbeatTimer = null;
 let offlineNotifiedSet = new Set(); // 已发送离线通知的 Agent
@@ -184,6 +251,9 @@ export function startHeartbeatMonitor(onAgentOffline) {
             .all(now - HEARTBEAT_ONLINE_THRESHOLD);
         for (const agent of staleAgents) {
             const elapsed = now - agent.last_heartbeat;
+            // SSE 实时连接即视为在线（可达），不标记离线、也不广播离线通知
+            if (isAgentConnected(agent.agent_id))
+                continue;
             // 90s → 标记 offline
             if (elapsed >= HEARTBEAT_ONLINE_THRESHOLD) {
                 db.prepare(`UPDATE agents SET status='offline' WHERE agent_id=?`).run(agent.agent_id);

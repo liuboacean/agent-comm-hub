@@ -996,6 +996,50 @@ export function archiveOldAuditLogs(days: number = 90): number {
 }
 
 /**
+ * 审计日志行数上限保护（WORM 安全）：当 audit_log 超过 maxRows 行时，
+ * 将最旧的溢出行**镜像**到 audit_log_archive（按 created_at/id 升序取最旧），
+ * 不删除源表记录（audit_log 为防篡改表，受 audit_log_no_delete 触发器保护）。
+ *
+ * 作用：audit_log 无限增长时，溢出行仍会被自动冷存到归档表，
+ * 避免「归档机制空转」、并为主表查询/文件体积提供冷存分流。
+ * 返回本次镜像的行数。
+ */
+export function enforceAuditLogCap(maxRows: number): number {
+  try {
+    const row = db.prepare("SELECT COUNT(*) as cnt FROM audit_log").get() as { cnt: number };
+    const overflow = row.cnt - maxRows;
+    if (overflow <= 0) return 0;
+
+    const toArchive = db
+      .prepare(`SELECT id FROM audit_log ORDER BY created_at ASC, id ASC LIMIT ?`)
+      .all(overflow) as { id: string }[];
+    if (toArchive.length === 0) return 0;
+
+    const ids = toArchive.map((r) => r.id);
+    const placeholders = ids.map(() => "?").join(",");
+
+    // 仅镜像，不删源表（WORM）
+    const insertResult = db.prepare(
+      `INSERT OR IGNORE INTO audit_log_archive
+         (id, action, agent_id, target, details, ip_address, created_at, prev_hash, record_hash)
+       SELECT id, action, agent_id, target, details, ip_address, created_at, prev_hash, record_hash
+       FROM audit_log WHERE id IN (${placeholders})`
+    ).run(...ids);
+
+    logger.info("audit_log_cap_mirrored", {
+      module: "db",
+      mirrored: insertResult.changes,
+      threshold: maxRows,
+      total: row.cnt,
+    });
+    return insertResult.changes;
+  } catch (err) {
+    logError("audit_log_cap_failed", err, { module: "db" });
+    return 0;
+  }
+}
+
+/**
  * 执行数据库 VACUUM（释放空闲页面，紧缩数据库文件）
  * 建议在低峰期调用（如凌晨 3-5 点）
  */

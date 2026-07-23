@@ -206,10 +206,17 @@ export function broadcastToAll(event) {
     return results;
 }
 /**
- * 查询哪些 Agent 在线
+ * 查询哪些 Agent 在线（仅看 SSE 实时连接）
  */
 export function onlineAgents() {
     return [...clients.keys()];
+}
+/**
+ * 判断指定 Agent 当前是否有活跃的 SSE 实时连接。
+ * 用于「在线状态」统一判定：有 SSE 连接即视为可达（可实时派单）。
+ */
+export function isAgentConnected(agentId) {
+    return clients.has(agentId);
 }
 export function connectedCount() {
     return clients.size;

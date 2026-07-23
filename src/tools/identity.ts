@@ -21,8 +21,8 @@ import {
   clearOfflineNotification,
   updateAgentTrustScore,
   resolveAgentId,
+  getOnlineAgentIds,
 } from "../identity.js";
-import { onlineAgents } from "../sse.js";
 import { db } from "../db.js";
 import { withRetry, requireAuth, authed, mcpFail } from "../utils.js";
 import { logError } from "../logger.js";
@@ -269,7 +269,7 @@ export function registerIdentityTools(server: McpServer, authContext?: AuthConte
     {},
     authed(authContext, "get_online_agents", async (_ctx) => {
 
-      const online = onlineAgents();
+      const online = getOnlineAgentIds();
       return {
         content: [{
           type: "text",

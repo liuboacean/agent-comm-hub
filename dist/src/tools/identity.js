@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { requireAdmin, auditLog, revokeToken as revokeTokenFromSecurity, recalculateTrustScore, } from "../security.js";
-import { registerAgent as registerAgentFromIdentity, heartbeat as heartbeatFromIdentity, queryAgents as queryAgentsFromIdentity, clearOfflineNotification, updateAgentTrustScore, } from "../identity.js";
-import { onlineAgents } from "../sse.js";
+import { registerAgent as registerAgentFromIdentity, heartbeat as heartbeatFromIdentity, queryAgents as queryAgentsFromIdentity, clearOfflineNotification, updateAgentTrustScore, getOnlineAgentIds, } from "../identity.js";
 import { db } from "../db.js";
 import { authed, mcpFail } from "../utils.js";
 import { logError } from "../logger.js";
@@ -191,7 +190,7 @@ export function registerIdentityTools(server, authContext) {
     // Tool 10: get_online_agents (原有，添加权限检查)
     // ────────────────────────────────────────────────────
     server.tool("get_online_agents", "查询当前通过 SSE 在线连接的 Agent 列表，分配任务前可先确认对方在线。", {}, authed(authContext, "get_online_agents", async (_ctx) => {
-        const online = onlineAgents();
+        const online = getOnlineAgentIds();
         return {
             content: [{
                     type: "text",

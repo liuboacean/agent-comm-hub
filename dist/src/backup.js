@@ -6,10 +6,16 @@
  */
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from "fs";
 import { join, resolve } from "path";
+import { homedir } from "os";
 import { logger } from "./logger.js";
 import { db } from "./db.js";
 // ─── 配置 ────────────────────────────────────────────────
-const BACKUP_DIR = resolve(process.cwd(), "backups");
+// 备份目录固定到用户主目录下的稳定路径（与 launchd 备份脚本一致），
+// 不再依赖 process.cwd()（易失 workspace 被清则备份丢失）。
+// 可用 BACKUP_DIR 环境变量覆盖。
+const BACKUP_DIR = process.env.BACKUP_DIR
+    ? resolve(process.env.BACKUP_DIR)
+    : resolve(homedir(), "agent-comm-hub", "backups");
 const BACKUP_INTERVAL = parseInt(process.env.BACKUP_INTERVAL ?? "3600000", 10); // 默认 1 小时
 const MAX_BACKUPS = parseInt(process.env.MAX_BACKUPS ?? "24", 10); // 保留最近 24 份
 let backupTimer = null;

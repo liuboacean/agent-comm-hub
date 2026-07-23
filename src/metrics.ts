@@ -16,6 +16,7 @@
  */
 
 import type { Database as DatabaseType } from "better-sqlite3";
+import { getOnlineAgentIds } from "./identity.js";
 
 // ─── Counter ─────────────────────────────────────────────
 
@@ -218,14 +219,12 @@ function simplifyPath(path: string): string {
 export function collectHubMetrics(db: DatabaseType): string {
   const lines: string[] = [];
 
-  // 1. hub_agents_online — 在线 Agent 数量
+  // 1. hub_agents_online — 在线 Agent 数量（统一判定：SSE 连接 OR 近期心跳）
   try {
-    const row = db.prepare(
-      `SELECT COUNT(*) as cnt FROM agents WHERE status = 'online'`
-    ).get() as { cnt: number };
+    const online = getOnlineAgentIds();
     lines.push(`# TYPE hub_agents_online gauge`);
     lines.push(`# HELP hub_agents_online Number of agents currently online`);
-    lines.push(`hub_agents_online ${row.cnt}`);
+    lines.push(`hub_agents_online ${online.length}`);
   } catch (e) {
     lines.push(`# TYPE hub_agents_online gauge`);
     lines.push(`hub_agents_online 0`);

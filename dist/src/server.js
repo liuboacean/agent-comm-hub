@@ -17,10 +17,10 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { registerTools } from "./tools.js";
 import { registerClient, removeClient, pushToAgent, onlineAgents, drainAllClients, startZombieCleanup, stopZombieCleanup, writeStoredEvent, MAX_SSE_CONNECTIONS, connectedCount } from "./sse.js";
 import { eventLogRepo } from "./repo/event-log.js";
-import { getDbStats, db, scheduleCleanup, stopCleanup } from "./db.js";
+import { getDbStats, db, scheduleCleanup, stopCleanup, archiveOldAuditLogs, enforceAuditLogCap } from "./db.js";
 import { messageRepo, taskRepo, consumedRepo } from "./repo/sqlite-impl.js";
 import { authMiddleware, optionalAuthMiddleware, internalMonitorAuth, requireAdminApi, createInviteCode, auditLog, rateLimiter, preAuthRateLimit, } from "./security.js";
-import { startHeartbeatMonitor, stopHeartbeatMonitor } from "./identity.js";
+import { startHeartbeatMonitor, stopHeartbeatMonitor, markAgentSseOnline, markAgentSseOffline, getOnlineAgentIds } from "./identity.js";
 import { startDedupCleanup, stopDedupCleanup } from "./dedup.js";
 import { rebuildFtsIndex } from "./memory.js";
 import { logger, logError } from "./logger.js";
@@ -132,6 +132,7 @@ app.get("/events/:agent_id", optionalAuthMiddleware, (req, res) => {
     }
     // 注册连接（返回本次连接唯一 connId，供 close 回调回传）
     const connId = registerClient(agent_id, res);
+    markAgentSseOnline(agent_id); // SSE 已连 = 在线，同步 agents 表
     incrementGauge("active_sse_connections");
     // 检查 Last-Event-ID（断线重连场景）
     // D1 修复：Last-Event-ID 即持久化事件日志的全局单调 seq；
@@ -200,9 +201,41 @@ app.get("/events/:agent_id", optionalAuthMiddleware, (req, res) => {
     req.on("close", () => {
         clearInterval(heartbeat);
         removeClient(agent_id, connId);
+        markAgentSseOffline(agent_id); // 心跳也陈旧才标记离线
         decrementGauge("active_sse_connections");
     });
 });
+// ═══════════════════════════════════════════════════════════════
+// 维护调度器：审计日志自动归档（时间阈值 + 行数上限）
+//   - archiveOldAuditLogs(90)：90 天前的审计记录冷存（WORM，仅镜像不删）
+//   - enforceAuditLogCap(N)：audit_log 超过 N 行时，将最旧溢出行镜像到 audit_log_archive
+//     解决「audit_log 无限增长、归档机制空转」问题。audit_log 为防篡改表，不物理删除。
+// ═══════════════════════════════════════════════════════════════
+let maintenanceTimer = null;
+function runMaintenanceOnce() {
+    try {
+        archiveOldAuditLogs(90);
+        const auditMax = parseInt(process.env.AUDIT_LOG_MAX_ROWS ?? "3000", 10);
+        enforceAuditLogCap(auditMax);
+    }
+    catch (err) {
+        logError("maintenance_run_failed", err, { module: "server" });
+    }
+}
+function startMaintenanceScheduler() {
+    if (maintenanceTimer)
+        return;
+    runMaintenanceOnce(); // 启动即执行一次
+    maintenanceTimer = setInterval(runMaintenanceOnce, 3600_000); // 每小时
+    logger.info("maintenance_scheduler_started", { module: "server", interval_ms: 3600_000 });
+}
+function stopMaintenanceScheduler() {
+    if (maintenanceTimer) {
+        clearInterval(maintenanceTimer);
+        maintenanceTimer = null;
+        logger.info("maintenance_scheduler_stopped", { module: "server" });
+    }
+}
 // ═══════════════════════════════════════════════════════════════
 // Phase 5b: 增强健康检查端点（免认证）
 // ═══════════════════════════════════════════════════════════════
@@ -227,7 +260,7 @@ app.get("/health", internalMonitorAuth, (_req, res) => {
 app.get("/health/detailed", internalMonitorAuth, (_req, res) => {
     const stats = getDbStats();
     const mem = process.memoryUsage();
-    const agents = onlineAgents();
+    const agents = getOnlineAgentIds(); // 统一在线判定：SSE 连接 OR 近期心跳
     // FTS5 索引状态
     let fts5Status = "unknown";
     try {
@@ -717,6 +750,7 @@ async function gracefulShutdown(signal) {
     // 3. 停止定时器
     stopHeartbeatMonitor();
     stopBackupScheduler();
+    stopMaintenanceScheduler();
     stopDedupCleanup();
     stopCleanup();
     stopZombieCleanup();
@@ -821,6 +855,8 @@ httpServer = app.listen(config.port, () => {
     });
     // 启动数据库定时备份
     startBackupScheduler(config.dbPath);
+    // 启动维护调度（审计日志自动归档 + 行数上限保护）
+    startMaintenanceScheduler();
     // 启动去重缓存 TTL 清理（15min）
     startDedupCleanup();
     // Phase 6: 启动定时清理（过期 Token / Dedup / Consumed）

@@ -14,6 +14,7 @@
  *   - hub_messages_total{status} : Gauge
  *   - hub_trust_scores{agent_id} : Gauge
  */
+import { getOnlineAgentIds } from "./identity.js";
 // P2-2 修复：原为无界数组 + 每次自增线性扫描（O(N)），高基数标签下内存/延迟退化。
 // 改为 keyed Map，key = 指标名 + 排序后的 labels，查找 O(1)。
 const counters = new Map();
@@ -175,12 +176,12 @@ function simplifyPath(path) {
  */
 export function collectHubMetrics(db) {
     const lines = [];
-    // 1. hub_agents_online — 在线 Agent 数量
+    // 1. hub_agents_online — 在线 Agent 数量（统一判定：SSE 连接 OR 近期心跳）
     try {
-        const row = db.prepare(`SELECT COUNT(*) as cnt FROM agents WHERE status = 'online'`).get();
+        const online = getOnlineAgentIds();
         lines.push(`# TYPE hub_agents_online gauge`);
         lines.push(`# HELP hub_agents_online Number of agents currently online`);
-        lines.push(`hub_agents_online ${row.cnt}`);
+        lines.push(`hub_agents_online ${online.length}`);
     }
     catch (e) {
         lines.push(`# TYPE hub_agents_online gauge`);

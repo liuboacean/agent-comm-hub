@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.0.22] - 2026-07-23 — 在线状态 / 审计归档 / 备份路径
+
+### Changed (在线状态判定)
+- **SSE 实时连接纳入「在线」判定**：新增统一判定 `isAgentOnline()` / `getOnlineAgentIds()` =（存在 SSE 连接）**或**（心跳在 90s 阈值内）。`get_online_agents` 工具、派单候选排序（`orchestrator`）、`/health/detailed`、`/api/agents`、`hub_agents_online` 指标全部改用统一判定
+- **心跳监控不再误杀 SSE 在线 Agent**：`startHeartbeatMonitor` 对仍有 SSE 连接的 Agent 不再因心跳陈旧标记离线、也不再广播离线通知
+- **SSE 连接同步 `agents.status`**：连接建立即标记 `online`、断开且心跳陈旧才标 `offline`，数据库与「SSE 已连」事实一致
+
+### Changed (审计日志归档)
+- **`enforceAuditLogCap(maxRows)`**：`audit_log` 超过 `AUDIT_LOG_MAX_ROWS`（默认 3000，env 可调）行时，将最旧溢出行自动**镜像**到 `audit_log_archive`（WORM 安全，不删源表）
+- **维护调度器**：`server` 启动即跑、之后每小时执行「90 天时间归档 + 行数上限镜像」，解决「audit_log 无限增长、归档机制空转」
+
+### Changed (备份路径)
+- **`backup.ts` 改用稳定路径**：`BACKUP_DIR` 从 `process.cwd()/backups`（易失 workspace）改为 `~/agent-comm-hub/backups`，与 launchd 备份脚本同目录；支持 `BACKUP_DIR` 环境变量覆盖
+
 ## [3.0.21] - 2026-07-23 — 审计修复（稳定性 / 安全 / 质量）
 
 ### Fixed (P1 — 稳定性 / 安全)

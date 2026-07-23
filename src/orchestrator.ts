@@ -5,7 +5,8 @@
  */
 import { randomUUID } from "crypto";
 import { db, type Task, type Pipeline, type PipelineTask } from "./db.js";
-import { pushToAgent, onlineAgents } from "./sse.js";
+import { pushToAgent } from "./sse.js";
+import { getOnlineAgentIds } from "./identity.js";
 import { auditLog, recalculateTrustScore } from "./security.js";
 import { logError, logger } from "./logger.js";
 import type { DepType } from "./repo/types.js";
@@ -470,7 +471,7 @@ export function suggestAssignee(taskId: string): Array<{
     `SELECT agent_id, name, status FROM agents WHERE role != 'admin' OR role IS NULL`
   );
 
-  const onlineSet = new Set(onlineAgents());
+  const onlineSet = new Set(getOnlineAgentIds());
   const results: Array<{
     agent_id: string;
     name: string;

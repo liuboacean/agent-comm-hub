@@ -27,4 +27,12 @@ else
 fi
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] 启动 server.js (DB_PATH=$DB_PATH)"
+
+# 确保 dist/package.json 存在：version.ts 启动期硬依赖 readFileSync("../package.json")，
+# 缺失会导致 server 启动即崩。tsc 不会拷贝 package.json，故这里兜底同步。
+if [ ! -f "dist/package.json" ] || [ "package.json" -nt "dist/package.json" ]; then
+  cp -f package.json dist/package.json
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] 已同步 dist/package.json（version.ts 启动依赖）"
+fi
+
 exec node dist/src/server.js

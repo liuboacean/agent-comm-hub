@@ -3,6 +3,11 @@ node_modules/
 comm_hub.db
 comm_hub.db-shm
 comm_hub.db-wal
+# dist 内禁止提交数据库（尤其本机绝对路径符号链接，会破坏 GitHub Pages/Jekyll 构建）
+dist/comm_hub.db
+dist/*.db
+dist/*.db-shm
+dist/*.db-wal
 .DS_Store
 uploads/
 .env

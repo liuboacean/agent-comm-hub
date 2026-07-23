@@ -7,6 +7,7 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from "fs";
 import { join, resolve } from "path";
 import { logger } from "./logger.js";
+import { db } from "./db.js";
 // ─── 配置 ────────────────────────────────────────────────
 const BACKUP_DIR = resolve(process.cwd(), "backups");
 const BACKUP_INTERVAL = parseInt(process.env.BACKUP_INTERVAL ?? "3600000", 10); // 默认 1 小时
@@ -49,7 +50,33 @@ function doBackup(dbPath) {
         const now = new Date();
         const filename = `comm_hub_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}_${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}.db`;
         const destPath = join(BACKUP_DIR, filename);
+        // D5 修复：WAL 模式下主库文件可能尚未包含最近提交，先执行检查点刷盘，
+        // 再连同 -wal / -shm 伴随文件一起拷贝，避免备份不一致 / 丢失最近数据。
+        try {
+            db.pragma("wal_checkpoint(TRUNCATE)");
+        }
+        catch (err) {
+            logger.warn("Backup wal_checkpoint failed", {
+                module: "backup",
+                error: err instanceof Error ? err.message : String(err),
+            });
+        }
         copyFileSync(dbPath, destPath);
+        for (const ext of ["-wal", "-shm"]) {
+            const src = dbPath + ext;
+            if (existsSync(src)) {
+                try {
+                    copyFileSync(src, destPath + ext);
+                }
+                catch (err) {
+                    logger.warn("Backup companion copy failed", {
+                        module: "backup",
+                        ext,
+                        error: err instanceof Error ? err.message : String(err),
+                    });
+                }
+            }
+        }
         lastBackupTime = Date.now();
         backupCount++;
         logger.info("Backup completed", {

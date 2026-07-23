@@ -1,4 +1,5 @@
-import { logger } from "./logger.js";
+import { logger, logError } from "./logger.js";
+import { eventLogRepo } from "./repo/event-log.js";
 // 在线 Agent 连接池
 const clients = new Map();
 // ─── 客户端去重：per-connection 递增 event_id ─────────────
@@ -82,38 +83,74 @@ export function removeClient(agentId) {
     logger.info("sse_client_disconnected", { module: "sse", agent_id: agentId, total: clients.size });
 }
 /**
- * 向指定 Agent 推送事件
+ * 向指定 Agent 推送事件。
  *
- * 每个推送附加递增的 event_id，客户端可据此实现去重：
- *   - event_id 是严格递增的
- *   - 客户端保存 last_seen_event_id，忽略 ≤ last_seen 的消息
+ * D1 修复：每次推送先持久化到 event_log 取得**全局单调 seq**，并以该 seq 作为
+ * SSE `id` 发送。这样断线重连时客户端回传 Last-Event-ID=seq，服务端可精确补发
+ * id > seq 的事件（覆盖所有事件类型）；离线时事件已落库，首连/重连补发不丢。
+ * 仅当本次写入响应成功才标记 delivered，推送失败不标记、待重试。
  *
  * @param agentId 目标 Agent
- * @param event 事件数据（会被序列化为 JSON）
+ * @param event 事件数据（会被序列化为 JSON，其 `event` 字段作为 event_type）
  * @param dedupId 可选的去重标识（如 msg_hash），附加到事件中供客户端验证
- * @returns true = 在线已推送；false = 离线，消息已持久化等待补发
+ * @returns true = 在线且已成功推送；false = 离线或推送失败（事件仍落库，待补发）
  */
 export function pushToAgent(agentId, event, dedupId) {
+    const eventType = event.event ?? "event";
+    const payload = {
+        ...event,
+        ...(dedupId ? { _hub_dedup_id: dedupId } : {}),
+    };
+    // 1. 先持久化，取得全局单调 seq
+    let seq;
+    try {
+        seq = eventLogRepo.appendEvent(agentId, String(eventType), JSON.stringify(payload));
+    }
+    catch (err) {
+        logError("sse_event_log_append_failed", err, { module: "sse", agent_id: agentId });
+        return false;
+    }
+    const res = clients.get(agentId);
+    if (!res) {
+        // 离线：事件已持久化，等待首连 / 重连补发
+        return false;
+    }
+    // 2. 在线：以全局 seq 作为 SSE id 发送，仅成功才标记 delivered
+    try {
+        payload._hub_event_id = seq;
+        res.write(`id: ${seq}\n`);
+        res.write(`event: message\n`);
+        res.write(`data: ${JSON.stringify(payload)}\n\n`);
+        touchActivity(agentId);
+        eventLogRepo.markDelivered(seq);
+        return true;
+    }
+    catch (err) {
+        // 连接异常，移除
+        removeClient(agentId);
+        return false;
+    }
+}
+/**
+ * 从持久化事件日志回放一条已存储事件（重连/首连补发路径）。
+ * 直接使用存储的 seq 作为 SSE id，不会再次写入 event_log（避免无限递归）。
+ * @returns true = 成功写入响应；false = 离线或写入失败
+ */
+export function writeStoredEvent(agentId, ev) {
     const res = clients.get(agentId);
     if (!res)
         return false;
     try {
-        const eventId = nextEventId(agentId);
-        const payload = {
-            ...event,
-            _hub_event_id: eventId,
-            ...(dedupId ? { _hub_dedup_id: dedupId } : {}),
-        };
-        // SSE 事件格式：id + event + data
-        res.write(`id: ${eventId}\n`);
+        const payload = JSON.parse(ev.payload);
+        payload._hub_event_id = ev.id;
+        res.write(`id: ${ev.id}\n`);
         res.write(`event: message\n`);
         res.write(`data: ${JSON.stringify(payload)}\n\n`);
         touchActivity(agentId);
         return true;
     }
     catch (err) {
-        // 连接异常，移除
-        removeClient(agentId);
+        logError("sse_replay_write_error", err, { module: "sse", agent_id: agentId, event_id: ev.id });
         return false;
     }
 }

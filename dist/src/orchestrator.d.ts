@@ -265,6 +265,15 @@ export declare class ActivationOrchestrator {
      * 从审计日志重放恢复内存状态（启动时调用）
      */
     replayFromAudit(): void;
+    /** 从 agents 表读取某 Agent 的持久化激活态（无记录则 undefined） */
+    private loadAgentStateFromDb;
+    /** 将激活态落库到 agents.activation_state（D2：重启可从 DB 重载） */
+    private persistAgentState;
+    /**
+     * 从 agents 表 seed 全部 Agent 的激活态进内存（启动时调用，D2）。
+     * 未持久化 activation_state 的 Agent 默认 registered。
+     */
+    seedFromDb(): void;
     /** 查询 Agent 状态 */
     getAgentState(agentId: string): AgentState | undefined;
     /** 查询 Pipeline 状态 */
@@ -279,7 +288,7 @@ export declare class ActivationOrchestrator {
         id: string;
         state: string;
     }>;
-    /** 注册 Agent（registered 初始状态） */
+    /** 注册 Agent（registered 初始状态），并落库激活态（D2） */
     registerAgent(agentId: string): void;
     /** 注册 Pipeline（draft 初始状态） */
     registerPipeline(pipelineId: string): void;

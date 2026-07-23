@@ -7,7 +7,7 @@ import { randomUUID } from "crypto";
 import { db } from "./db.js";
 import { pushToAgent, onlineAgents } from "./sse.js";
 import { auditLog, recalculateTrustScore } from "./security.js";
-import { logError } from "./logger.js";
+import { logError, logger } from "./logger.js";
 import { taskRepo } from "./repo/sqlite-impl.js";
 function getOne(sql, ...params) {
     return db.prepare(sql).get(...params);
@@ -759,7 +759,15 @@ export class ActivationOrchestrator {
      * 幂等：已激活再激活返回 success 但不重复写审计日志
      */
     activateAgent(agentId, operator) {
-        const current = this.agentStates.get(agentId);
+        let current = this.agentStates.get(agentId);
+        // D2 修复：内存未命中时回查 DB（agents.activation_state）
+        if (!current) {
+            const dbState = this.loadAgentStateFromDb(agentId);
+            if (dbState) {
+                this.agentStates.set(agentId, dbState);
+                current = dbState;
+            }
+        }
         if (!current) {
             return { success: false, error: `Agent not found: ${agentId}`, code: "AGENT_NOT_FOUND" };
         }
@@ -775,6 +783,7 @@ export class ActivationOrchestrator {
             };
         }
         this.agentStates.set(agentId, "active");
+        this.persistAgentState(agentId, "active"); // D2 落库
         // 写审计日志
         const details = `${current}→active`;
         auditLog("activate_agent", operator, agentId, details);
@@ -790,7 +799,15 @@ export class ActivationOrchestrator {
      * 幂等：已挂起再挂起返回 success
      */
     deactivateAgent(agentId, operator) {
-        const current = this.agentStates.get(agentId);
+        let current = this.agentStates.get(agentId);
+        // D2 修复：内存未命中时回查 DB（agents.activation_state）
+        if (!current) {
+            const dbState = this.loadAgentStateFromDb(agentId);
+            if (dbState) {
+                this.agentStates.set(agentId, dbState);
+                current = dbState;
+            }
+        }
         if (!current) {
             return { success: false, error: `Agent not found: ${agentId}`, code: "AGENT_NOT_FOUND" };
         }
@@ -805,6 +822,7 @@ export class ActivationOrchestrator {
             };
         }
         this.agentStates.set(agentId, "suspended");
+        this.persistAgentState(agentId, "suspended"); // D2 落库
         const details = `${current}→suspended`;
         auditLog("deactivate_agent", operator, agentId, details);
         pushToAgent(agentId, {
@@ -888,6 +906,50 @@ export class ActivationOrchestrator {
             // audit_log 表可能不存在（首次启动），静默忽略
         }
     }
+    // ─── D2: 激活态持久化与 DB 回查 ─────────────────────────
+    /** 从 agents 表读取某 Agent 的持久化激活态（无记录则 undefined） */
+    loadAgentStateFromDb(agentId) {
+        try {
+            const row = db
+                .prepare(`SELECT activation_state FROM agents WHERE agent_id=?`)
+                .get(agentId);
+            if (!row)
+                return undefined;
+            const s = row.activation_state;
+            return s ?? "registered";
+        }
+        catch {
+            return undefined;
+        }
+    }
+    /** 将激活态落库到 agents.activation_state（D2：重启可从 DB 重载） */
+    persistAgentState(agentId, state) {
+        try {
+            db.prepare(`UPDATE agents SET activation_state=? WHERE agent_id=?`).run(state, agentId);
+        }
+        catch (err) {
+            logError("activation_state_persist_failed", err, { module: "orchestrator", agent_id: agentId, state });
+        }
+    }
+    /**
+     * 从 agents 表 seed 全部 Agent 的激活态进内存（启动时调用，D2）。
+     * 未持久化 activation_state 的 Agent 默认 registered。
+     */
+    seedFromDb() {
+        try {
+            const rows = db
+                .prepare(`SELECT agent_id, activation_state FROM agents`)
+                .all();
+            for (const row of rows) {
+                const state = row.activation_state || "registered";
+                this.agentStates.set(row.agent_id, state);
+            }
+            logger.info("activation_seed_from_db", { module: "orchestrator", count: rows.length });
+        }
+        catch (err) {
+            logError("activation_seed_from_db_failed", err, { module: "orchestrator" });
+        }
+    }
     /** 查询 Agent 状态 */
     getAgentState(agentId) {
         return this.agentStates.get(agentId);
@@ -904,10 +966,11 @@ export class ActivationOrchestrator {
     getAllPipelineStates() {
         return Array.from(this.pipelineStates.entries()).map(([id, state]) => ({ id, state }));
     }
-    /** 注册 Agent（registered 初始状态） */
+    /** 注册 Agent（registered 初始状态），并落库激活态（D2） */
     registerAgent(agentId) {
         if (!this.agentStates.has(agentId)) {
             this.agentStates.set(agentId, "registered");
+            this.persistAgentState(agentId, "registered");
         }
     }
     /** 注册 Pipeline（draft 初始状态） */

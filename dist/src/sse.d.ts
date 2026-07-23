@@ -7,6 +7,7 @@
  *   - 每个 SSE 事件附加 event_id（递增），客户端可据此去重
  */
 import type { Response } from "express";
+import { type StoredEvent } from "./repo/event-log.js";
 /**
  * 启动僵尸连接清理（每 5 分钟检测 1 次，心跳超时 10 分钟自动移除）
  */
@@ -25,18 +26,25 @@ export declare function registerClient(agentId: string, res: Response): void;
  */
 export declare function removeClient(agentId: string): void;
 /**
- * 向指定 Agent 推送事件
+ * 向指定 Agent 推送事件。
  *
- * 每个推送附加递增的 event_id，客户端可据此实现去重：
- *   - event_id 是严格递增的
- *   - 客户端保存 last_seen_event_id，忽略 ≤ last_seen 的消息
+ * D1 修复：每次推送先持久化到 event_log 取得**全局单调 seq**，并以该 seq 作为
+ * SSE `id` 发送。这样断线重连时客户端回传 Last-Event-ID=seq，服务端可精确补发
+ * id > seq 的事件（覆盖所有事件类型）；离线时事件已落库，首连/重连补发不丢。
+ * 仅当本次写入响应成功才标记 delivered，推送失败不标记、待重试。
  *
  * @param agentId 目标 Agent
- * @param event 事件数据（会被序列化为 JSON）
+ * @param event 事件数据（会被序列化为 JSON，其 `event` 字段作为 event_type）
  * @param dedupId 可选的去重标识（如 msg_hash），附加到事件中供客户端验证
- * @returns true = 在线已推送；false = 离线，消息已持久化等待补发
+ * @returns true = 在线且已成功推送；false = 离线或推送失败（事件仍落库，待补发）
  */
 export declare function pushToAgent(agentId: string, event: object, dedupId?: string): boolean;
+/**
+ * 从持久化事件日志回放一条已存储事件（重连/首连补发路径）。
+ * 直接使用存储的 seq 作为 SSE id，不会再次写入 event_log（避免无限递归）。
+ * @returns true = 成功写入响应；false = 离线或写入失败
+ */
+export declare function writeStoredEvent(agentId: string, ev: StoredEvent): boolean;
 /**
  * 广播给多个 Agent
  */

@@ -15,7 +15,8 @@ import express from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { registerTools } from "./tools.js";
-import { registerClient, removeClient, pushToAgent, onlineAgents, drainAllClients, startZombieCleanup, stopZombieCleanup } from "./sse.js";
+import { registerClient, removeClient, pushToAgent, onlineAgents, drainAllClients, startZombieCleanup, stopZombieCleanup, writeStoredEvent } from "./sse.js";
+import { eventLogRepo } from "./repo/event-log.js";
 import { getDbStats, db, scheduleCleanup, stopCleanup } from "./db.js";
 import { messageRepo, taskRepo, consumedRepo } from "./repo/sqlite-impl.js";
 import { authMiddleware, optionalAuthMiddleware, internalMonitorAuth, requireAdminApi, createInviteCode, auditLog, rateLimiter, } from "./security.js";
@@ -113,10 +114,8 @@ app.use((req, res, next) => {
 });
 // ═══════════════════════════════════════════════════════════════
 // SSE 端点：Agent 启动时订阅一次，保持长连接
-// GET /events/:agent_id?token=<api_token>
+// GET /events/:agent_id  （认证见 D7：仅 Authorization: Bearer）
 // ═══════════════════════════════════════════════════════════════
-// SSE 重连回放窗口（秒），默认 1 小时
-const SSE_REPLAY_WINDOW = config.sseReplayWindow;
 app.get("/events/:agent_id", optionalAuthMiddleware, (req, res) => {
     const { agent_id } = req.params;
     const authContext = req.auth?.agent;
@@ -130,43 +129,46 @@ app.get("/events/:agent_id", optionalAuthMiddleware, (req, res) => {
     registerClient(agent_id, res);
     incrementGauge("active_sse_connections");
     // 检查 Last-Event-ID（断线重连场景）
+    // D1 修复：Last-Event-ID 即持久化事件日志的全局单调 seq；
+    // 重连时只精确补发 id > seq 的事件（不重放整窗），且覆盖所有事件类型。
     const lastEventId = req.headers["last-event-id"];
-    if (lastEventId) {
-        // 解析 lastEventId 为时间戳（毫秒）
-        const since = parseInt(lastEventId, 10);
-        if (!isNaN(since)) {
-            // 检查是否在回放窗口内
-            const now = Date.now();
-            const windowStart = now - SSE_REPLAY_WINDOW;
-            const effectiveSince = Math.max(since, windowStart);
-            // 查询并回放该时间戳之后的消息
-            const missedMessages = messageRepo.listSince(agent_id, effectiveSince);
-            if (missedMessages.length > 0) {
-                for (const msg of missedMessages) {
-                    pushToAgent(agent_id, {
-                        event: "new_message",
-                        message: msg,
-                    });
+    const parsedLast = lastEventId ? parseInt(lastEventId, 10) : NaN;
+    if (!isNaN(parsedLast)) {
+        // 重连：精确补发 seq 之后的全部事件（new_message / task_assigned / activation 等）
+        const missed = eventLogRepo.getEventsAfter(parsedLast, agent_id);
+        if (missed.length > 0) {
+            for (const ev of missed) {
+                if (writeStoredEvent(agent_id, ev)) {
+                    eventLogRepo.markDelivered(ev.id);
                 }
-                logger.info("SSE replay", { module: "sse", agent_id, replay_count: missedMessages.length, since: effectiveSince });
             }
+            logger.info("SSE replay", { module: "sse", agent_id, replay_count: missed.length, since_seq: parsedLast });
         }
     }
     else {
-        // 首次连接：补发离线期间积压的未读消息
+        // 首次连接：补发未投递（delivered=0）的持久化事件，覆盖所有事件类型
+        const undelivered = eventLogRepo.getUndelivered(agent_id);
+        for (const ev of undelivered) {
+            if (writeStoredEvent(agent_id, ev)) {
+                eventLogRepo.markDelivered(ev.id);
+            }
+        }
+        // 兼容历史数据：补发离线期间积压的未读消息。
+        // D1 修复：仅当推送成功才标记 delivered，推送失败不标记（避免消息永久丢失）。
         const pending = messageRepo.pendingFor(agent_id);
         if (pending.length > 0) {
+            let delivered = 0;
             for (const msg of pending) {
-                pushToAgent(agent_id, {
-                    event: "new_message",
-                    message: msg,
-                });
+                const ok = pushToAgent(agent_id, { event: "new_message", message: msg });
+                if (ok) {
+                    messageRepo.markDelivered(msg.id);
+                    delivered++;
+                }
             }
-            messageRepo.markAllDelivered(agent_id);
-            logger.info("SSE backfill", { module: "sse", agent_id, pending_count: pending.length });
+            logger.info("SSE backfill", { module: "sse", agent_id, pending_count: pending.length, delivered });
         }
     }
-    // 补发积压的未执行任务
+    // 补发积压的未执行任务（保留原行为；重连场景下由 event_log 回放覆盖，此处幂等重发）
     const pendingTasks = taskRepo.listFor(agent_id, "pending");
     for (const task of pendingTasks) {
         pushToAgent(agent_id, {
@@ -398,6 +400,7 @@ app.get("/api/consumed", authMiddleware, (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 const activationOrch = new ActivationOrchestrator();
 activationOrch.replayFromAudit(); // 从 audit_log 恢复状态
+activationOrch.seedFromDb(); // D2：从 agents 表 seed 激活态（DB 为权威，覆盖 audit 回放）
 import { setActivationOrchestrator } from "./tools/orchestrator.js";
 setActivationOrchestrator(activationOrch);
 const msgRateLimiter = new RateLimiter();
@@ -699,8 +702,25 @@ process.on("uncaughtException", (err) => {
     logError("uncaught_exception", err, { module: "process" });
     process.exit(1);
 });
+// D6 修复：unhandledRejection 不再“仅日志、带病运行”。
+// 累计次数达阈值，或遇到关键/不可恢复错误时，对齐 uncaughtException 退出进程；
+// 可恢复错误（未达阈值）不退出。
+let unhandledRejectionCount = 0;
+const UNHANDLED_REJECTION_LIMIT = parseInt(process.env.UNHANDLED_REJECTION_LIMIT ?? "20", 10);
 process.on("unhandledRejection", (reason) => {
-    logError("unhandled_rejection", reason, { module: "process" });
+    unhandledRejectionCount++;
+    const message = reason instanceof Error ? (reason.stack || reason.message) : String(reason);
+    logError("unhandled_rejection", reason, { module: "process", count: unhandledRejectionCount });
+    // 关键/不可恢复错误（如数据库、文件系统、网络）立即退出
+    const critical = /EACCES|EADDRINUSE|ECONNREFUSED|ENOTFOUND|SQLITE|database|out of memory|ENOENT/i.test(String(reason));
+    if (critical || unhandledRejectionCount >= UNHANDLED_REJECTION_LIMIT) {
+        logger.error("unhandled_rejection_fatal", {
+            module: "process",
+            count: unhandledRejectionCount,
+            reason: message,
+        });
+        process.exit(1);
+    }
 });
 // ═══════════════════════════════════════════════════════════════
 // 持久化运行时间（跨重启）
@@ -738,8 +758,11 @@ function getPersistentUptime() {
 // ═══════════════════════════════════════════════════════════════
 // 启动
 // ═══════════════════════════════════════════════════════════════
-// 当 stdin 不是 TTY（如被 mcp-proxy 包装）时，切换到 MCP stdio 模式
-if (!process.stdin.isTTY) {
+// 启动模式判定（D3 修复）：
+// 默认 HTTP 服务；仅当显式设置 MODE=stdio 或传递 --stdio CLI flag 时进入 MCP stdio 模式。
+// 不再用 process.stdin.isTTY 推断，避免 `docker run -d`（无 TTY）误激活 stdio 分支而崩溃。
+const stdioMode = process.env.MODE === "stdio" || process.argv.includes("--stdio");
+if (stdioMode) {
     // 异步加载 stdio 模式
     const { startMcpStdio } = await import("./stdio.js");
     startMcpStdio().catch((err) => {

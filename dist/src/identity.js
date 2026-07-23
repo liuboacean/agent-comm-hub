@@ -383,14 +383,8 @@ export function resolveAgentId(input) {
     if (AGENT_ALIAS_MAP[aliasKey]) {
         return getAgent(AGENT_ALIAS_MAP[aliasKey]) ? AGENT_ALIAS_MAP[aliasKey] : null;
     }
-    // 3. 子串匹配（agent_id 包含输入，大小写不敏感）
-    const agents = queryAgents({});
-    const lower = trimmed.toLowerCase();
-    for (const agent of agents) {
-        if (agent.agent_id.toLowerCase().includes(lower)) {
-            return agent.agent_id;
-        }
-    }
+    // 3. 不再做子串模糊匹配（D9 修复）：
+    //    短 id / 重叠 id 会把消息错投给错误 agent（IDOR 风险），仅接受精确完整 agent_id 或显式别名。
     return null;
 }
 //# sourceMappingURL=identity.js.map

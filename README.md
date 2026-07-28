@@ -5,7 +5,7 @@
   </picture>
   <img src="https://img.shields.io/badge/Python-3.9+-blue?logo=python" alt="Python 3.9+">
   <img src="https://img.shields.io/badge/MCP_Protocol-1.0-orange?logo=robot" alt="MCP Protocol">
-  <img src="https://img.shields.io/badge/159_Tests-Passing-3fb950?logo=vitest" alt="159 Tests">
+  <img src="https://img.shields.io/badge/288_Tests-Passing-3fb950?logo=vitest" alt="288 Tests">
   <img src="https://img.shields.io/badge/Zero_External_Deps-success?logo=package" alt="Zero External Deps">
   <img src="https://img.shields.io/badge/Web_Panel-Live-7c3aed?logo=htmx" alt="Web Panel">
   <a href="https://github.com/liuboacean/agent-comm-hub/actions/workflows/ci.yml">
@@ -117,7 +117,7 @@ print('✅ 消息已发送')
 | MCP 工具 | **58 个** |
 | Python SDK 方法 | **68 个** |
 | TypeScript SDK 方法 | **35 个** |
-| 单元测试 | **159 个 ✅** |
+| 单元测试 | **288 个 ✅** |
 | 数据库表 | **32 张** |
 | 外部依赖 | **0** |
 | 消息延迟 | **< 50ms** |
@@ -338,7 +338,7 @@ agent-comm-hub/
 │   ├── hub_client.py          # Python SDK（68 方法，零依赖）
 │   └── agent-client.ts        # TypeScript SDK（35 方法）
 ├── deploy/                    # Docker Compose + 监控
-├── tests/                     # 159 个测试
+├── tests/                     # 288 个测试
 └── docs/                      # 完整文档
 ```
 
@@ -369,6 +369,60 @@ agent-comm-hub/
 - 🔒 **Node 22 锁定** — 启动脚本固定 Node 22，匹配 better-sqlite3 原生模块（Node 24 会 ABI 崩溃）
 - 🧪 **防护测试** — 新增 stdio/Hub 必须用 Node 22 的契约测试，防止被误改回 Node 24
 - 🧹 **测试卫生** — 修复 unit 测试在仓库根生成 `undefined*` 游离文件（`isValidDbPath` 守卫）
+
+</details>
+
+<details>
+<summary><strong>v3.0.22</strong> (2026-07-23) — 在线状态 / 审计归档 / 备份路径</summary>
+
+- 🟢 **在线状态统一判定** — 新增 `isAgentOnline()` =（存在 SSE 实时连接）**或**（心跳 90s 内）；`get_online_agents`、派单候选排序、`/health/detailed`、`/api/agents`、指标全部改用统一判定，SSE 连着即在线、可派单
+- 💓 **心跳监控不再误杀 SSE 在线 Agent** — 仍有 SSE 连接的 Agent 不因心跳陈旧误标离线、不再广播离线通知；SSE 连接建立即同步 `agents.status`
+- 🗂️ **`audit_log` 行数上限自动归档** — 超 `AUDIT_LOG_MAX_ROWS`（默认 3000，env 可调）自动将最旧溢出行**镜像**到 `audit_log_archive`（WORM 安全，不删源表）；新增启动即跑 + 每小时维护调度器
+- 📦 **备份路径稳定化** — `backup.ts` 的 `BACKUP_DIR` 由 `process.cwd()/backups`（易失 workspace）改为 `~/agent-comm-hub/backups`，与 launchd 备份脚本同目录，支持 `BACKUP_DIR` 覆盖
+
+</details>
+
+<details>
+<summary><strong>v3.0.21</strong> (2026-07-23) — 安全加固（稳定性 / 安全 / 质量）</summary>
+
+- 🔌 **P1-1 SSE 重连竞态** — `registerClient`/`removeClient` 增连接级 `connId` 校验，旧 socket 的 `close` 不再误删当前实时连接，重连后消息/任务不再静默丢失
+- 💾 **P1-2 并发写 `SQLITE_BUSY`** — `busy_timeout=5000` + `foreign_keys` + WAL 自动检查点，消除并发写静默丢数据
+- 🛡️ **P1-3 限流绕过** — 认证前置单 IP / 全局限流（防令牌爆破与未认证 `/mcp` 耗尽资源）；`/mcp` 增并发在途上限（默认 50）防 DoS
+- 🔍 **P1-4/5 FTS 值碰撞** — `memories_fts` 增 `memory_id` 精确关联键（启动迁移旧表），内容相同的两条记忆不再互相串台
+- 🔐 **P2 质量** — 信任分按 `target` 列计吊销（管理员不再误扣）；受保护端点仅接受 `Bearer`，移除 `?token=` 与 `x-api-key` 令牌泄漏面
+
+</details>
+
+<details>
+<summary><strong>v3.0.20</strong> (2026-07-23) — 构建产物固化</summary>
+
+- 🏗️ **构建产物固化** — `dist/package.json` 生成写入 `build` 脚本与启动脚本，消除「安装即崩溃」（`version.ts` 启动依赖 `../package.json`）
+
+</details>
+
+<details>
+<summary><strong>v3.0.19</strong> (2026-07-21) — 文档与版本一致性修复</summary>
+
+- 📝 **文档工具数统一为 58** — 与 `src/security.ts` 的 `TOOL_PERMISSIONS` 矩阵一致，修正 README/SKILL.md 残留的 56/53
+- 📚 **新建 `docs/API_REFERENCE.md`** — 准确的 HTTP/SSE/MCP 端点速查（含 Bearer 鉴权与 SSE `Last-Event-ID` 断线重连）；修正 README 三处死链
+- 🏷️ **SKILL.md 文件传输工具名更正** — `send_file`/`receive_file` → `upload_file`/`download_file`
+
+</details>
+
+<details>
+<summary><strong>v3.0.18</strong> (2026-07-14) — 安全加固集（ClawScan 67 findings + IDOR）</summary>
+
+- 🔒 **修复 ClawScan 审计 67 findings** — fail-closed 权限矩阵 + stdio 强制认证
+- 🛡️ **IDOR 对象级授权加固** — `assertOwns` + `HUB_2004` 防越权访问
+- 🧩 **版本单一真相源** — 抽离 `src/version.ts`；`/health` 收敛
+
+</details>
+
+<details>
+<summary><strong>v3.0.12</strong> (2026-07-08) — README 同步 + 测试卫生</summary>
+
+- 📄 **同步中英文 README** — 对齐 v2.5.1（Node 22 约束锁定 + 测试计数）
+- 🧹 **测试卫生** — 修复 unit 测试在仓库根生成 `undefined*` 游离文件
 
 </details>
 

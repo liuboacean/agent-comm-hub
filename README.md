@@ -21,6 +21,9 @@
   <a href="https://glama.ai/mcp/servers/liuboacean/agent-comm-hub">
     <img src="https://glama.ai/mcp/servers/liuboacean/agent-comm-hub/badges/score.svg" alt="Glama score">
   </a>
+  <a href="https://codeguilds.dev/packages/agent-comm-hub">
+    <img src="https://img.shields.io/badge/Available_on-CodeGuilds-6366f1" alt="Available on CodeGuilds">
+  </a>
 </p>
 
 <h1 align="center">

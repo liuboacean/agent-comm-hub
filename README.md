@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/Python-3.9+-blue?logo=python" alt="Python 3.9+">
   <img src="https://img.shields.io/badge/MCP_Protocol-1.0-orange?logo=robot" alt="MCP Protocol">
   <img src="https://img.shields.io/badge/288_Tests-Passing-3fb950?logo=vitest" alt="288 Tests">
-  <img src="https://img.shields.io/badge/Zero_External_Deps-success?logo=package" alt="Zero External Deps">
+  <img src="https://img.shields.io/badge/Zero_External_Services-success?logo=server" alt="Zero External Services">
   <img src="https://img.shields.io/badge/Web_Panel-Live-7c3aed?logo=htmx" alt="Web Panel">
   <a href="https://github.com/liuboacean/agent-comm-hub/actions/workflows/ci.yml">
     <img src="https://img.shields.io/github/actions/workflow/status/liuboacean/agent-comm-hub/ci.yml?branch=master&logo=githubactions&label=CI" alt="CI">
@@ -32,7 +32,7 @@
 <p align="center">
   <strong>让 AI Agent 不再各自为战</strong><br>
   <em>实时消息 · 任务调度 · 共享记忆 · 信任进化 · Web 仪表盘</em><br>
-  <code>58 个 MCP 工具 · 零外部依赖 · 5 分钟部署</code>
+  <code>58 个 MCP 工具 · 零外部服务 · 5 分钟部署</code>
 </p>
 
 <p align="center">
@@ -122,7 +122,8 @@ print('✅ 消息已发送')
 | TypeScript SDK 方法 | **35 个** |
 | 单元测试 | **288 个 ✅** |
 | 数据库表 | **32 张** |
-| 外部依赖 | **0** |
+| client-sdk 运行时依赖 | **0（Python/TS 纯标准库）** |
+| 服务端运行时依赖 | **5 个轻量依赖**（express / better-sqlite3 / zod / eventsource / @modelcontextprotocol/sdk） |
 | 消息延迟 | **< 50ms** |
 | 部署方式 | Docker / npm / SkillHub |
 
@@ -230,7 +231,7 @@ await client.sendMessage({ to: "other-agent", content: "搞定了！" });
 | 进化引擎（经验复用） | ✅ | ❌ | ❌ | ❌ |
 | 内置 Web 面板 | ✅ | ❌ | ❌ | ❌ |
 | 审计哈希链 | ✅ | ❌ | ❌ | ❌ |
-| 零外部依赖 | ✅ | ✅ | ✅ | ❌ |
+| 零外部服务 | ✅ | ✅ | ✅ | ❌ |
 | Python + TS SDK | ✅ | ❌ | ❌ | ❌ |
 
 ---
@@ -353,8 +354,8 @@ agent-comm-hub/
 |------|--------|
 | [API 参考](docs/API_REFERENCE.md) | 开发者（HTTP/SSE/MCP 端点 + Bearer 鉴权） |
 | [编排指南](docs/advanced-orchestration-guide.md) | 搭 Pipeline 高级玩家 |
-| 进化引擎指南 | 暂未发布（TODO：计划从 A 层 `evolution-guide.md` 同步） |
-| Hermes 集成指南 | 暂未发布（TODO：计划从 A 层 `hermes-integration-guide.md` 同步） |
+| 进化引擎指南 | 实验性，欢迎 PR（计划从 A 层 `evolution-guide.md` 同步） |
+| Hermes 集成指南 | 实验性，欢迎 PR（计划从 A 层 `hermes-integration-guide.md` 同步） |
 | [DB 三层防护](docs/hub-db-split-three-layer-protection.md) | 运维/稳定性保障 |
 | [English README](docs/README_EN.md) | English speakers |
 
@@ -363,17 +364,6 @@ agent-comm-hub/
 ---
 
 ## 🆕 更新历史
-
-<details>
-<summary><strong>v2.5.1</strong> (2026-07-08) — 稳定性修复 + Node 22 约束锁定</summary>
-
-- 🐛 **`get_db_stats` 修复** — ESM 模块误用 `require("fs")` 导致 `require is not defined`，改 `import * as fs`
-- 🔄 **DB 路径容错** — `resolveDbPath` 新增空库自动回退，修复误连空库导致的记忆库/进化引擎"数据归零"假象
-- 🔒 **Node 22 锁定** — 启动脚本固定 Node 22，匹配 better-sqlite3 原生模块（Node 24 会 ABI 崩溃）
-- 🧪 **防护测试** — 新增 stdio/Hub 必须用 Node 22 的契约测试，防止被误改回 Node 24
-- 🧹 **测试卫生** — 修复 unit 测试在仓库根生成 `undefined*` 游离文件（`isValidDbPath` 守卫）
-
-</details>
 
 <details>
 <summary><strong>v3.0.22</strong> (2026-07-23) — 在线状态 / 审计归档 / 备份路径</summary>
@@ -426,6 +416,17 @@ agent-comm-hub/
 
 - 📄 **同步中英文 README** — 对齐 v2.5.1（Node 22 约束锁定 + 测试计数）
 - 🧹 **测试卫生** — 修复 unit 测试在仓库根生成 `undefined*` 游离文件
+
+</details>
+
+<details>
+<summary><strong>v2.5.1</strong> (2026-07-08) — 稳定性修复 + Node 22 约束锁定</summary>
+
+- 🐛 **`get_db_stats` 修复** — ESM 模块误用 `require("fs")` 导致 `require is not defined`，改 `import * as fs`
+- 🔄 **DB 路径容错** — `resolveDbPath` 新增空库自动回退，修复误连空库导致的记忆库/进化引擎"数据归零"假象
+- 🔒 **Node 22 锁定** — 启动脚本固定 Node 22，匹配 better-sqlite3 原生模块（Node 24 会 ABI 崩溃）
+- 🧪 **防护测试** — 新增 stdio/Hub 必须用 Node 22 的契约测试，防止被误改回 Node 24
+- 🧹 **测试卫生** — 修复 unit 测试在仓库根生成 `undefined*` 游离文件（`isValidDbPath` 守卫）
 
 </details>
 

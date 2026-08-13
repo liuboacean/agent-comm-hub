@@ -125,15 +125,17 @@ export function assignTask(taskId: string, toAgent: string, operatorId: string):
   auditLog("assign_task", operatorId, taskId, `to=${toAgent}`);
 
   pushToAgent(toAgent, {
-    type: "task_assigned",
-    content: JSON.stringify({
-      task_id: taskId,
+    event: "task_assigned",
+    task: {
+      id: task.id,
+      assigned_by: task.assigned_by,
+      assigned_to: task.assigned_to,
       description: task.description,
-      priority: task.priority,
       context: task.context,
-      from: operatorId,
-      hint: "调用 update_task_status(in_progress) 开始执行，完成后调用 update_task_status(completed) 并携带结果。",
-    }),
+      priority: task.priority,
+      status: task.status,
+      instruction: "你有一项待执行的任务，请立即处理。调用 update_task_status(in_progress) 开始执行，完成后调用 update_task_status(completed) 并携带结果。",
+    },
   });
 
   return getOne<Task>(`SELECT * FROM tasks WHERE id=?`, taskId)!;
@@ -868,15 +870,17 @@ export function acceptHandoff(
 
   // SSE 通知新负责人（任务已分配给你）
   pushToAgent(operatorId, {
-    type: "task_assigned",
-    content: JSON.stringify({
-      task_id: taskId,
+    event: "task_assigned",
+    task: {
+      id: task.id,
+      assigned_by: task.assigned_by,
+      assigned_to: task.assigned_to,
       description: task.description,
-      priority: task.priority,
       context: task.context,
-      from: oldAssignee,
-      hint: "你已接管此任务。调用 update_task_status(in_progress) 开始执行。",
-    }),
+      priority: task.priority,
+      status: task.status,
+      instruction: "你已接管此任务。调用 update_task_status(in_progress) 开始执行。",
+    },
   });
 
   return { task_id: taskId, new_assignee: operatorId };

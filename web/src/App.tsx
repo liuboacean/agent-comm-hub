@@ -8,6 +8,7 @@ import PipelineStatus from './components/PipelineStatus';
 import ThroughputChart from './components/ThroughputChart';
 import HealthPanel from './components/HealthPanel';
 import AuditStream from './components/AuditStream';
+import AuthQueue from './components/AuthQueue';
 import Layout from './components/Layout';
 
 const theme = createTheme({
@@ -40,6 +41,7 @@ function App(): React.ReactElement {
             <Route path="messages" element={<ThroughputChart />} />
             <Route path="health" element={<HealthPanel />} />
             <Route path="audit" element={<AuditStream />} />
+            <Route path="auth" element={<AuthQueue />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

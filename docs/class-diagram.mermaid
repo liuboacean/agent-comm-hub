@@ -1,0 +1,59 @@
+classDiagram
+  class AgentClient {
+    +agentId: string
+    +start() Promise~void~
+    +stop() void
+    +updateTaskStatus(taskId, status, result?, progress?) Promise~any~
+    +assignTask(to, desc, ctx?, prio?) Promise~any~
+    +requestAuthorization(op: SensitiveOp) Promise~void~
+    -routeEvent(data) void
+  }
+  class AgentRuntime {
+    -client: AgentClient
+    -execute: (task: TaskEvent) => Promise~string~
+    -inFlight: Set~string~
+    -maxConcurrent: number
+    +start() Promise~void~
+    +stop() void
+    +requestAuthorization(op: SensitiveOp) Promise~void~
+    -handleAssigned(task: TaskEvent) void
+    -handleSelfMessage(msg) void
+  }
+  class SensitiveOp {
+    +type: string
+    +description: string
+    +payload: unknown
+    +taskId: string
+  }
+  class AuthorizationService {
+    +createRequest(agentId, op) AuthRequest
+    +resolve(reqId, decision, by, reason?, grantMs?) AuthRequest
+    +list(status?) AuthRequest[]
+    +sweepExpired() void
+  }
+  class AuthRequest {
+    +id: string
+    +agent_id: string
+    +task_id: string
+    +op_type: string
+    +op_payload: string
+    +status: "pending"|"approved"|"rejected"|"expired"
+    +created_at: number
+    +expires_at: number
+    +resolved_by: string
+    +resolved_at: number
+  }
+  class AuthGrant {
+    +id: string
+    +agent_id: string
+    +op_category: string
+    +granted_by: string
+    +expires_at: number
+  }
+
+  AgentRuntime "1" *-- "1" AgentClient : 包裹
+  AgentRuntime ..> SensitiveOp : execute 内调用
+  AgentClient ..> AuthorizationService : MCP request_authorization
+  AuthorizationService "1" o-- "0..*" AuthRequest : 持久化
+  AuthorizationService "1" o-- "0..*" AuthGrant : 信任窗口
+  AuthorizationService ..> AuthRequest : 推 SSE authorization_resolved

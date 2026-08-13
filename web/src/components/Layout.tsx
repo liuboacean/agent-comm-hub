@@ -19,6 +19,7 @@ import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import HealthAndSafetyIcon from '@mui/icons-material/HealthAndSafety';
 import ArticleIcon from '@mui/icons-material/Article';
+import SecurityIcon from '@mui/icons-material/Security';
 
 const DRAWER_WIDTH = 220;
 
@@ -29,6 +30,7 @@ const NAV = [
   { label: '消息吞吐', path: '/messages', icon: <TimelineIcon /> },
   { label: '健康检查', path: '/health', icon: <HealthAndSafetyIcon /> },
   { label: '审计日志', path: '/audit', icon: <ArticleIcon /> },
+  { label: '待授权', path: '/auth', icon: <SecurityIcon /> },
 ];
 
 interface LayoutProps {

@@ -9,6 +9,11 @@
  */
 
 import { EventEmitter } from "events";
+import { AUTH_OP_TYPES, type SensitiveOp, type AuthStatus, type AuthOpType } from "./types.js";
+
+// 重新导出共享类型，方便宿主从 agent-client 单点引入
+export { AUTH_OP_TYPES } from "./types.js";
+export type { SensitiveOp, AuthStatus, AuthOpType } from "./types.js";
 
 // ─── 类型定义 ──────────────────────────────────────────
 export interface AgentClientOptions {
@@ -51,6 +56,31 @@ export interface TaskUpdateEvent {
   timestamp:  number;
 }
 
+// ─── 授权相关错误类型（Feature B）──────────────────────
+// AgentRuntime 的 execute() 捕获这些错误以决定“不执行该敏感操作”。
+
+/** 人类拒绝了该敏感操作的授权 */
+export class AuthorizationRejected extends Error {
+  public readonly op: SensitiveOp;
+  public readonly reason?: string;
+  constructor(op: SensitiveOp, reason?: string) {
+    super(`授权被拒: ${op.type} - ${op.description}${reason ? ` (${reason})` : ""}`);
+    this.name = "AuthorizationRejected";
+    this.op = op;
+    this.reason = reason;
+  }
+}
+
+/** 授权请求在 TTL 内未处理，已过期（deny-by-default） */
+export class AuthorizationExpired extends Error {
+  public readonly op: SensitiveOp;
+  constructor(op: SensitiveOp) {
+    super(`授权过期: ${op.type} - ${op.description}`);
+    this.name = "AuthorizationExpired";
+    this.op = op;
+  }
+}
+
 // ─── AgentClient 类 ────────────────────────────────────
 export class AgentClient extends EventEmitter {
   private opts:       AgentClientOptions;
@@ -61,6 +91,15 @@ export class AgentClient extends EventEmitter {
   private initPromise: Promise<void> | null = null;  // 并发安全
   private _apiToken:  string = "";  // REST API 认证 token
 
+  // ── Feature B：在途授权请求 Promise 映射 ──────────────
+  // reqId → { resolve, reject, op }，由授权决议/过期事件解锁
+  private pendingAuth = new Map<string, {
+    resolve: () => void;
+    reject: (e: Error) => void;
+    op: SensitiveOp;
+  }>();
+  private pendingAuthTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
   constructor(opts: AgentClientOptions) {
     super();
     this.opts = {
@@ -68,6 +107,11 @@ export class AgentClient extends EventEmitter {
       mcpTimeout:     15000,
       ...opts,
     };
+  }
+
+  /** Agent 唯一标识（供 AgentRuntime 等宿主代码读取） */
+  get agentId(): string {
+    return this.opts.agentId;
   }
 
   // ── 启动：MCP 握手 + 建立 SSE 连接 ──────────────────
@@ -83,6 +127,16 @@ export class AgentClient extends EventEmitter {
     this.initialized = false;
     this.sessionId = null;
     this.initPromise = null;
+
+    // 拒绝所有在途授权 Promise，避免悬挂（见设计文档 §10 Promise 泄漏）
+    for (const [reqId, pending] of this.pendingAuth.entries()) {
+      const timer = this.pendingAuthTimers.get(reqId);
+      if (timer) clearTimeout(timer);
+      pending.reject(new AuthorizationExpired(pending.op));
+    }
+    this.pendingAuth.clear();
+    this.pendingAuthTimers.clear();
+
     this.sse?.close();
     console.log(`[${this.opts.agentId}] 已停止`);
   }
@@ -277,6 +331,46 @@ export class AgentClient extends EventEmitter {
           await this.opts.onMessage?.(msg);
         }
         break;
+
+      // ── Feature B：授权流 ──────────────────────────────
+      // authorization_requested：透明记录“已挂起”，无需解锁 Promise
+      // （Promise 已由 requestAuthorization 创建并登记在 pendingAuth 映射）
+      case "authorization_requested":
+        this.emit("authorization_requested", data.request);
+        break;
+
+      // authorization_resolved：解锁对应 reqId 的 Promise
+      // decision=approved → resolve；rejected/expired → reject（分别抛对应错误）
+      case "authorization_resolved":
+        this.completeAuth(data.request_id, data.decision, data.reason);
+        break;
+    }
+  }
+
+  /**
+   * 解锁一个在途授权 Promise（由 routeEvent 的 authorization_resolved 调用）
+   * @param reqId 授权请求 ID
+   * @param decision approved | rejected | expired
+   * @param reason 被拒原因（可选）
+   */
+  private completeAuth(reqId: string, decision: string, reason?: string): void {
+    const pending = this.pendingAuth.get(reqId);
+    if (!pending) return; // 已解锁或未知请求，幂等忽略
+
+    this.pendingAuth.delete(reqId);
+    const timer = this.pendingAuthTimers.get(reqId);
+    if (timer) {
+      clearTimeout(timer);
+      this.pendingAuthTimers.delete(reqId);
+    }
+
+    if (decision === "approved") {
+      pending.resolve();
+    } else if (decision === "rejected") {
+      pending.reject(new AuthorizationRejected(pending.op, reason));
+    } else {
+      // expired 或其他非批准结果统一按过期处理
+      pending.reject(new AuthorizationExpired(pending.op));
     }
   }
 
@@ -313,6 +407,59 @@ export class AgentClient extends EventEmitter {
   }
 
   // ── 对外 API ─────────────────────────────────────────
+
+  /**
+   * Feature B：向 Hub 提交一次操作级授权请求并挂起等待。
+   *
+   * 流程：
+   *   1. 调 MCP `request_authorization` 建 pending 行并拿到 request_id；
+   *   2. 登记 reqId→{resolve,reject,op} 映射，返回 Promise；
+   *   3. Hub 经 SSE 回推 `authorization_resolved`（approved/rejected/expired），
+   *      由 routeEvent → completeAuth 解锁该 Promise；
+   *   4. 内置 TTL 超时（AUTH_REQUEST_TTL_MS，默认 10min）兜底：
+   *      超时未决议则 reject(new AuthorizationExpired(op))，避免 Promise 永久悬挂。
+   *
+   * 仅 approved 解锁（resolve）；rejected/expired 抛对应错误，由宿主 execute() 捕获。
+   *
+   * @param op 敏感操作描述（type / description / payload / taskId）
+   * @returns 批准后 resolve；被拒/过期 reject（AuthorizationRejected / AuthorizationExpired）
+   */
+  async requestAuthorization(op: SensitiveOp): Promise<void> {
+    const args: Record<string, unknown> = {
+      op_type: op.type,
+      description: op.description,
+    };
+    if (op.payload !== undefined) args.op_payload = JSON.stringify(op.payload);
+    if (op.taskId) args.task_id = op.taskId;
+
+    const res = await this.callTool("request_authorization", args);
+    const reqId = res?.request_id as string | undefined;
+    if (!reqId) {
+      throw new Error("request_authorization 未返回 request_id，无法挂起等待");
+    }
+
+    // 若 Hub 直接通过信任窗口自动批准（AUTH_AUTO_APPROVE），立即 resolve
+    if (res?.status === "approved") {
+      this.completeAuth(reqId, "approved");
+      return;
+    }
+
+    const ttlMs = parseInt(process.env.AUTH_REQUEST_TTL_MS ?? "600000", 10);
+
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const pending = this.pendingAuth.get(reqId);
+        if (pending) {
+          this.pendingAuth.delete(reqId);
+          this.pendingAuthTimers.delete(reqId);
+          pending.reject(new AuthorizationExpired(pending.op));
+        }
+      }, ttlMs);
+
+      this.pendingAuthTimers.set(reqId, timer);
+      this.pendingAuth.set(reqId, { resolve, reject, op });
+    });
+  }
 
   /** 发送消息给另一个 Agent */
   async sendMessage(to: string, content: string, metadata?: Record<string, unknown>) {

@@ -1,28 +1,41 @@
 /**
  * hermes-integration.ts
- * Hermes 侧接入示例（Feature A：AgentRuntime 自主执行闭环）
+ * Hermes 侧接入（Feature A：AgentRuntime 自主执行闭环）
  *
  * Hermes 启动后会自动：
  *  - 连接 Hub 的 SSE 端点
- *  - 用 AgentRuntime 包裹 AgentClient，收到任务后自主执行（无需人工干预）
+ *  - 用 AgentRuntime 包裹 HostTaskBridge，收到任务后自主执行（无需人工干预）
  *  - 汇报执行进度和结果
- *  - execute 内演示 requestAuthorization：敏感操作先征求人类授权
- *  - 断线后自动重连
+ *  - bridge 内置敏感操作授权挂起（Feature B：人类在环）
+ *  - 断线后 AgentClient 自动重连
+ *
+ * 关键变更（v3.0.23）：把原先的「setTimeout 模拟执行」替换为
+ *   AbstractHostTaskBridge —— 真实执行逻辑收敛到 HermesTaskBridge.runTask()
+ *   这一个 override 点，进度回报与授权判定由基类统一处理。
  */
-import { AgentClient, type TaskEvent, type MessageEvent, AuthorizationRejected, AuthorizationExpired } from "../client-sdk/agent-client.js";
+import {
+  AgentClient,
+  type TaskEvent,
+  type MessageEvent,
+  AuthorizationRejected,
+  AuthorizationExpired,
+} from "../client-sdk/agent-client.js";
 import { runAutonomousLoop, type AgentRuntime } from "../client-sdk/runtime.js";
+import {
+  AbstractHostTaskBridge,
+  type ProgressReporter,
+} from "./adapters/host-task-bridge.js";
 
 const HERMES_ID = process.env.HERMES_ID ?? "hermes";
-const HUB_URL   = process.env.HUB_URL   ?? "http://localhost:3100";
+const HUB_URL = process.env.HUB_URL ?? "http://localhost:3100";
 
 // ─── 1. 创建 Hermes 客户端 ─────────────────────────────
 const hermes = new AgentClient({
   agentId: HERMES_ID,
-  hubUrl:  HUB_URL,
-  // ⚠️ 不再在 opts 里写 onTaskAssigned —— 由 AgentRuntime 接管闭环
+  hubUrl: HUB_URL,
 
   // ── 收到普通消息 ───────────────────────────────────
-  onMessage: async (msg) => {
+  onMessage: async (msg: MessageEvent) => {
     console.log(`\n[Hermes] 💬 来自 ${msg.from_agent}: ${msg.content}`);
     if (msg.type === "ack") {
       console.log(`[Hermes] 收到确认消息，无需回复`);
@@ -42,47 +55,56 @@ const hermes = new AgentClient({
   },
 });
 
-// ─── 2. 任务执行核心逻辑（宿主注入 AgentRuntime）──────────
-async function executeHermesTask(task: TaskEvent): Promise<string> {
-  const { description, context, id } = task;
-
-  // 演示 requestAuthorization：遇到敏感操作先征求人类授权。
-  // 若人类拒绝 / 超时，抛 AuthorizationRejected / AuthorizationExpired，任务标记 failed 并优雅中止。
-  const sensitive = /删除|撤销|发送外部邮件|付费|revoke|delete|cancel|schema/i.test(description);
-  if (sensitive) {
-    await runtime.requestAuthorization({
-      type: "delete_data",
-      description: `Hermes 拟执行敏感操作: ${description}`,
-      payload: { description, context },
-      taskId: id,
-    });
+// ─── 2. 宿主执行桥：真实逻辑收敛到 runTask() ───────────
+/**
+ * Hermes 的任务执行桥。
+ * 基类已处理：敏感操作授权挂起 + 进度骨架（10% 起点）。
+ * 这里只实现「Hermes 到底怎么干活」—— 替换 executeViaHost 即可接入真实能力。
+ */
+class HermesTaskBridge extends AbstractHostTaskBridge {
+  /**
+   * ★ 宿主真实执行接缝 ★
+   * 当前为安全占位（结构化回显，保证可运行）。
+   * 接入真实能力时，把下面这段替换为对 Hermes 宿主运行时的调用，例如：
+   *   const ctx = await this.host.loadContext(task);
+   *   const out = await this.host.runLLM(ctx);          // 调 LLM / MCP 工具
+   * 记得用 report(p, msg) 在关键阶段回报进度。
+   */
+  private async executeViaHost(task: TaskEvent): Promise<string> {
+    // TODO(host): 替换为 Hermes 宿主的真实执行器调用。
+    await new Promise((r) => setTimeout(r, 300)); // 模拟宿主调用耗时（删除此行）
+    return JSON.stringify(
+      {
+        summary: `Hermes 完成了任务：${task.description.slice(0, 80)}`,
+        data: { processed: true, context: task.context },
+        timestamp: new Date().toISOString(),
+        note: "占位执行结果；请接入 Hermes 宿主真实能力。",
+      },
+      null,
+      2
+    );
   }
 
-  // ── 中途汇报进度示例 ───────────────────────────────
-  await hermes.updateTaskStatus(id, "in_progress", "正在收集数据...", 20);
-
-  // TODO: 在这里对接 Hermes 的实际能力：
-  //  - 调用 LLM（如 Claude API）/ 执行 MCP 工具 / 访问数据库或外部 API / 运行脚本
-  await new Promise(r => setTimeout(r, 1500));
-  await hermes.updateTaskStatus(id, "in_progress", "正在分析处理...", 60);
-
-  await new Promise(r => setTimeout(r, 1500));
-  await hermes.updateTaskStatus(id, "in_progress", "正在生成报告...", 90);
-
-  await new Promise(r => setTimeout(r, 500));
-
-  return JSON.stringify({
-    summary:  `Hermes 完成了任务：${description.slice(0, 80)}`,
-    data:     { processed: true, context },
-    timestamp: new Date().toISOString(),
-  }, null, 2);
+  protected async runTask(task: TaskEvent, report: ProgressReporter): Promise<string> {
+    report(30, "收集数据");
+    report(60, "分析处理");
+    const output = await this.executeViaHost(task);
+    report(90, "生成报告");
+    return output;
+  }
 }
 
 // ─── 3. 用 AgentRuntime 包裹，获得自主执行能力 ─────────
-const runtime: AgentRuntime = runAutonomousLoop(hermes, executeHermesTask, {
+let runtime: AgentRuntime;
+
+const bridge = new HermesTaskBridge({
+  client: hermes,
+  requestAuth: (op) => runtime.requestAuthorization(op),
+});
+
+runtime = runAutonomousLoop(hermes, (task) => bridge.execute(task), {
   maxConcurrent: 4,
   requeueIncomplete: true,
-  // 可选：指向自己的 new_message 反应
   onSelfMessage: async (msg: MessageEvent) => {
     console.log(`\n[Hermes] 🪞 收到指向自己的消息: ${msg.content}`);
   },
@@ -115,4 +137,4 @@ async function processTaskResult(taskId: string, result: string): Promise<void> 
   console.log(`[Hermes] 处理任务 ${taskId} 的结果...`);
 }
 
-export { hermes, runtime };
+export { hermes, runtime, bridge };

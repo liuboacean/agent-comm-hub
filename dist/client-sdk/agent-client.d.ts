@@ -8,6 +8,9 @@
  *  3. 事件路由（new_message / task_assigned / task_updated / pending_messages）
  */
 import { EventEmitter } from "events";
+import { type SensitiveOp } from "./types.js";
+export { AUTH_OP_TYPES } from "./types.js";
+export type { SensitiveOp, AuthStatus, AuthOpType } from "./types.js";
 export interface AgentClientOptions {
     agentId: string;
     hubUrl: string;
@@ -44,6 +47,17 @@ export interface TaskUpdateEvent {
     updated_by: string;
     timestamp: number;
 }
+/** 人类拒绝了该敏感操作的授权 */
+export declare class AuthorizationRejected extends Error {
+    readonly op: SensitiveOp;
+    readonly reason?: string;
+    constructor(op: SensitiveOp, reason?: string);
+}
+/** 授权请求在 TTL 内未处理，已过期（deny-by-default） */
+export declare class AuthorizationExpired extends Error {
+    readonly op: SensitiveOp;
+    constructor(op: SensitiveOp);
+}
 export declare class AgentClient extends EventEmitter {
     private opts;
     private sse;
@@ -52,7 +66,11 @@ export declare class AgentClient extends EventEmitter {
     private initialized;
     private initPromise;
     private _apiToken;
+    private pendingAuth;
+    private pendingAuthTimers;
     constructor(opts: AgentClientOptions);
+    /** Agent 唯一标识（供 AgentRuntime 等宿主代码读取） */
+    get agentId(): string;
     start(): Promise<void>;
     stop(): void;
     /**
@@ -79,8 +97,32 @@ export declare class AgentClient extends EventEmitter {
     private connectSSE;
     private bindSSEEvents;
     private routeEvent;
+    /**
+     * 解锁一个在途授权 Promise（由 routeEvent 的 authorization_resolved 调用）
+     * @param reqId 授权请求 ID
+     * @param decision approved | rejected | expired
+     * @param reason 被拒原因（可选）
+     */
+    private completeAuth;
     private callTool;
     private _callTool;
+    /**
+     * Feature B：向 Hub 提交一次操作级授权请求并挂起等待。
+     *
+     * 流程：
+     *   1. 调 MCP `request_authorization` 建 pending 行并拿到 request_id；
+     *   2. 登记 reqId→{resolve,reject,op} 映射，返回 Promise；
+     *   3. Hub 经 SSE 回推 `authorization_resolved`（approved/rejected/expired），
+     *      由 routeEvent → completeAuth 解锁该 Promise；
+     *   4. 内置 TTL 超时（AUTH_REQUEST_TTL_MS，默认 10min）兜底：
+     *      超时未决议则 reject(new AuthorizationExpired(op))，避免 Promise 永久悬挂。
+     *
+     * 仅 approved 解锁（resolve）；rejected/expired 抛对应错误，由宿主 execute() 捕获。
+     *
+     * @param op 敏感操作描述（type / description / payload / taskId）
+     * @returns 批准后 resolve；被拒/过期 reject（AuthorizationRejected / AuthorizationExpired）
+     */
+    requestAuthorization(op: SensitiveOp): Promise<void>;
     /** 发送消息给另一个 Agent */
     sendMessage(to: string, content: string, metadata?: Record<string, unknown>): Promise<any>;
     /** 分配任务给另一个 Agent */

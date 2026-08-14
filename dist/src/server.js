@@ -32,6 +32,7 @@ import { setMessageRateLimiter } from "./tools/message.js";
 import { createDashboardRouter } from "./web/server.js";
 import { startBackupScheduler, stopBackupScheduler } from "./backup.js";
 import { HUB_VERSION } from "./version.js";
+import { authorizationService } from "./authorization.js";
 // ═══════════════════════════════════════════════════════════════
 // Phase 6: 配置外部化（零依赖，所有配置有默认值）
 // ═══════════════════════════════════════════════════════════════
@@ -52,6 +53,11 @@ const config = {
     tokenExpireDays: parseInt(process.env.TOKEN_EXPIRE_DAYS ?? "90", 10),
     uploadDir: process.env.UPLOAD_DIR || join(process.cwd(), "uploads"),
     maxFileSize: parseInt(process.env.MAX_FILE_SIZE ?? "10485760", 10), // 10MB
+    // ─── Feature A/B 配置（与设计文档 §8.5 对齐；SDK 侧读取同名 env 作为默认值）──
+    authRequestTtlMs: parseInt(process.env.AUTH_REQUEST_TTL_MS ?? "600000", 10), // 授权 TTL 默认 10min
+    authAutoApprove: process.env.AUTH_AUTO_APPROVE === "true", // 默认关闭（deny-by-default）
+    runtimeMaxConcurrent: parseInt(process.env.RUNTIME_MAX_CONCURRENT ?? "4", 10), // AgentRuntime 并发上限
+    runtimeLoopGuardMs: parseInt(process.env.RUNTIME_LOOP_GUARD_MS ?? "30000", 10), // 防自杀循环判定窗口
 };
 const app = express();
 app.use(express.json());
@@ -212,6 +218,32 @@ app.get("/events/:agent_id", optionalAuthMiddleware, (req, res) => {
 //     解决「audit_log 无限增长、归档机制空转」问题。audit_log 为防篡改表，不物理删除。
 // ═══════════════════════════════════════════════════════════════
 let maintenanceTimer = null;
+// ─── Feature B: 授权过期清扫定时器 ─────────────────────
+let authSweepTimer = null;
+function startAuthSweep() {
+    if (authSweepTimer)
+        return;
+    // 每 30s 扫描一次过期授权请求（TTL 默认 10min，30s 粒度足够及时）
+    authSweepTimer = setInterval(() => {
+        try {
+            const n = authorizationService.sweepExpired();
+            if (n > 0) {
+                logger.info("auth_sweep_expired", { module: "authorization", expired: n });
+            }
+        }
+        catch (err) {
+            logError("auth_sweep_failed", err, { module: "authorization" });
+        }
+    }, 30_000);
+    logger.info("auth_sweep_started", { module: "authorization", interval_ms: 30_000 });
+}
+function stopAuthSweep() {
+    if (authSweepTimer) {
+        clearInterval(authSweepTimer);
+        authSweepTimer = null;
+        logger.info("auth_sweep_stopped", { module: "authorization" });
+    }
+}
 function runMaintenanceOnce() {
     try {
         archiveOldAuditLogs(90);
@@ -436,6 +468,55 @@ app.get("/api/consumed", authMiddleware, (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 // P1-4: 激活编排层 + P2-8: 限流 — 初始化
 // ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// Feature B: 人在环授权队列 — 仪表盘 REST 端点（登录态鉴权）
+// ═══════════════════════════════════════════════════════════════
+// GET /api/auth-requests?status=pending — 仪表盘轮询待授权列表
+app.get("/api/auth-requests", requireAdminApi, (req, res) => {
+    try {
+        const status = req.query.status;
+        const valid = ["pending", "approved", "rejected", "expired"];
+        if (status && !valid.includes(status)) {
+            res.status(400).json({ error: `Invalid status: ${status}` });
+            return;
+        }
+        const requests = authorizationService.list(status);
+        res.json({ requests, count: requests.length });
+    }
+    catch (err) {
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+});
+// POST /api/auth-requests/:id/resolve — 批准/拒绝（人类操作者主路径）
+app.post("/api/auth-requests/:id/resolve", requireAdminApi, (req, res) => {
+    const { decision, reason, grant_window_ms } = req.body ?? {};
+    if (decision !== "approved" && decision !== "rejected") {
+        res.status(400).json({ error: "decision 必须为 'approved' 或 'rejected'" });
+        return;
+    }
+    if (decision === "approved" && grant_window_ms !== undefined) {
+        const ms = Number(grant_window_ms);
+        if (!Number.isFinite(ms) || ms <= 0) {
+            res.status(400).json({ error: "grant_window_ms 必须为正整数（ms）" });
+            return;
+        }
+    }
+    try {
+        const by = req.auth?.agent?.agentId ?? "admin";
+        const reqRow = authorizationService.resolve(req.params.id, decision, by, reason, grant_window_ms !== undefined ? Number(grant_window_ms) : undefined);
+        res.json({
+            request_id: reqRow.id,
+            status: reqRow.status,
+            decision: reqRow.status === "approved" ? "approved" : "rejected",
+            resolved_by: reqRow.resolved_by,
+        });
+    }
+    catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // 已决议的请求返回 409，其余 500
+        res.status(msg.includes("已被决议") ? 409 : 500).json({ error: msg });
+    }
+});
 const activationOrch = new ActivationOrchestrator();
 activationOrch.replayFromAudit(); // 从 audit_log 恢复状态
 activationOrch.seedFromDb(); // D2：从 agents 表 seed 激活态（DB 为权威，覆盖 audit 回放）
@@ -751,6 +832,7 @@ async function gracefulShutdown(signal) {
     stopHeartbeatMonitor();
     stopBackupScheduler();
     stopMaintenanceScheduler();
+    stopAuthSweep();
     stopDedupCleanup();
     stopCleanup();
     stopZombieCleanup();
@@ -857,6 +939,8 @@ httpServer = app.listen(config.port, () => {
     startBackupScheduler(config.dbPath);
     // 启动维护调度（审计日志自动归档 + 行数上限保护）
     startMaintenanceScheduler();
+    // Feature B: 启动授权过期清扫
+    startAuthSweep();
     // 启动去重缓存 TTL 清理（15min）
     startDedupCleanup();
     // Phase 6: 启动定时清理（过期 Token / Dedup / Consumed）

@@ -166,6 +166,39 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_tasks_assigned_to  ON tasks(assigned_to, status);
   CREATE INDEX IF NOT EXISTS idx_consumed_log       ON consumed_log(agent_id, resource);
 `);
+// ─── Feature B: 人在环授权队列 ──────────────────────────
+// auth_requests：Agent 执行中遇到的敏感操作授权请求；auth_grants：可选的信任窗口。
+// 幂等建表（CREATE TABLE IF NOT EXISTS），老库自动迁移。
+db.exec(`
+  CREATE TABLE IF NOT EXISTS auth_requests (
+    id              TEXT PRIMARY KEY,                 -- req_<timestamp>_<rand>
+    agent_id        TEXT NOT NULL,                    -- 请求方 Agent
+    task_id         TEXT,                             -- 关联任务（可空）
+    op_type         TEXT NOT NULL,                    -- 见 AUTH_OP_TYPES
+    op_payload      TEXT,                             -- JSON：具体操作参数，供人类判定
+    status          TEXT NOT NULL DEFAULT 'pending',  -- pending|approved|rejected|expired
+    created_at      INTEGER NOT NULL,
+    expires_at      INTEGER NOT NULL,                 -- created_at + AUTH_REQUEST_TTL_MS
+    resolved_by     TEXT,                             -- 决议人（人类操作者 ID / admin）
+    resolved_at     INTEGER,
+    decision_reason TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_auth_status ON auth_requests(status);
+  CREATE INDEX IF NOT EXISTS idx_auth_agent  ON auth_requests(agent_id);
+
+  -- 可选：信任窗口（时间窗口信任粒度，见设计文档 §9 决策 3）
+  CREATE TABLE IF NOT EXISTS auth_grants (
+    id          TEXT PRIMARY KEY,
+    agent_id    TEXT NOT NULL,
+    op_category TEXT NOT NULL,                        -- 类目级信任（如 'external_api'）
+    granted_by  TEXT NOT NULL,
+    granted_at  INTEGER NOT NULL,
+    expires_at  INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_grant_agent_cat ON auth_grants(agent_id, op_category);
+`);
 // ─── SSE 事件日志（D1）：全局单调 seq，支持重连精确补发 + 首连补发 ──
 // delivered=0 表示尚未成功投递，用于首连补发；id 即 SSE 的 Last-Event-ID
 db.exec(`

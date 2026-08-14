@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.24] - 2026-08-14 — 宿主执行器闭环收口（HostExecutor 注入）
+
+### Changed (宿主接入收口)
+- **真实宿主执行器（HostExecutor）**：新增 `client-sdk/adapters/host-executor.ts`，提供 `LlmHostExecutor`（直连 Anthropic/OpenAI，需 `HOST_LLM_API_KEY`）与 `HttpHostExecutor`（POST 到 `HOST_EXEC_ENDPOINT`）两套参考实现；`defaultHostExecutor()` 按环境变量自动二选一；`AbstractHostTaskBridge` 新增可注入 `executor` 字段（默认 `defaultHostExecutor()`）
+- **消灭 setTimeout 占位**：WorkBuddy / Hermes 桥的 `runTask()` 改为委托 `this.executor.execute(task, report)`，任务到达即触发宿主真实能力，「任务派发 → Agent 自动干活 → 回写结果」真正闭环
+- **文档**：`docs/HOST_INTEGRATION.md` §4 重写为 HostExecutor 注入模型 + 环境变量表 + 自定义执行器示例
+
 ## [3.0.23] - 2026-08-14 — Agent 自主执行闭环 + 人在环授权
 
 ### Added (Feature A — Agent 自主执行闭环)

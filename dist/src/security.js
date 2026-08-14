@@ -160,6 +160,10 @@ export const TOOL_PERMISSIONS = {
     // v2.3 Phase 3.2: 数据库维护
     get_db_stats: "admin",
     archive_data: "admin",
+    // Feature B: 操作级人在环授权队列
+    request_authorization: "member", // Agent 提交敏感操作授权
+    list_authorization_requests: "member", // 调试/仪表盘查询
+    resolve_authorization: "admin", // 决议是敏感动作，仅 admin（主路径为仪表盘 REST）
 };
 /**
  * 检查工具调用权限

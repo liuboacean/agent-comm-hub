@@ -6,6 +6,7 @@ import { registerEvolutionTools } from "./tools/evolution.js";
 import { registerOrchestratorTools } from "./tools/orchestrator.js";
 import { registerSecurityTools } from "./tools/security.js";
 import { registerFileTools } from "./tools/file.js";
+import { registerAuthorizationTools } from "./tools/authorization.js";
 /**
  * 注册所有 MCP 工具
  * @param server McpServer 实例
@@ -20,5 +21,6 @@ export function registerTools(server, authContext) {
     registerOrchestratorTools(server, authContext);
     registerSecurityTools(server, authContext);
     registerFileTools(server, authContext);
+    registerAuthorizationTools(server, authContext);
 }
 //# sourceMappingURL=tools.js.map

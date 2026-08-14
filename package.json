@@ -1,0 +1,44 @@
+{
+  "name": "agent-comm-hub",
+  "version": "3.0.24",
+  "description": "Production-grade multi-agent communication infrastructure via MCP + SSE",
+  "type": "module",
+  "engines": {
+    "node": ">=22 <23"
+  },
+  "license": "MIT",
+  "main": "dist/src/stdio.js",
+  "scripts": {
+    "build": "tsc && cp package.json dist/package.json",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/src/server.js",
+    "stdio": "node dist/src/stdio.js",
+    "test": "tsx scripts/test-e2e.ts",
+    "test:unit": "vitest run --coverage",
+    "test:unit:watch": "vitest",
+    "web": "cd web && npx vite build && cd .. && tsx src/server.ts",
+    "docs:sync": "tsx scripts/sync-docs.ts",
+    "docs:sync:dry": "tsx scripts/sync-docs.ts --dry-run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.10.2",
+    "better-sqlite3": "^11.9.1",
+    "eventsource": "^4.1.0",
+    "express": "^4.19.2",
+    "zod": "^3.23.8"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3"
+    ]
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^4.17.21",
+    "@types/node": "^24.0.0",
+    "@vitest/coverage-v8": "^4.1.8",
+    "tsx": "^4.22.4",
+    "typescript": "^5.4.5",
+    "vitest": "^4.1.8"
+  }
+}

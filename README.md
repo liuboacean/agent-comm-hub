@@ -366,6 +366,15 @@ agent-comm-hub/
 ## 🆕 更新历史
 
 <details>
+<summary><strong>v3.0.24</strong> (2026-08-14) — 宿主执行器闭环收口（HostExecutor 注入）</summary>
+
+- ⚡ **真实宿主执行器（HostExecutor）** — 新增 `client-sdk/adapters/host-executor.ts`，提供 `LlmHostExecutor` / `HttpHostExecutor` 参考实现，`defaultHostExecutor()` 按环境变量自动选择；`AbstractHostTaskBridge` 新增可注入 `executor` 字段
+- 🔧 **消灭 setTimeout 占位** — WorkBuddy / Hermes 桥 `runTask()` 委托 `this.executor.execute()`，任务到达即触发宿主真实能力，自主执行闭环真正打通
+- 📝 **文档** — `docs/HOST_INTEGRATION.md` §4 重写，含 HostExecutor 注入模型与自定义执行器示例
+
+</details>
+
+<details>
 <summary><strong>v3.0.23</strong> (2026-08-14) — Agent 自主执行闭环 + 人在环授权</summary>
 
 - 🤖 **Feature A：Agent 自主执行闭环** — 新增 `AgentRuntime`（client-sdk/runtime.ts），自动驱动 `in_progress → execute() → completed/failed`，含 inFlight 去重 / 崩溃恢复 / loopGuard，消灭人工「传话」

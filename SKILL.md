@@ -1,7 +1,7 @@
 ---
 name: agent-comm-hub
 description: "本地多智能体通信 Hub（MCP stdio / HTTP-SSE），提供消息、任务编排、共享记忆、进化引擎，暴露 58 个 MCP 工具 + Web 管理面板"
-version: "3.0.23"
+version: "3.0.24"
 category: autonomous-ai-agents
 triggers:
   - "agent-comm-hub"
@@ -19,7 +19,7 @@ triggers:
 
 # Agent Communication Hub
 
-> 多智能体消息转发与上下文共享中间件 — **v3.0.23**
+> 多智能体消息转发与上下文共享中间件 — **v3.0.24**
 
 让两个或多个独立 AI 智能体之间实现**实时双向通信**和**上下文自动同步**。基于 MCP 协议 + stdio 模式，消息本地持久化，延迟 < 50ms。
 
@@ -303,6 +303,12 @@ inbox → assigned → [waiting] → in_progress → completed / failed / cancel
 > 初始分数 50，公式：`base(50) + verified_capabilities*3 + approved_strategies*2 + positive_feedback*1 - negative_feedback*2`，clamp(0,100)。
 
 ## 版本历史
+
+### v3.0.24 — 宿主执行器闭环收口（HostExecutor 注入）
+| 类别 | 内容 | 说明 |
+|------|------|------|
+| 宿主执行 | HostExecutor 契约 + 参考实现 | 新增 `client-sdk/adapters/host-executor.ts`（`LlmHostExecutor` / `HttpHostExecutor` / `defaultHostExecutor()`）；`AbstractHostTaskBridge` 可注入 `executor` |
+| 闭环 | 消灭 setTimeout 占位 | WorkBuddy / Hermes 桥 `runTask()` 委托 `this.executor.execute()`，任务到达即触发宿主真实能力 |
 
 ### v3.0.x（安全加固）
 | 类别 | 内容 | 说明 |

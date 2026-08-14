@@ -1,7 +1,7 @@
 # ACH 增量架构设计：自主 Agent 执行闭环 + 操作级人在环授权队列
 
 > 版本：设计稿 v1（design only，待用户确认后交付工程师实现）
-> 仓库：`agent-comm-hub`（当前 v3.0.22，TS + better-sqlite3 + SSE + Express + MUI 前端，零外部服务）
+> 仓库：`agent-comm-hub`（当前 v3.0.23，TS + better-sqlite3 + SSE + Express + MUI 前端，零外部服务）
 > 设计依据：已逐项核对真实代码（`client-sdk/agent-client.ts`、`src/orchestrator.ts`、`src/sse.ts`、`src/tools.ts`、`src/db.ts`、`src/security.ts`、`web/src/App.tsx`、`client-sdk/*-integration.ts`）。
 
 ---

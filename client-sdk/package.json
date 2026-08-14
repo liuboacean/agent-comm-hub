@@ -3,7 +3,7 @@
   "version": "2.5.1",
   "description": "Production-grade multi-agent communication client SDK for Agent Communication Hub — zero external dependencies",
   "type": "module",
-  "main": "agent-client.js",
+  "main": "agent-client.ts",
   "types": "agent-client.d.ts",
   "license": "MIT",
   "author": "liuboacean",
@@ -24,9 +24,8 @@
     "node": ">=18.0.0"
   },
   "files": [
-    "agent-client.js",
+    "agent-client.ts",
     "agent-client.d.ts",
-    "agent-client.js.map",
     "README.md"
   ]
 }

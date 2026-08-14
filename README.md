@@ -366,6 +366,15 @@ agent-comm-hub/
 ## 🆕 更新历史
 
 <details>
+<summary><strong>v3.0.23</strong> (2026-08-14) — Agent 自主执行闭环 + 人在环授权</summary>
+
+- 🤖 **Feature A：Agent 自主执行闭环** — 新增 `AgentRuntime`（client-sdk/runtime.ts），自动驱动 `in_progress → execute() → completed/failed`，含 inFlight 去重 / 崩溃恢复 / loopGuard，消灭人工「传话」
+- 🔐 **Feature B：人在环授权队列** — 新增操作级授权（`auth_requests` 表 + `request_authorization`/`resolve_authorization` 工具，deny-by-default，TTL 10min）+ Web `AuthQueue` 面板，敏感操作一键批准/拒绝
+- 🧹 **清理陈旧产物** — 移除 `client-sdk/` 下 3 个 5 月旧编译 `.js`（`agent-client.js` / `hermes-integration.js` / `workbuddy-integration.js`）及其 `.map`，修正 `client-sdk/package.json` 入口引用
+
+</details>
+
+<details>
 <summary><strong>v3.0.22</strong> (2026-07-23) — 在线状态 / 审计归档 / 备份路径</summary>
 
 - 🟢 **在线状态统一判定** — 新增 `isAgentOnline()` =（存在 SSE 实时连接）**或**（心跳 90s 内）；`get_online_agents`、派单候选排序、`/health/detailed`、`/api/agents`、指标全部改用统一判定，SSE 连着即在线、可派单

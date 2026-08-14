@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.0.23] - 2026-08-14 — Agent 自主执行闭环 + 人在环授权
+
+### Added (Feature A — Agent 自主执行闭环)
+- **`AgentRuntime` 运行时原语**（`client-sdk/runtime.ts`）：包裹 `AgentClient`，自动驱动 `in_progress → execute() → completed/failed`，内置 inFlight 去重、崩溃恢复、loopGuard，消灭 Agent 间人工「传话」
+- **`runAutonomousLoop` 工厂**：宿主一行接入即可让 Agent 自动消费任务事件并自循环
+
+### Added (Feature B — 人在环授权队列)
+- **操作级授权**：`auth_requests` 表 + `request_authorization` / `resolve_authorization` / `list_authorization_requests` 工具，deny-by-default，TTL 10min
+- **Web `AuthQueue` 面板**：待授权操作实时队列，用户一键批准 / 拒绝
+- **SSE 事件推送**授权请求；宿主侧 `AgentClient.requestAuthorization(op)` 阻塞等待决议
+
+### Chore
+- 清理 `client-sdk/` 下 3 个 5 月陈旧编译产物（`agent-client.js` / `hermes-integration.js` / `workbuddy-integration.js`）及其 `.map`，修正 `client-sdk/package.json` 的 `main` / `files` 入口引用；vitest 的 `.js→.ts` 别名已旁路这些文件，移除不影响构建与 312 项测试
+
 ## [3.0.22] - 2026-07-23 — 在线状态 / 审计归档 / 备份路径
 
 ### Changed (在线状态判定)

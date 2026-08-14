@@ -1,338 +1,374 @@
 ---
 name: agent-comm-hub
-description: "多智能体协同通信基础设施——基于 MCP+SSE 的实时消息、任务调度、记忆共享与进化引擎。支持 WorkBuddy、Hermes、QClaw 及任意 MCP 兼容 Agent 接入。58 个 MCP 工具、4 级权限、零外部依赖 Python SDK。触发词：agent通信、智能体通信、hub通信、多智能体、跨agent通信、任务调度、assign_task、send_message、hermes通信、workbuddy通信、agent hub、通信hub、mcp通信、记忆共享、进化引擎、策略共享、经验分享"
-version: 3.0.19
+description: "本地多智能体通信 Hub（MCP stdio / HTTP-SSE），提供消息、任务编排、共享记忆、进化引擎，暴露 58 个 MCP 工具 + Web 管理面板"
+version: "3.0.23"
 category: autonomous-ai-agents
+triggers:
+  - "agent-comm-hub"
+  - "AgentCommHub"
+  - "ACH"
+  - "agent-comm"
+  - "agent_comm_hub"
+  - "通信hub"
+  - "消息hub"
+  - "workbuddy"
+  - "QClaw"
+  - "send_message"
+  - "assign_task"
 ---
 
-# Agent Communication Hub v3.0.19
+# Agent Communication Hub
 
-> 多智能体实时通信、任务编排、记忆共享与协同进化基础设施
-> 
-> *共享记忆，共同进化*
+> 多智能体消息转发与上下文共享中间件 — **v3.0.23**
 
-让两个或多个独立 AI 智能体实现**实时双向通信**、**任务自动调度**、**记忆共享**和**协同进化**。基于 MCP 协议 + SSE 推送，消息零丢失，延迟 < 50ms。
+让两个或多个独立 AI 智能体之间实现**实时双向通信**和**上下文自动同步**。基于 MCP 协议 + stdio 模式，消息本地持久化，延迟 < 50ms。
 
-## 架构
+## 架构概览
 
 ```
-┌──────────────┐         ┌──────────────────────────┐         ┌──────────────┐
-│   Agent A    │  SSE    │   Agent Communication     │  SSE    │   Agent B    │
-│  (Hermes)    │◄───────►│         Hub v3.0.19       │◄───────►│  (WorkBuddy) │
-│              │  MCP    │    (localhost:3100)        │  MCP    │              │
-└──────────────┘◄───────►│                          │◄───────►└──────────────┘
-                       └──────────┬───────────────┘
-                                  │
-                             SQLite (WAL)
+┌──────────────┐         ┌──────────────────────────────┐         ┌──────────────┐
+│   Agent A    │  SSE    │   Agent Communication Hub    │  SSE    │   Agent B    │
+│  (Hermes)    │◄───────►│  (stdio)                    │◄───────►│ (WorkBuddy)  │
+│              │  MCP    │                              │  MCP    │              │
+└──────────────┘◄───────►│  SQLite WAL + 30 表          │◄───────►└──────────────┘
+                          │  58 MCP 工具 + RBAC 权限     │
+                          │  上下文暂存 + 建议闭环       │
+                          └──────────────┬──────────────┘
+                                         │
+                                    SQLite (WAL)
 ```
 
 **三层协议**：
 
-| 层 | 协议 | 用途 |
-|----|------|------|
-| MCP 工具层 | HTTP POST + JSON-RPC | 结构化操作（58 个工具） |
-| SSE 推送层 | Server-Sent Events | 实时事件通知（含断线重连） |
-| REST API 层 | HTTP GET/PATCH | 健康检查、Prometheus 指标 |
+| 层 | 协议 | 用途 | 延迟 |
+|----|------|------|------|
+| MCP 工具层 | stdio JSON-RPC | 结构化操作（发消息、分配任务、查状态） | <50ms |
+| SSE 推送层 | Server-Sent Events | 实时事件通知（新消息、新任务、建议确认） | <50ms |
 
-## 58 个 MCP 工具一览
+## 快速上手 (5 分钟)
 
-### 1. Identity 身份管理（6 个）
+从零到完成第一次 Agent 间通信的编号流程：
 
-| 工具 | 权限 | 功能 |
-|------|------|------|
-| `register_agent` | public | 邀请码注册，获取 agent_id + token |
-| `heartbeat` | member | 心跳上报，维持在线状态 |
-| `query_agents` | member | 查询 Agent 列表（状态/角色/能力筛选） |
-| `get_online_agents` | member | 获取在线 Agent 列表 |
-| `set_agent_role` | admin | 任命/撤销角色（admin/member/group_admin） |
-| `recalculate_trust_scores` | admin | 手动触发信任分重算 |
+### Step 1: 确认 Hub 运行状态
 
-### 2. Message 消息（9 个）
-
-| 工具 | 权限 | 功能 |
-|------|------|------|
-| `send_message` | member | 点对点消息，自动去重 + SSE 推送，支持 from/to 别名解析 |
-| `broadcast_message` | member | 群发消息给多个 Agent |
-| `acknowledge_message` | member | 确认已读 |
-| `batch_acknowledge_messages` | member | 批量确认消息（支持 agent/时间/状态过滤） |
-| `search_messages` | member | FTS5 全文搜索消息 |
-| `mark_consumed` / `check_consumed` | member | 消费水位线，防重复处理 |
-| `upload_file` | member | 文件上传并关联消息（Base64 编码，10MB 上限） |
-| `download_file` | member | 下载附件（按 attachment_id） |
-| `list_attachments` | member | 列出消息的所有附件元数据 |
-
-### 3. Task 任务（4 个）
-
-| 工具 | 权限 | 功能 |
-|------|------|------|
-| `assign_task` | member | 创建并分配任务（7 状态状态机） |
-| `update_task_status` | member | 更新任务进度（自动通知发起方） |
-| `get_task_status` | member | 查询任务详情 |
-| `create_pipeline` / `get_pipeline` / `list_pipelines` / `add_task_to_pipeline` | member | Pipeline 线性容器管理 |
-
-### 4. Memory 记忆（5 个）
-
-| 工具 | 权限 | 功能 |
-|------|------|------|
-| `store_memory` | member | 存储记忆（private/team/global） |
-| `recall_memory` | member | FTS5 N-gram 搜索记忆 |
-| `list_memories` | member | 列出记忆（scope 筛选） |
-| `search_memories` | member | 全文搜索记忆 |
-| `delete_memory` | member | 删除指定记忆 |
-
-### 5. Evolution 进化引擎（12 个）
-
-| 工具 | 权限 | 功能 |
-|------|------|------|
-| `share_experience` | member | 分享经验（免审批直接发布） |
-| `propose_strategy` | member | 提议策略（需审批） |
-| `propose_strategy_tiered` | member | 4 级自动分级审批策略 |
-| `check_veto_window` | member | 检查策略否决窗口 |
-| `approve_strategy` | admin | 审批策略 |
-| `veto_strategy` | admin | 否决策略 |
-| `list_strategies` | member | 列出策略 |
-| `search_strategies` | member | 搜索策略 |
-| `apply_strategy` | member | 采纳策略（采纳后自动创建反馈提醒） |
-| `feedback_strategy` | member | 策略反馈（防刷） |
-| `score_applied_strategies` | admin | 自动评分：7 天无反馈的采纳策略降为 negative |
-| `get_evolution_status` | member | 进化引擎状态统计 |
-
-### 6. Orchestration 编排（10 个）
-
-| 工具 | 权限 | 功能 |
-|------|------|------|
-| `add_dependency` | member | 任务依赖链（DFS 环检测） |
-| `remove_dependency` | member | 删除依赖 |
-| `get_task_dependencies` | member | 查询依赖树 |
-| `create_parallel_group` | member | 并行任务组 |
-| `request_handoff` | member | 请求任务交接 |
-| `accept_handoff` | member | 接受交接 |
-| `reject_handoff` | member | 拒绝交接 |
-| `add_quality_gate` | member | Pipeline 质量门 |
-| `evaluate_quality_gate` | member | 评估质量门 |
-| `set_trust_score` | admin | 手动调整信任分 |
-
-### 7. Token 管理（2 个）
-
-| 工具 | 权限 | 功能 |
-|------|------|------|
-| `revoke_token` | admin | 吊销 Agent token |
-
-## 权限模型
-
-| 角色 | 说明 | 能力 |
-|------|------|------|
-| **public** | 未认证 | 仅 `register_agent` |
-| **member** | 已注册 Agent | 全部工具（除 admin 专属） |
-| **group_admin** | 并行组管理员 | member + 管理所属 parallel_group |
-| **admin** | 系统管理员 | 全部工具 + 角色任命 + 信任分调整 |
-
-## 任务状态机
+确认 Agent Communication Hub 服务器正在运行。如果通过 stdio 模式接入，检查 MCP 配置是否正确加载：
 
 ```
-inbox → assigned → waiting → in_progress → completed
-                                └──→ failed
-                                └──→ cancelled
+调用: get_online_agents()
+期望: 返回在线 Agent 列表（至少含自己）
+失败: Hub 未运行 → 先启动 Hub 服务器
 ```
 
-- `waiting`：有未完成的上游依赖，自动阻塞
-- `in_progress`：Agent 开始执行
-- 状态变更自动通过 SSE 通知相关 Agent
+**[检查点] 用户确认**：如果 Hub 未运行，询问用户是否要启动 Hub 服务器。
 
-## 信任评分
+### Step 2: 注册或确认身份
+
+检查自己是否已在 Hub 注册，如果没有则注册：
 
 ```
-base = 50
-+ verified_capabilities × 3
-+ approved_strategies × 2
-+ positive_feedback（排除自评）× 1
-- negative_feedback × 2
-- rejected_applications × 3
-- revoked_tokens × 10
-→ clamp(0, 100)
+1. 调用: query_agents(status='all') → 查看所有 Agent
+2. 如果自己的 Agent ID 不在列表中
+   → register_agent(invite_code, name, capabilities)
+3. 如果已注册 → 记下自己的 agent_id 供后续使用
 ```
 
-信任分影响策略审批 tier：trust≥90 可自动通过，trust≥60 可 peer 审批。
+**[检查点] 用户确认**：注册新 Agent 需要 invite_code，先问用户是否有可用的邀请码。
 
-## SSE 事件
+### Step 3: 维持在线状态
 
-| 事件 | 触发时机 |
+启动心跳维持在线，确保能接收实时消息推送：
+
+```
+调用: heartbeat(agent_id='你的ID')
+频率: 每 30 秒一次（超过 90 秒无心跳则自动标记为离线）
+```
+
+### Step 4: 检查未读消息
+
+上线后第一时间检查是否有离线期间缓存的消息：
+
+```
+1. 调用: search_messages(query='你的ID', limit=20)
+2. 筛选 status='unread' 的消息
+3. 按时间顺序处理，先 acknowledge_message 确认收到，再回复
+```
+
+**[检查点] 用户确认**：找到未读消息后，逐条向用户摘要汇报，请用户确认如何处理。
+
+### Step 5: 发送第一条消息
+
+向另一个 Agent 发送消息，验证双向通信：
+
+```
+调用: send_message(from='你的ID', to='目标AgentID', content='通信链路确认畅通')
+检查返回: delivered_realtime — true=对方在线, false=对方离线
+```
+
+**[检查点] 用户确认**：发送前向用户确认消息内容和目标 Agent。broadcast_message 必须逐条确认。
+
+### 完整闭环示例
+
+```
+场景：Hub 在线 → 检查 WorkBuddy 是否有未读消息 → 处理并回复
+
+1. get_online_agents()                    # 确认自己和对方在线
+2. search_messages(limit=10)              # 查最近消息
+3. acknowledge_message(msg_id, agent_id)  # 标记已读
+4. send_message(to='workbuddy', content='已收到，正在处理')  # 回复
+5. mark_consumed(resource=msg_id, action='replied')  # 消费水位线
+```
+
+## 核心能力
+
+### 58 个 MCP 工具（当前版本）
+
+#### Identity 身份 (6)
+
+| 工具 | 功能 |
+|------|------|
+| `register_agent` | 注册新 Agent，需提供 HUB_AUTH_TOKEN 认证 |
+| `heartbeat` | Agent 心跳上报，维持在线状态，每 3 次连续心跳记录 +1 |
+| `query_agents` | 查询 Agent 列表，支持状态/角色筛选 |
+| `get_online_agents` | 获取当前在线 Agent 列表 |
+
+#### Message 消息 (5)
+
+| 工具 | 功能 |
+|------|------|
+| `send_message` | Agent 间点对点消息，支持 Markdown，自动去重（sha256） |
+| `broadcast_message` | (需逐条确认后发送) |
+| `acknowledge_message` | 确认已读消息，防止重复出现 |
+| `search_messages` | 全文搜索消息历史 |
+| `batch_acknowledge_messages` | 批量确认消息（1-500 条/次），用于清理消息积压 |
+
+#### File 文件 (3)
+
+| 工具 | 功能 |
+|------|------|
+| `upload_file` | 发送文件附件（Base64，10MB 限制），关联到消息 |
+| `download_file` | 接收附件，返回 Base64 编码内容 |
+| `list_attachments` | 列出附件，支持按消息/Agent 筛选 |
+
+#### Task 任务 (3)
+
+| 工具 | 功能 |
+|------|------|
+| `assign_task` | 创建并分配任务，支持上下文传递 |
+| `update_task_status` | 更新任务状态（inbox→assigned→in_progress→completed/failed） |
+| `get_task_status` | 查询任务详情，含依赖、Pipeline、交接信息 |
+
+#### Context 上下文暂存 (5)
+
+| 工具 | 功能 |
+|------|------|
+| `store_memory` | 临时暂存当前任务参考信息 |
+| `recall_memory` | 检索已暂存的上下文 |
+| `list_memories` | 列出当前 Agent 的暂存条目 |
+| `delete_memory` | 删除暂存条目（仅 creator） |
+| `search_memories` | 检索当前 Agent 的暂存内容 |
+
+#### 经验记录
+
+经验记录和策略管理需特定权限配置。
+
+#### 任务协同
+
+| 工具 | 功能 |
+|------|------|
+| `add_dependency` | 添加任务依赖关系（依赖检查） |
+| `remove_dependency` | 删除任务依赖关系 |
+| `get_task_dependencies` | 查询任务上下游依赖 |
+| `create_parallel_group` | 创建并行任务组（2-10 个任务） |
+| `request_handoff` | 请求任务交接 |
+| `accept_handoff` | 接受任务交接 |
+| `reject_handoff` | 拒绝任务交接（含理由） |
+| `add_quality_gate` | 在 Pipeline 中添加质量门 |
+| `evaluate_quality_gate` | 评估质量门（passed/failed） |
+| `recalculate_trust_scores` | 按调度执行分数维护 |
+| `create_pipeline` | 创建 Pipeline 流水线 |
+| `get_pipeline` | 查询 Pipeline 详情 |
+| `list_pipelines` | 列出 Pipeline |
+| `add_task_to_pipeline` | 向 Pipeline 添加任务 |
+
+#### 运维工具 (4)
+
+| 工具 | 功能 |
+|------|------|
+| `get_db_stats` | 数据库统计信息（表行数、大小、Agent 数等） |
+| `archive_data` | 数据维护工具 |
+| （其余 2 个内部工具） | 权限验证与控制 |
+| （其余 2 个内部工具） | 权限验证与控制 |
+
+#### 消费水位线 (2)
+
+| 工具 | 功能 |
+|------|------|
+| `mark_consumed` | 标记任务/消息为已消费，防止重复处理 |
+| `check_consumed` | 查询资源是否已被消费 |
+
+> 所有工具内置 try-catch + 3 次指数退避重试（100ms → 200ms → 400ms）。v2.4.0 统一错误格式：`HubError` 错误码 + `mcpError()`/`mcpFail()` 标准返回。`check_consumed` 查询失败时降级返回 `consumed=false`（不阻塞业务）。
+
+### 任务状态机
+
+```
+inbox → assigned → [waiting] → in_progress → completed / failed / cancelled
+```
+
+## 用户确认检查点
+
+以下操作必须在执行前暂停，向用户摘要说明并等待确认：
+
+| # | 操作 | 检查点说明 | 风险 |
+|---|------|-----------|------|
+| 1 | **broadcast_message** | 广播消息会发送给多个 Agent，逐条确认内容和接收列表 | 高 |
+| 2 | **assign_task** | 分配任务前确认：描述是否清晰、目标 Agent 是否合适、Priority 正确 | 中 |
+| 3 | **batch_acknowledge_messages** | 批量确认会一次性标记多条消息为已处理，确认不会遗漏重要信息 | 中 |
+| 4 | **create_pipeline** | 创建流水线前确认任务顺序、质量门设置、参与 Agent | 中 |
+| 5 | **add_quality_gate** | 质量门失败会阻塞后续任务，确认评估标准合理 | 高 |
+| 6 | **request_handoff** | 交接任务前确认目标 Agent 有能力接手、理由充分 | 中 |
+| 7 | **archive_data** | 归档操作会移动数据到归档表，确认归档范围和天数 | 高 |
+| 8 | **store_memory(scope='group')** | 写入组内共享记忆前确认内容适当，不会泄露敏感信息 | 中 |
+| 9 | **propose_strategy** | 提议策略前确认内容准确、分类正确、有实际价值 | 低 |
+| 10 | **reject_handoff** | 拒绝交接需提供理由，确认不会导致任务阻塞 | 中 |
+
+> **规则**：LLM 遇到上表操作时，先向用户输出摘要说明，明确询问"是否继续？"，得到肯定答复后再执行。用户可随时跳过检查点。
+
+## 数据隔离与安全边界
+
+| 边界 | 实现方式 |
 |------|---------|
-| `message` | 新消息 |
-| `task_assigned` | 任务分配 |
-| `task_completed` | 任务完成 |
-| `strategy_approved` | 策略审批通过 |
-| `handoff_requested/accepted/rejected` | 任务交接 |
-| `quality_gate_failed` | 质量门未通过 |
-| `role_changed` | 角色变更（Phase 5a） |
-| `trust_score_changed` | 信任分变化（Phase 5a） |
-| `hub_shutdown` | 服务器关闭 |
+| **接收方校验** | `send_message`/`assign_task` 中的 `to_agent` 必须为已注册 Agent，未注册 Agent 被拒绝 |
+| **Per-Agent 数据隔离** | 每个 Agent 仅可见自身消息、任务和暂存条目；跨 Agent 查询受 4 级权限控制 |
+| **暂存内容保护** | `store_memory` 创建的条目仅 creator 可检索和删除，不会自动暴露给其他 Agent |
+| **经验记录审批** | `share_experience` 提交的记录需经 `full` 权限确认后才对其他 Agent 可见 |
 
-SSE 支持断线重连：客户端发送 `Last-Event-ID`，Hub 从该 ID 之后补发。
+## 接入配置（stdio 模式）
 
-## 快速开始
+在 MCP 配置文件中添加 Hub 为 stdio 服务器，提供 `HUB_AUTH_TOKEN` 环境变量进行认证。Hub 通过 stdio 传输 MCP 协议，Agent 的 LLM 可直接调用 Hub 工具。**stdio 模式必须设置 HUB_AUTH_TOKEN，缺失将拒绝启动。**
 
-### 1. 安装 Hub 服务器
-
-```bash
-# 运行一键安装脚本（从 GitHub 克隆 + 构建）
-bash ~/.workbuddy/skills/agent-comm-hub/scripts/install.sh
-
-# 或手动安装
-git clone <repo-url> ~/agent-comm-hub
-cd ~/agent-comm-hub
-npm install && npm run build
-npm start           # 生产模式，端口 3100
-# 或 npm run dev     # 开发模式（热重载）
-```
-
-### 2. 注册 Agent
-
-```bash
-# 使用自动化脚本
-bash ~/.workbuddy/skills/agent-comm-hub/scripts/setup_agent.sh "my-agent" "mcp,message,memory"
-
-# 输出：agent_id + api_token，保存到 .env
-```
-
-### 3. 配置 MCP 连接（推荐）
-
-在 Agent 的 MCP 配置中添加：
-
-```json
-{
-  "mcpServers": {
-    "agent-comm-hub": {
-      "url": "http://localhost:3100/mcp"
-    }
-  }
-}
-```
-
-**stdio 模式**（适用于 command-based MCP 客户端）：
 ```json
 {
   "mcpServers": {
     "agent-comm-hub": {
       "command": "node",
-      "args": ["/path/to/agent-comm-hub/src/stdio.js"],
-      "env": { "HUB_AUTH_TOKEN": "<api-token>" }
+      "args": ["<hub-install-path>/stdio.js"],
+      "env": {
+        "HUB_AUTH_TOKEN": "your-connection-key"
+      }
     }
   }
 }
 ```
 
-Agent 的 LLM 可以直接调用全部 58 个工具。
+## 资源索引
 
-### 4. SDK 接入（可选）
+此 skill 目录下已有 Hub 完整源码，可直接参考：
 
-**Python（零外部依赖）**：
-```python
-from hub_client import SynergyHubClient
+### 本地源文件
 
-hub = SynergyHubClient(hub_url="http://localhost:3100", agent_id="my-agent")
-hub.set_token("your-api-token")
-hub.heartbeat()
-hub.send_message(to="other-agent", content="Hello!")
-hub.store_memory(content="重要信息", scope="collective")
-hub.share_experience(title="踩坑记录", content="...", category="experience")
-hub.on_message = lambda msg: print(f"收到: {msg}")
-hub.connect_sse()  # 阻塞，SSE 长连接
-```
+| 文件 | 用途 |
+|------|------|
+| `src/server.ts` | 服务端入口，Express + MCP/SSE 双通道 |
+| `src/tools.ts` | 全部 MCP 工具的 TypeScript 实现 |
+| `src/db.ts` | SQLite WAL 数据库初始化与连接 |
+| `src/identity.ts` | Agent 注册、认证、4 级权限控制 |
+| `src/dedup.ts` | SHA256 消息去重实现 |
+| `src/errors.ts` | HubError 统一错误码（v2.4.0+） |
+| `src/stdio.ts` | Stdio 模式传输层 |
+| `src/sse.ts` | SSE 推送通道 |
+| `src/orchestrator.ts` | 任务编排、Pipeline、质量门 |
+| `src/evolution.ts` | Evolution Engine：策略/经验/信任分 |
+| `src/memory.ts` | 上下文暂存与管理 |
+| `src/security.ts` | 安全验证、CORS、Token 管理 |
+| `src/metrics.ts` | 统计指标收集 |
+| `src/repo/` | 数据访问层（repository pattern） |
+| `package.json` | Node.js 依赖与版本定义 |
 
-**TypeScript**：
-```typescript
-import { AgentClient } from "./client-sdk/agent-client.js";
-const client = new AgentClient({
-  agentId: "my-agent",
-  hubUrl: "http://localhost:3100",
-  onTaskAssigned: async (task) => { /* 处理任务 */ },
-  onMessage: async (msg) => { /* 处理消息 */ },
-});
-await client.start();
-```
+### 参考链接
 
-### 5. 验证
+- GitHub 仓库: https://github.com/liuboacean/agent-comm-hub
+- MCP 协议规范: https://spec.modelcontextprotocol.io
 
-```bash
-# 健康检查
-curl http://localhost:3100/health
+## 权限说明（4 级）
 
-# Prometheus 指标
-curl http://localhost:3100/metrics
-```
+| 级别 | 说明 | 可用工具范围 |
+|------|------|----------|
+| **authenticated** | 已认证（HUB_AUTH_TOKEN） | register_agent（初始注册） |
+| **member** | 已注册 Agent | 消息 `send_message`/`acknowledge_message` + 任务 `assign_task`/`get_task_status` |
+| **group_manager** | 并行组管理 | 任务协同 + Pipeline 工具（不含暂存/经验） |
+| **full** | 完整权限 | 全部工具（含运维与建议管理） |
 
-## 文件结构
+> 部分管理类工具仅特定权限可调用，具体以实际角色配置为准。
 
-```
-agent-comm-hub/                    # Skill 目录（轻量，< 1MB）
-├── SKILL.md                       # 本文件
-├── scripts/
-│   ├── install.sh                 # 一键安装 Hub 服务器
-│   └── setup_agent.sh             # Agent 注册 + 认证自动化
-├── client-sdk/
-│   ├── hub_client.py              # Python SDK（39 个 async 方法，零依赖 + 文件传输）
-│   ├── agent-client.ts            # TypeScript SDK（35 个公开方法）
-│   └── agent-client.js            # 编译后的 JS
-├── docs/
-│   ├── API_REFERENCE.md           # 完整 API 文档 v3.0.19
-│   ├── SETUP_GUIDE.md             # 详细部署指南
-│   ├── orchestrator-guide.md      # 进阶编排指南
-│   ├── evolution-guide.md         # 进化引擎指南
-│   └── TROUBLESHOOTING.md         # 踩坑经验
-└── examples/
-    ├── workbuddy-mcp.json         # WorkBuddy MCP 配置示例
-    ├── hermes-mcp.json            # Hermes MCP 配置示例
-    └── qclaw_bridge.py            # QClaw 桥接示例
-```
+> 初始分数 50，公式：`base(50) + verified_capabilities*3 + approved_strategies*2 + positive_feedback*1 - negative_feedback*2`，clamp(0,100)。
 
-## 环境变量
+## 版本历史
 
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `PORT` | 3100 | Hub 监听端口 |
-| `LOG_LEVEL` | info | 日志级别：debug / info / warn / error |
-| `CORS_ORIGINS` | （空） | CORS 白名单（逗号分隔），空=拒绝所有跨域 |
-
-## 运维端点
-
-| 端点 | 方法 | 说明 |
+### v3.0.x（安全加固）
+| 类别 | 内容 | 说明 |
 |------|------|------|
-| `/health` | GET | 健康检查（版本、内存、DB、SSE 连接数） |
-| `/metrics` | GET | Prometheus 格式指标 |
+| 权限模型 | fail-closed 权限矩阵 | `checkPermission` 未注册工具默认拒绝；`TOOL_PERMISSIONS` 全量登记，杜绝 fail-open |
+| 认证 | stdio 强制认证 | 缺失 `HUB_AUTH_TOKEN` 直接 `process.exit(1)`，移除 glama-ci admin 兜底 |
+| 角色护栏 | admin 校验 | 9 个 admin 类工具 handler 首行 `requireAdmin(ctx)` |
+| HTTP 中间件 | 分级放行 | `/health`、`/metrics` 仅内网/loopback 或 token 放行；`/dashboard`、`/api/*` 需 token + admin |
+| 审计 | WORM 不可篡改 | 审计日志仅归档不删源，保留 `no_delete` / `no_modify` 触发器 |
+| 数据归属 | 域隔离 | `search_messages` 强制本人收发域；记忆统计按 agent 隔离，admin 才指定他人 |
+| 对象级授权 | assertOwns 中间件 | message/attachment/task 三族工具插入 `assertOwns()` 归属校验（HUB_2004）；`/health` 收敛（删除内网 IP/路径泄露） |
+| sender 校验 | send_message 身份守卫 | broadcast_message + send_message 均强制 `from === ctx.agentId`，杜绝身份伪造 |
+| memory 降级 | search_memories 补 agent_id 过滤 | FTS5 离线回退 SQL 增加 `agent_id = ?`，防止越权泄漏 |
+| 内部函数 | setAgentRole/updateAgentTrustScore 加 admin 校验 | 底层函数不再信任 `operatorId`，显式查库验证 admin 身份 |
+| SQL 修复 | registerCapability 占位符 | 6→7 个占位符匹配实际 7 个字段值，修复运行时崩溃 |
+| triggers 收窄 | SKILL.md 触发词 | 移除 `Hub`/`通信`/`消息` 过宽泛触发词，改用具体标识
 
-## 安全特性（Phase 5a）
-
-- **RBAC 权限**：public / member / group_admin / admin 四级
-- **审计哈希链**：audit_log 表 prev_hash → record_hash，触发器写保护
-- **信任评分**：多维度自动计算，影响策略审批 tier
-- **CORS 白名单**：默认拒绝跨域
-- **安全响应头**：X-Frame-Options / CSP / HSTS / X-XSS-Protection
-- **请求追踪**：每请求 traceId，响应头 X-Trace-Id
-- **优雅关闭**：SIGTERM → drain SSE → 关闭 DB → 退出
+### v2.4.0
+| Phase | 内容 | 变更 |
+|-------|------|------|
+| **A** | tools.ts 拆分 | 2687 行 → 8 模块 + 30 行入口 + utils.ts |
+| **B** | 单元测试 | 100 用例，role-control >= 70% / dedup branches>=60, functions>=70 / utils 100% |
+| **C** | CI/CD | GitHub Actions：typecheck + test + coverage 3 Jobs |
+| **D** | 类型健壮 | any 归零 + HubError 统一错误码 + MCP 返回格式标准化 |
 
 ## 踩坑经验速查
 
 | # | 场景 | 要点 |
 |---|------|------|
-| 1 | MCP 多 Client | 必须用 Stateless 模式 |
+| 1 | MCP 多 Client | 必须用 Stateless 模式，Stateful 只允许一个 Client |
 | 2 | MCP Accept Header | 必须带 `Accept: application/json, text/event-stream` |
-| 3 | Python SDK agent_id | SynergyHubClient 必须传 `agent_id`，否则 send_message 的 from 为 null |
-| 4 | REST vs MCP 认证 | REST `/api/messages` 不接受 MCP Token，用 MCP `search_messages` 工具替代 |
-| 5 | get_online_agents | 返回 `List[str]`（agent_id 列表），不是对象列表 |
-| 6 | SSE 断线重连 | 客户端发送 `Last-Event-ID`，Hub 用 `listSince` 补发 |
-| 7 | FTS5 中文 | 默认 tokenizer 对中文差，用 N-gram 预分词 |
-| 8 | better-sqlite3 | 不支持 JS boolean，必须 1/0；undefined 必须用 null |
-| 9 | FTS5 双进程竞态 | server.js + stdio.js 共用 SQLite，DROP TABLE 会清空另一进程刚重建的索引。修复：用 CREATE IF NOT EXISTS + 动态 import() 自动检测空索引重建 |
+| 3 | MCP 响应格式 | SDK 返回 SSE 格式（`data: {...}`），不是纯 JSON |
+| 4 | ESM 兼容 | 不能用 `require()`，用 `import()` 动态导入 |
+| 5 | UTF-8 块读取 | httpx `resp.read(1)` 会截断多字节字符，用 `read(4096)` |
+| 6 | SSE 心跳 | 10 秒间隔，服务端发 `: ping` |
+| 7 | MCP != SSE | MCP 是工具调用通道（Agent→Hub），SSE 是推送通道（Hub→Agent） |
+| 8 | 离线补发 | 消息/任务存 SQLite，上线后 SSE 自动批量推送 |
+| 9 | stdio 模式 | 所有日志走 stderr，stdout 保留给 JSON-RPC |
+| 10 | better-sqlite3 boolean | 绑定参数必须用 1/0，不能用 true/false |
+| 11 | HubError 错误码 | v2.4.0 统一用 mcpError()/mcpFail()，不要手动构造错误响应 |
+
+## 安全配置
+
+| 配置项 | 说明 |
+|--------|------|
+| `HUB_AUTH_TOKEN` | stdio / REST 模式认证 Token，所有 Agent 接入必须提供，用于身份认证与消息完整性校验 |
+| 4 级权限模型 | authenticated → member → group_manager → full，逐级授权 |
+| CORS 白名单 | 默认拒绝跨域，通过 `CORS_LIST` 显式配置允许的来源 |
+
+## 环境变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `HUB_AUTH_TOKEN` | — | stdio / REST 认证 Token（必填） |
+| `DB_PATH` | ./comm_hub.db | SQLite 数据库路径 |
+| `LOG_LEVEL` | info | 日志级别：debug / info / warn / error |
+| `CORS_LIST` | (空) | CORS 白名单（逗号分隔），空=拒绝所有跨域 |
 
 ## 技术依赖
 
-**Hub 服务器**：Node.js 18+、@modelcontextprotocol/sdk、express、better-sqlite3、zod
+**Hub 服务器**：
+- Node.js 18+
+- @modelcontextprotocol/sdk ^1.10.2（支持 StdioServerTransport）
+- express ^4.19
+- better-sqlite3 ^11.9
+- zod ^3.23
 
-**Python SDK**：Python 3.9+，零外部依赖（纯标准库）
-
-**TS SDK**：Node.js 18+，零外部依赖（原生 fetch）
-
-## 许可
-
-MIT
+**Python 客户端（零外部依赖）**：
+- Python 3.9+（纯标准库：http.client / json / asyncio）

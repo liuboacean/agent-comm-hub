@@ -1,0 +1,85 @@
+%% 5.1 自主 loop 执行流
+sequenceDiagram
+  participant Hub as Orchestrator/Hub
+  participant SSE as SSE(pushToAgent)
+  participant SDK as AgentClient
+  participant RT as AgentRuntime
+  participant Host as execute()(宿主)
+
+  Hub->>SSE: assignTask → pushToAgent(agent, {event:"task_assigned", task})
+  SSE-->>SDK: SSE data: {event:"task_assigned", task}
+  SDK->>RT: onTaskAssigned(task) 路由→handleAssigned
+  RT->>RT: 去重/loopGuard 校验（inFlight）
+  RT->>SDK: updateTaskStatus(task.id, "in_progress", _, 5)
+  SDK->>Hub: MCP update_task_status
+  RT->>Host: result = await execute(task)
+  alt 无敏感操作
+    Host-->>RT: result string
+    RT->>SDK: updateTaskStatus(task.id, "completed", result, 100)
+  else execute 内请求授权
+    Host->>RT: await requestAuthorization(op)
+    Note over RT,Hub: 见授权流
+    RT->>SDK: updateTaskStatus(task.id, "completed", result, 100)
+  else 执行抛错
+    Host-->>RT: throw err
+    RT->>SDK: updateTaskStatus(task.id, "failed", err.message)
+  end
+
+%% 5.2 授权请求 → 批准 → 回推（Agent 继续）
+sequenceDiagram
+  participant Host as execute()(宿主)
+  participant RT as AgentRuntime
+  participant SDK as AgentClient
+  participant Hub as AuthorizationService
+  participant DB as auth_requests
+  participant Dash as Web 仪表盘
+
+  Host->>RT: await requestAuthorization(op)
+  RT->>SDK: requestAuthorization(op)
+  SDK->>Hub: MCP request_authorization(op)
+  Hub->>DB: INSERT pending (expires_at=now+TTL)
+  Hub-->>SDK: {request_id, status:"pending"}
+  Hub->>Dash: SSE authorization_requested（仪表盘轮询亦可）
+  Dash->>Hub: POST /api/auth-requests/:id/resolve {decision:"approved"}
+  Hub->>DB: UPDATE → approved + auditLog("auth_resolve", by, reqId, "approved")
+  Hub->>SDK: SSE authorization_resolved {decision:"approved"}
+  SDK->>RT: resolve(reqId) → Promise resolve
+  RT-->>Host: requestAuthorization 返回（继续）
+  Host->>RT: 执行敏感操作 → 返回 result
+  RT->>SDK: updateTaskStatus(task.id, "completed", result, 100)
+
+%% 5.3 授权被拒流（优雅中止）
+sequenceDiagram
+  participant Host as execute()(宿主)
+  participant RT as AgentRuntime
+  participant SDK as AgentClient
+  participant Hub as AuthorizationService
+  participant DB as auth_requests
+  participant Dash as Web 仪表盘
+
+  Host->>RT: await requestAuthorization(op)
+  RT->>SDK: requestAuthorization(op)
+  SDK->>Hub: MCP request_authorization(op)
+  Hub->>DB: INSERT pending
+  Dash->>Hub: POST /api/auth-requests/:id/resolve {decision:"rejected", reason}
+  Hub->>DB: UPDATE → rejected + auditLog("auth_resolve", by, reqId, "rejected:reason")
+  Hub->>SDK: SSE authorization_resolved {decision:"rejected", reason}
+  SDK->>RT: reject(reqId, AuthorizationRejected)
+  RT-->>Host: requestAuthorization 抛 AuthorizationRejected
+  Host->>RT: catch → 不执行该敏感操作
+  RT->>SDK: updateTaskStatus(task.id, "failed", "授权被拒: <op> - <reason>")
+
+%% 5.4 授权过期流（失败即拒绝）
+sequenceDiagram
+  participant Timer as sweepExpired(周期)
+  participant Hub as AuthorizationService
+  participant DB as auth_requests
+  participant SDK as AgentClient
+  participant RT as AgentRuntime
+
+  Timer->>Hub: 扫描 expires_at < now 且 status=pending
+  Hub->>DB: UPDATE → expired + auditLog("auth_expire", "system", reqId)
+  Hub->>SDK: SSE authorization_resolved {decision:"expired"}
+  SDK->>RT: reject(reqId, AuthorizationExpired)
+  RT-->>Host: requestAuthorization 抛 AuthorizationExpired
+  RT->>SDK: updateTaskStatus(task.id, "failed", "授权过期未处理: <op>")

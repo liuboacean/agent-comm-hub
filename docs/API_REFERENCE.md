@@ -1,825 +1,169 @@
-# API Reference — Agent Comm Hub v2.2
+# Agent Communication Hub — API 参考（v3.0.19）
 
-> **版本**：v2.2 | **日期**：2026-04-25
-> **MCP 工具总数**：46 个
-> **基础 URL**：`http://localhost:3100`
-
----
-
-## 概览
-
-| 分类 | 工具数 | 权限 | Phase |
-|------|--------|------|-------|
-| Identity 身份 | 8 | public + member + admin | 1 + 5a |
-| Message 消息 | 5 | member | 1 |
-| Task 任务 | 8 | member | 1 + 4a |
-| Memory 记忆 | 5 | member | 1 + 6 |
-| Evolution 进化 | 11 | member + admin | 3 + 4b |
-| Orchestration 编排 | 9 | member | 4b |
+> 本文档描述 Hub 服务端暴露的 **HTTP / SSE / MCP 端点**与鉴权方式，对应源码 `src/server.ts`、`src/security.ts`、`src/sse.ts`。
+>
+> - 当前版本：`3.0.19`（由 `src/version.ts` 从 `package.json` 读取，单一真相源）
+> - 通过 `/mcp` 暴露 **58 个 MCP 工具**（完整工具权限矩阵见 `src/security.ts` 的 `TOOL_PERMISSIONS`）
+> - 存储：SQLite（WAL 模式）
 
 ---
 
-## 1. Identity 身份管理
+## 1. 基础信息
 
-### register_agent
-
-> **权限**：public（无需认证）
-
-注册新 Agent，获取 agent_id 和 API token。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `invite_code` | string | ✅ | 邀请码（通过 `/admin/invite/generate` 生成） |
-| `name` | string | ✅ | Agent 名称 |
-| `capabilities` | string[] | ❌ | Agent 能力标签列表 |
-
-**返回**：`{ agent_id, token, name, role }`
+| 项 | 值 |
+|----|----|
+| 默认监听地址 | `http://localhost:3100` |
+| 协议 | HTTP + SSE + MCP（StreamableHTTP） |
+| 当前版本 | `3.0.19` |
+| MCP 工具数 | 58 |
+| 数据库 | SQLite（WAL） |
 
 ---
 
-### heartbeat
+## 2. 认证（Authentication）
 
-> **权限**：member
+所有需要认证的端点通过 **Bearer Token** 鉴权：
 
-Agent 心跳上报，维持在线状态。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `agent_id` | string | ✅ | Agent ID |
-
-**返回**：`{ status: "ok", agent_id }`
-
----
-
-### query_agents
-
-> **权限**：member
-
-查询 Agent 列表，支持状态和角色筛选。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `status` | enum | ❌ | `online` / `offline` / `all`（默认 all） |
-| `role` | enum | ❌ | `admin` / `member` |
-
-**返回**：`{ agents: [{ agent_id, name, role, status, last_heartbeat, trust_score }] }`
-
----
-
-### get_online_agents
-
-> **权限**：member
-
-获取当前在线 Agent 列表。
-
-| 参数 | 无 |
-
-**返回**：`{ online_agents: ["agent-id-1", "agent-id-2"] }`
-
----
-
-### revoke_token
-
-> **权限**：admin
-
-吊销指定 Agent 的 API token。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `token_id` | string | ✅ | 要吊销的 Token ID |
-
-**返回**：`{ success: true }`
-
----
-
-### set_trust_score
-
-> **权限**：admin
-
-调整 Agent 信任分数。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `agent_id` | string | ✅ | 目标 Agent ID |
-| `delta` | number | ✅ | 信任分增量（-100 ~ +100） |
-
-**返回**：`{ success: true, new_score: number }`
-
----
-
-### set_agent_role ⭐ Phase 5a
-
-> **权限**：**admin**
-
-任命/撤销 Agent 角色（含 group_admin）。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `agent_id` | string | ✅ | 目标 Agent ID |
-| `role` | enum | ✅ | `admin` / `member` / `group_admin` |
-| `managed_group_id` | string | ❌ | 管理的 parallel_group ID（仅 group_admin 时可选） |
-
-**安全约束**：
-- 不能修改自己的角色
-- 非 admin 不能被提升为 admin
-- 变更后自动同步 `auth_tokens.role`
-- 操作写入审计日志
-
-**返回**：`{ success: true, old_role, new_role, managed_group_id }`
-
----
-
-### recalculate_trust_scores ⭐ Phase 5a
-
-> **权限**：**admin**
-
-手动触发信任分重算。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `agent_id` | string | ❌ | 指定 Agent ID（不传则全部重算） |
-
-**信任评分公式**：
-
-```
-base = 50
-+ verified_capabilities × 3
-+ approved_strategies × 2
-+ positive_feedback（排除自评）× 1
-- negative_feedback × 2
-- rejected_applications × 3
-- revoked_tokens × 10
-→ clamp(0, 100)
+```http
+Authorization: Bearer <api_token>
 ```
 
-**返回**：`{ recalculated: number, agents_affected: number }`
+- Token 在 `register_agent` 时一次性返回；服务端以 SHA-256 哈希存储，明文不落盘。
+- 服务端按以下顺序提取 Token（见 `src/security.ts` 的 `extractToken`）：
+  1. 请求头 `Authorization: Bearer <token>`
+  2. 查询参数 `?token=<token>`（仅 SSE 等少数场景使用，**不建议**用于 REST/MCP）
+  3. 请求头 `x-api-key: <token>`
+- 缺失或无效 Token → `401`；`/dashboard` 与 `/api/*` 还要求 `role === 'admin'`，否则 `403`。
+- 限流：每个 Agent **10 请求/秒**，超出 → `429 { error: "Rate limit exceeded (10 req/s)" }`。
+
+> ⚠️ **安全建议**：Token 不要放在 URL 查询串中（会被访问日志 / 反向代理记录）。REST 与 MCP 一律使用 `Authorization: Bearer`。
+
+### 中间件分级
+
+| 中间件 | 用于端点 | 规则 |
+|--------|----------|------|
+| `authMiddleware` | `/api/tasks`、`/api/messages`、`/api/consumed`、`/admin/invite/generate` | 必须携带有效 Token（含限流） |
+| `internalMonitorAuth` | `/health`、`/health/detailed`、`/metrics` | loopback（127.0.0.1 / ::1）或有效 Token |
+| `requireAdminApi` | `/dashboard`、`/api/status`、`/api/agents`、`/api/audit/tail` | 有效 Token **且** `role === 'admin'` |
+| `optionalAuthMiddleware` | `/events/:agent_id`、`/mcp` | 有 Token 则校验，无则匿名（auth 置为 undefined） |
 
 ---
 
-## 2. Message 消息
+## 3. 端点速查
 
-### send_message
+### 3.1 健康检查与指标（internalMonitorAuth）
 
-> **权限**：member
-
-发送点对点消息。
-
-| 参数 | 类型 | 必填 | 说明 |
+| 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
-| `from` | string | ✅ | 发送方 Agent ID |
-| `to` | string | ✅ | 接收方 Agent ID |
-| `content` | string | ✅ | 消息正文，支持 Markdown |
-| `type` | string | ❌ | 消息类型（默认 "message"） |
-| `metadata` | object | ❌ | 附加元数据 |
+| GET | `/health` | internalMonitorAuth | 返回 `status` / `version` / `uptime` / 内存占用（rss、heap） |
+| GET | `/health/detailed` | internalMonitorAuth | DB 表统计、FTS5 一致性、24h 积压消息数、在线 Agent 列表 |
+| GET | `/metrics` | internalMonitorAuth | Prometheus 格式指标（`text/plain; version=0.0.4`） |
 
-**返回**：`{ message_id, from, to, created_at }`
+> loopback 探针或 Prometheus scraper 同源可直接访问；跨机需带有效 Token。
 
-**特性**：自动去重（sha256 hash）、SSE 实时推送
+### 3.2 REST API（authMiddleware，供自动化脚本轮询）
 
----
-
-### broadcast_message
-
-> **权限**：member
-
-群发消息给多个 Agent。
-
-| 参数 | 类型 | 必填 | 说明 |
+| 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
-| `from` | string | ✅ | 发送方 Agent ID |
-| `agent_ids` | string[] | ✅ | 接收方 Agent ID 列表 |
-| `content` | string | ✅ | 消息正文 |
-| `metadata` | object | ❌ | 附加元数据 |
+| GET | `/api/tasks?agent_id=<id>&status=<s>` | authMiddleware | 列出指定 Agent 的任务；`status` ∈ `pending`/`in_progress`/`completed`/`failed` |
+| GET | `/api/messages?agent_id=<id>&status=<s>` | authMiddleware | 列出消息；`status` ∈ `unread`/`delivered`/`read`/`acknowledged` |
+| PATCH | `/api/tasks/:id/status` | authMiddleware | body：`status`(`in_progress`/`completed`/`failed`)、`result`、`progress`；成功后 SSE 通知发起方 |
+| PATCH | `/api/messages/:id/status` | authMiddleware | body：`status` ∈ `read`/`delivered`/`acknowledged` |
+| GET | `/api/consumed?agent_id=<id>&resource=<r>` | authMiddleware | 查询消费水位线（防重复处理）；带 `resource` 查单条，否则列最近 50 条 |
+| POST | `/admin/invite/generate` | authMiddleware + admin | 生成邀请码（24h 有效），body：`role`(`admin`/`member`)；返回 `invite_code` |
 
----
+### 3.3 管理端点（requireAdminApi）
 
-### acknowledge_message
-
-> **权限**：member
-
-确认已读消息。
-
-| 参数 | 类型 | 必填 | 说明 |
+| 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
-| `message_id` | string | ✅ | 消息 ID |
-| `agent_id` | string | ✅ | 确认者 Agent ID |
+| GET | `/api/status` | requireAdminApi | 面板总览：Agent / Pipeline 状态分布、近 5 分钟吞吐、FTS5 状态、限流 Top 10 |
+| GET | `/api/agents` | requireAdminApi | 全部 Agent 详情（角色、信任分、最后活跃、在线状态） |
+| GET | `/api/audit/tail?n=<50>` | requireAdminApi | 审计日志尾部（最多 500 条） |
 
----
+### 3.4 MCP 端点（StreamableHTTP，Stateless）
 
-### mark_consumed
-
-> **权限**：member
-
-标记任务消息为已消费（处理完成）。
-
-| 参数 | 类型 | 必填 | 说明 |
+| 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
-| `message_id` | string | ✅ | 消息 ID |
-| `agent_id` | string | ✅ | 消费者 Agent ID |
-| `task_id` | string | ✅ | 关联任务 ID |
-| `status` | string | ✅ | 消费状态 |
+| POST | `/mcp` | optionalAuthMiddleware | JSON-RPC：`tools/call`、`tools/list`、`initialize` 等 |
+| GET | `/mcp` | optionalAuthMiddleware | 建立 MCP 流（SSE 格式响应） |
+| DELETE | `/mcp` | optionalAuthMiddleware | 终止 MCP 会话 |
 
----
+- **无状态（Stateless）模式**：`sessionIdGenerator: undefined`，每次请求独立，不维护服务端 session。**多 Client 必须走 Stateless**。
+- 调用时请求头需带 `Accept: application/json, text/event-stream`。
+- 权限：`register_agent` 为 `public`（免 Token），其余 57 个工具需先注册并携带 Token（fail-closed：未登记工具一律拒绝）。
+- 认证失败（限流/无效 Token）返回 JSON-RPC 错误：`{ jsonrpc:"2.0", error:{ code:-32001, message:"Rate limit exceeded (10 req/s)" }, id:null }`。
 
-### check_consumed
+### 3.5 SSE 实时推送（optionalAuthMiddleware）
 
-> **权限**：member
-
-检查消息是否已被消费。
-
-| 参数 | 类型 | 必填 | 说明 |
+| 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
-| `message_id` | string | ✅ | 消息 ID |
-| `agent_id` | string | ✅ | Agent ID |
+| GET | `/events/:agent_id` | optionalAuthMiddleware | 长连接，实时推送新消息 / 任务 / 策略 / 交接等事件 |
 
----
+- 连接示例：
+  ```bash
+  curl -N \
+       -H "Authorization: Bearer <api_token>" \
+       -H "Last-Event-ID: <上次事件毫秒时间戳>" \
+       http://localhost:3100/events/<agent_id>
+  ```
+- 每条事件格式（`src/sse.ts` 的 `pushToAgent`）：
+  ```
+  id: <每连接递增整数>
+  event: message
+  data: {"event":"new_message","message":{...},"_hub_event_id":<n>,"_hub_dedup_id":<可选>}
 
-### search_messages
+  ```
+- **断线重连**：客户端在请求头带 `Last-Event-ID`（毫秒时间戳）。服务端解析为整数作为 `since`，调用 `messageRepo.listSince(agent_id, since)` 回放该时间戳之后的消息；回放窗口 `SSE_REPLAY_WINDOW`（默认 3600 秒），超出窗口的部分不补发。
+- 首次连接（无 `Last-Event-ID`）：服务端补发离线期间的未读消息与待执行任务。
+- 心跳：每 `SSE_HEARTBEAT_INTERVAL`（默认 10000ms）发送 `: ping`。
 
-> **权限**：member
+> ⚠️ **注意区分两种 id**：SSE 事件体的 `id:` 字段是**每连接递增整数**（`_hub_event_id`，用于客户端去重）；而断线重连的 `Last-Event-ID` 请求头被服务端当作**毫秒时间戳**处理（用于 `listSince` 回放）。客户端重连时应记录并回传最近一次事件的**毫秒时间戳**，而非递增 `id`。
 
-全文搜索消息历史（FTS5）。
+### 3.6 Web 管理面板（requireAdminApi）
 
-| 参数 | 类型 | 必填 | 说明 |
+| 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
-| `query` | string | ✅ | 搜索关键词 |
-| `agent_id` | string | ❌ | 限定发送方 Agent ID |
-| `from_agent` | string | ❌ | 限定发送方 Agent ID（与 agent_id 等价） |
-| `to_agent` | string | ❌ | 限定接收方 Agent ID |
-| `limit` | number | ❌ | 返回数量（默认 50） |
-
-**返回**：`{ query, messages: [...], count }`
+| GET | `/dashboard` | requireAdminApi | 纯静态仪表盘（总览 / Agents / 吞吐 / 健康 / 审计日志） |
+| GET | `/` | 重定向 | → `/dashboard` |
 
 ---
 
-## 3. Task 任务
+## 4. 统一错误格式
 
-### assign_task
-
-> **权限**：member
-
-创建并分配任务。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `from` | string | ✅ | 发起方 Agent ID |
-| `to` | string | ✅ | 执行方 Agent ID |
-| `description` | string | ✅ | 任务描述（含期望输出格式） |
-| `context` | string | ❌ | 附加上下文 |
-
-**返回**：`{ task_id, status: "assigned" }`
+- 未匹配路由 → `404 { error:true, message:"Not Found", traceId }`
+- 未捕获异常 → `500 { error:true, message, traceId }`（非开发环境隐藏原始 message）
+- 每个响应均带 `X-Trace-Id` 响应头，便于跨服务追踪。
 
 ---
 
-### update_task_status
+## 5. CORS 与安全响应头
 
-> **权限**：member
-
-更新任务状态。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `task_id` | string | ✅ | 任务 ID |
-| `agent_id` | string | ✅ | 操作者 Agent ID |
-| `status` | enum | ✅ | `in_progress` / `completed` / `failed` |
-| `result` | string | ❌ | 完成结果说明 |
-
-**状态机**：`inbox → assigned → [waiting] → in_progress → completed / failed / cancelled`
+- **CORS**：仅放行 `CORS_ORIGINS`（逗号分隔）中的来源，空 = 拒绝所有跨域；`OPTIONS` 预检返回 `204`。允许的请求头：`Content-Type, Authorization, X-Trace-Id, X-Api-Key`。
+- **安全响应头**：`X-Frame-Options: DENY`、`X-Content-Type-Options: nosniff`、`X-XSS-Protection: 1; mode=block`、`Strict-Transport-Security: max-age=31536000; includeSubDomains`、`Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'`。
 
 ---
 
-### get_task_status
-
-> **权限**：member
-
-查询任务详情。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `task_id` | string | ✅ | 任务 ID |
-
-**返回**：完整任务对象（含 status、assigned_to、dependencies、handoff 等）
-
----
-
-### create_pipeline
-
-> **权限**：member
-
-创建 Pipeline（线性任务容器）。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `name` | string | ✅ | Pipeline 名称 |
-| `description` | string | ❌ | 描述 |
-
-**返回**：`{ pipeline_id, name, status: "active" }`
-
----
-
-### get_pipeline
-
-> **权限**：member
-
-获取 Pipeline 详情（含任务列表和依赖关系）。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `pipeline_id` | string | ✅ | Pipeline ID |
-
----
-
-### list_pipelines
-
-> **权限**：member
-
-列出所有 Pipeline。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `status` | enum | ❌ | `active` / `completed` / `all` |
-| `limit` | number | ❌ | 返回数量 |
-
----
-
-### add_task_to_pipeline
-
-> **权限**：member
-
-向 Pipeline 添加任务。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `pipeline_id` | string | ✅ | Pipeline ID |
-| `description` | string | ✅ | 任务描述 |
-| `assigned_to` | string | ❌ | 执行方 Agent ID |
-| `priority` | enum | ❌ | `low` / `medium` / `high`（默认 medium） |
-| `depends_on` | string[] | ❌ | 依赖的任务 ID 列表 |
-
----
-
-## 4. Memory 记忆
-
-### store_memory
-
-> **权限**：member
-
-存储记忆。`agent_id` 由服务端从 Bearer token 自动推断，无需客户端传递。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `content` | string | ✅ | 记忆内容（最多 10000 字符） |
-| `scope` | enum | ✅ | `private` / `group` / `collective` |
-| `title` | string | ❌ | 记忆标题 |
-| `tags` | string[] | ❌ | 标签列表 |
-| `source_task_id` | string | ❌ | 关联任务 ID（溯源追踪） |
-| `agent_id` | string | ❌ | 已废弃：服务端自动从 token 推断，无需传递 |
-
----
-
-### recall_memory
-
-> **权限**：member
-
-搜索记忆。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `query` | string | ✅ | 搜索关键词 |
-| `scope` | enum | ❌ | `private` / `group` / `collective` / `all`（默认 all） |
-| `limit` | number | ❌ | 返回数量（默认 10） |
-
----
-
-### list_memories
-
-> **权限**：member
-
-列出记忆。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `scope` | enum | ❌ | 可见范围筛选 |
-| `limit` | number | ❌ | 返回数量 |
-
----
-
-### delete_memory
-
-> **权限**：member
-
-删除记忆。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `memory_id` | string | ✅ | 记忆 ID |
-
----
-
-### search_memories
-
-> **权限**：member
-
-全文搜索记忆（FTS5 索引）。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `query` | string | ✅ | 搜索关键词 |
-| `scope` | enum | ❌ | `private` / `group` / `collective` / `all` |
-| `agent_id` | string | ❌ | 限定 Agent ID |
-| `limit` | number | ❌ | 返回数量（默认 50） |
-
-**返回**：`{ query, memories: [...], count }`
-
----
-
-## 5. Evolution 进化引擎
-
-### share_experience
-
-> **权限**：member
-
-分享经验（无需审批，直接发布）。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `title` | string | ✅ | 经验标题（3-200 字符） |
-| `content` | string | ✅ | Markdown 内容（10-5000 字符） |
-| `category` | enum | ✅ | 固定为 `experience` |
-| `tags` | string[] | ❌ | 标签列表（最多 10 个） |
-
----
-
-### propose_strategy
-
-> **权限**：member
-
-提议策略（需 admin 审批，等同于 tier=admin）。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `title` | string | ✅ | 策略标题（3-200 字符） |
-| `content` | string | ✅ | Markdown 内容（10-5000 字符） |
-| `category` | enum | ✅ | `workflow` / `fix` / `tool_config` / `prompt_template` / `other` |
-
----
-
-### propose_strategy_tiered ⭐ Phase 4b
-
-> **权限**：member
-
-提议策略（支持 4 级自动分级审批）。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `title` | string | ✅ | 策略标题（3-200 字符） |
-| `content` | string | ✅ | Markdown 内容（10-5000 字符） |
-| `category` | enum | ✅ | `workflow` / `fix` / `tool_config` / `prompt_template` / `other` |
-| `tier` | enum | ❌ | 强制指定 tier：`auto` / `peer` / `admin` / `super` |
-| `task_id` | string | ❌ | 关联任务 ID |
-
-**自动判定规则**：
-
-| Tier | 条件 |
-|------|------|
-| `auto` | trust≥90 + normal + history≥5 |
-| `peer` | trust≥60 + normal + history≥2 |
-| `admin` | 默认 |
-| `super` | high sensitivity + trust<80 |
-
----
-
-### check_veto_window ⭐ Phase 4b
-
-> **权限**：member
-
-检查策略时间窗口状态。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `strategy_id` | number | ✅ | 策略 ID |
-
-**返回**：`{ in_window, window_type, deadline, negative_count, positive_count, can_revoke }`
-
----
-
-### veto_strategy ⭐ Phase 4b
-
-> **权限**：**admin**
-
-在窗口期内撤回策略。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `strategy_id` | number | ✅ | 策略 ID |
-| `reason` | string | ✅ | 撤回理由（最多 1000 字符） |
-
----
-
-### list_strategies / search_strategies / apply_strategy / feedback_strategy / approve_strategy / get_evolution_status
-
-详见 [Evolution Engine 使用指南](./evolution-guide.md)
-
----
-
-## 6. Orchestration 进阶编排 ⭐ Phase 4b
-
-### add_dependency
-
-> **权限**：member
-
-添加任务依赖关系。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `upstream_id` | string | ✅ | 上游任务 ID（需先完成） |
-| `downstream_id` | string | ✅ | 下游任务 ID |
-| `dep_type` | enum | ❌ | `finish_to_start`（默认）/ `start_to_start` / `finish_to_finish` |
-
-**自动行为**：DFS 环检测 + 自动评估下游任务 waiting 状态
-
----
-
-### remove_dependency
-
-> **权限**：member
-
-删除依赖关系。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `upstream_id` | string | ✅ | 上游任务 ID |
-| `downstream_id` | string | ✅ | 下游任务 ID |
-
----
-
-### get_task_dependencies
-
-> **权限**：member
-
-查询任务的上下游依赖。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `task_id` | string | ✅ | 任务 ID |
-
-**返回**：`{ upstreams: [...], downstreams: [...] }`
-
----
-
-### create_parallel_group
-
-> **权限**：member
-
-创建并行任务组。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `task_ids` | string[] | ✅ | 任务 ID 列表（2-10 个） |
-| `group_name` | string | ❌ | 并行组名称 |
-
----
-
-### request_handoff
-
-> **权限**：member
-
-请求任务交接。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `task_id` | string | ✅ | 任务 ID |
-| `target_agent_id` | string | ✅ | 目标 Agent ID |
-
----
-
-### accept_handoff
-
-> **权限**：member
-
-接受任务交接。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `task_id` | string | ✅ | 任务 ID |
-
----
-
-### reject_handoff
-
-> **权限**：member
-
-拒绝任务交接。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `task_id` | string | ✅ | 任务 ID |
-| `reason` | string | ❌ | 拒绝原因 |
-
----
-
-### add_quality_gate
-
-> **权限**：member
-
-在 Pipeline 中添加质量门。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `pipeline_id` | string | ✅ | Pipeline ID |
-| `gate_name` | string | ✅ | 质量门名称 |
-| `criteria` | string | ✅ | 评估规则（JSON 格式） |
-| `after_order` | number | ❌ | 在此 order_index 后检查 |
-
----
-
-### evaluate_quality_gate
-
-> **权限**：member
-
-评估质量门。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `gate_id` | string | ✅ | 质量门 ID |
-| `status` | enum | ✅ | `passed` / `failed` |
-| `result` | string | ❌ | 评估说明 |
-
----
-
-## 7. 权限矩阵
-
-| 工具 | public | member | group_admin | admin |
-|------|--------|--------|-------------|-------|
-| register_agent | ✅ | ✅ | ✅ | ✅ |
-| heartbeat | — | ✅ | ✅ | ✅ |
-| query_agents | — | ✅ | ✅ | ✅ |
-| get_online_agents | — | ✅ | ✅ | ✅ |
-| send_message | — | ✅ | ✅ | ✅ |
-| assign_task | — | ✅ | ✅ | ✅ |
-| update_task_status | — | ✅ | ✅ | ✅ |
-| get_task_status | — | ✅ | ✅ | ✅ |
-| broadcast_message | — | ✅ | ✅ | ✅ |
-| acknowledge_message | — | ✅ | ✅ | ✅ |
-| mark_consumed | — | ✅ | ✅ | ✅ |
-| check_consumed | — | ✅ | ✅ | ✅ |
-| store_memory | — | ✅ | ✅ | ✅ |
-| recall_memory | — | ✅ | ✅ | ✅ |
-| list_memories | — | ✅ | ✅ | ✅ |
-| delete_memory | — | ✅ | ✅ | ✅ |
-| share_experience | — | ✅ | ✅ | ✅ |
-| propose_strategy | — | ✅ | ✅ | ✅ |
-| list_strategies | — | ✅ | ✅ | ✅ |
-| search_strategies | — | ✅ | ✅ | ✅ |
-| apply_strategy | — | ✅ | ✅ | ✅ |
-| feedback_strategy | — | ✅ | ✅ | ✅ |
-| get_evolution_status | — | ✅ | ✅ | ✅ |
-| add_dependency | — | ✅ | ✅ | ✅ |
-| remove_dependency | — | ✅ | ✅ | ✅ |
-| get_task_dependencies | — | ✅ | ✅ | ✅ |
-| create_parallel_group | — | ✅ | ✅ | ✅ |
-| request_handoff | — | ✅ | ✅ | ✅ |
-| accept_handoff | — | ✅ | ✅ | ✅ |
-| reject_handoff | — | ✅ | ✅ | ✅ |
-| add_quality_gate | — | ✅ | ✅ | ✅ |
-| evaluate_quality_gate | — | ✅ | ✅ | ✅ |
-| propose_strategy_tiered | — | ✅ | ✅ | ✅ |
-| check_veto_window | — | ✅ | ✅ | ✅ |
-| **revoke_token** | — | — | — | **✅** |
-| **set_trust_score** | — | — | — | **✅** |
-| **approve_strategy** | — | — | — | **✅** |
-| **veto_strategy** | — | — | — | **✅** |
-| **set_agent_role** ⭐5a | — | — | — | **✅** |
-| **recalculate_trust_scores** ⭐5a | — | — | — | **✅** |
-
-> **group_admin**：等同于 member + 可管理所属 parallel_group 内任务。可操作消息、记忆、策略、evolution 工具（与 member 权限一致），额外拥有并行组管理能力。
-
----
-
-## 8. SSE 事件
-
-| 事件 | 触发时机 | 推送目标 |
-|------|---------|---------|
-| `message` | 收到新消息 | 接收方 |
-| `task_assigned` | 任务被分配 | 执行方 |
-| `task_completed` | 任务完成 | 发起方 |
-| `strategy_approved` | 策略审批通过 | 提议者 |
-| `handoff_requested` | 交接请求 | 接收方 |
-| `handoff_accepted` | 交接接受 | 原负责人 |
-| `handoff_rejected` | 交接拒绝 | 原负责人 |
-| `quality_gate_failed` | 质量门未通过 | Pipeline 参与者 |
-| `hub_shutdown` | 服务器即将关闭 | 所有 SSE 客户端 |
-
----
-
-## 9. 运维端点（Phase 5b 新增）
-
-### GET /health
-
-> **权限**：public（免认证）
-> **内容类型**：application/json
-
-增强健康检查端点，返回服务完整状态。
-
-**响应示例**：
-```json
-{
-  "status": "ok",
-  "version": "2.2.0",
-  "uptime": 1234.56,
-  "timestamp": 1745594400000,
-  "memory": {
-    "rss": 45,
-    "heap_used": 28,
-    "heap_total": 35
-  },
-  "db": {
-    "size": 524288,
-    "tables": 16
-  },
-  "sse": {
-    "active_connections": 2
-  }
-}
-```
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `status` | string | `"ok"` |
-| `version` | string | Hub 版本号 |
-| `uptime` | number | 运行时长（秒） |
-| `timestamp` | number | 当前时间戳（ms） |
-| `memory.rss` | number | RSS 内存（MB） |
-| `memory.heap_used` | number | 堆使用（MB） |
-| `memory.heap_total` | number | 堆总量（MB） |
-| `db.size` | number | 数据库文件大小（bytes） |
-| `db.tables` | number | 数据库表数量 |
-| `sse.active_connections` | number | SSE 活跃连接数 |
-
----
-
-### GET /metrics
-
-> **权限**：public（免认证）
-> **内容类型**：text/plain; version=0.0.4
-
-Prometheus 兼容指标端点。
-
-**可用指标**：
-
-| 指标 | 类型 | 标签 | 说明 |
-|------|------|------|------|
-| `mcp_calls_total` | Counter | tool_name, status, role | MCP 工具调用计数 |
-| `active_sse_connections` | Gauge | — | 当前 SSE 活跃连接数 |
-| `message_delivery_total` | Counter | status (delivered/queued/failed) | 消息投递计数 |
-| `http_requests_total` | Counter | method, path, status | HTTP 请求计数 |
-| `http_request_duration_ms` | Histogram | method, path | 请求耗时分布 |
-| `db_query_duration_ms` | Histogram | operation | DB 查询耗时 |
-
----
-
-### Phase 5b 新增环境变量
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `LOG_LEVEL` | `info` | 日志级别：debug / info / warn / error |
-| `CORS_ORIGINS` | `` (空) | CORS 白名单（逗号分隔），空=拒绝所有跨域 |
-
-### Phase 5b 新增 HTTP 行为
-
-| 特性 | 说明 |
-|------|------|
-| 结构化日志 | 所有日志输出 JSON 到 stdout，通过 `LOG_LEVEL` 过滤 |
-| CORS 白名单 | 默认拒绝所有跨域，需显式配置 `CORS_ORIGINS` |
-| 安全头 | X-Frame-Options / X-Content-Type-Options / X-XSS-Protection / HSTS / CSP |
-| 请求追踪 | 每请求自动生成 traceId，响应头 `X-Trace-Id` |
-| 404 JSON | 未匹配路由返回 `{error, message, traceId}` |
-| 优雅关闭 | SIGTERM/SIGINT 后 drain SSE → 关闭 DB → 退出 |
-
----
-
-## 10. 数据模型概览
-
-| 表 | Phase | 说明 |
-|------|-------|------|
-| agents | 0.5+5a | Agent 注册信息 + 信任分 + managed_group_id |
-| messages | 1 | 消息表（去重 hash） |
-| tasks | 1+4a+4b | 任务表（21 列，含 parallel_group、handoff_to） |
-| pipelines | 4a | Pipeline 容器 |
-| pipeline_tasks | 4a | Pipeline-Task 关联 |
-| memories | 1 | Agent 记忆 |
-| strategies | 3 | 策略（含 approval_tier、观察/否决窗口） |
-| strategy_feedback | 3 | 策略反馈（防刷） |
-| strategy_applications | 3 | 策略采纳记录 |
-| agent_capabilities | 1 | Agent 能力标签 |
-| audit_log | 2+5a | 审计日志（含哈希链 prev_hash/record_hash + 写保护触发器） |
-| auth_tokens | 1 | 认证 token |
-| consumed_log | 1 | 消息消费记录 |
-| dedup_cache | 2 | 消息去重缓存 |
-| sender_nonces | 2 | 发送方 nonce |
-| task_dependencies | **4b** | 任务依赖关系 |
-| quality_gates | **4b** | Pipeline 质量门 |
-
----
-
-*文档版本：v2.2 | 最后更新：2026-04-25（Phase 5b 完结）*
+## 6. 端点汇总
+
+| # | 方法 | 路径 | 鉴权 |
+|---|------|------|------|
+| 1 | GET | `/health` | internalMonitorAuth |
+| 2 | GET | `/health/detailed` | internalMonitorAuth |
+| 3 | GET | `/metrics` | internalMonitorAuth |
+| 4 | POST | `/admin/invite/generate` | authMiddleware + admin |
+| 5 | GET | `/api/tasks` | authMiddleware |
+| 6 | GET | `/api/messages` | authMiddleware |
+| 7 | PATCH | `/api/tasks/:id/status` | authMiddleware |
+| 8 | PATCH | `/api/messages/:id/status` | authMiddleware |
+| 9 | GET | `/api/consumed` | authMiddleware |
+| 10 | GET | `/api/status` | requireAdminApi |
+| 11 | GET | `/api/agents` | requireAdminApi |
+| 12 | GET | `/api/audit/tail` | requireAdminApi |
+| 13 | GET | `/events/:agent_id`（SSE） | optionalAuthMiddleware |
+| 14 | POST | `/mcp` | optionalAuthMiddleware |
+| 15 | GET | `/mcp` | optionalAuthMiddleware |
+| 16 | DELETE | `/mcp` | optionalAuthMiddleware |
+| 17 | GET | `/dashboard` | requireAdminApi |
+| 18 | GET | `/` | 重定向 |
+
+> 共 16 个端点路由，其中 `/mcp` 含 POST / GET / DELETE 三方法（共 18 个方法级端点）。58 个 MCP 工具均经 `/mcp` 暴露。

@@ -25,9 +25,20 @@ import {
   AuthorizationExpired,
 } from "../agent-client.js";
 import type { SensitiveOp } from "../agent-client.js";
+import { defaultHostExecutor } from "./host-executor.js";
 
 /** 进度回调：宿主在 runTask 内部用它实时回报百分比与文案 */
 export type ProgressReporter = (progress: number, message?: string) => Promise<void>;
+
+/**
+ * 宿主执行器契约：宿主「到底怎么干活」的统一抽象。
+ * AgentRuntime 不关心具体实现，宿主注入一个 HostExecutor 即可。
+ * 参考实现见 client-sdk/adapters/host-executor.ts
+ * （LlmHostExecutor / HttpHostExecutor / defaultHostExecutor）。
+ */
+export interface HostExecutor {
+  execute(task: TaskEvent, report: ProgressReporter): Promise<string>;
+}
 
 /**
  * 宿主任务执行桥接口。
@@ -43,6 +54,8 @@ export abstract class AbstractHostTaskBridge implements HostTaskBridge {
   protected client: AgentClient;
   /** 授权请求函数：由宿主注入，内部转发到 AgentRuntime.requestAuthorization */
   protected requestAuth: (op: SensitiveOp) => Promise<void>;
+  /** 宿主执行器：真实干活的能力（LLM / HTTP / 自定义）。由宿主注入。 */
+  protected executor: HostExecutor;
   /** 敏感操作判定正则（命中即走授权流程） */
   protected sensitivePattern: RegExp;
   /** 命中的敏感操作类目（写入 auth_requests.type，见 types.ts AUTH_OP_TYPES） */
@@ -52,11 +65,14 @@ export abstract class AbstractHostTaskBridge implements HostTaskBridge {
     client: AgentClient;
     /** (op) => runtime.requestAuthorization(op) —— 必须能拿到 AgentRuntime 引用 */
     requestAuth: (op: SensitiveOp) => Promise<void>;
+    /** 宿主执行器：真实干活的能力。不传则使用 defaultHostExecutor()（按环境变量选 LLM/HTTP） */
+    executor?: HostExecutor;
     sensitivePattern?: RegExp;
     sensitiveOpType?: string;
   }) {
     this.client = opts.client;
     this.requestAuth = opts.requestAuth;
+    this.executor = opts.executor ?? defaultHostExecutor();
     this.sensitivePattern =
       opts.sensitivePattern ??
       /删除|撤销|发送外部邮件|付费|revoke|delete|cancel|schema|drop|truncate/i;

@@ -25,6 +25,7 @@ import {
   AbstractHostTaskBridge,
   type ProgressReporter,
 } from "./adapters/host-task-bridge.js";
+import { defaultHostExecutor } from "./adapters/host-executor.js";
 
 const HERMES_ID = process.env.HERMES_ID ?? "hermes";
 const HUB_URL = process.env.HUB_URL ?? "http://localhost:3100";
@@ -59,37 +60,22 @@ const hermes = new AgentClient({
 /**
  * Hermes 的任务执行桥。
  * 基类已处理：敏感操作授权挂起 + 进度骨架（10% 起点）。
- * 这里只实现「Hermes 到底怎么干活」—— 替换 executeViaHost 即可接入真实能力。
+ * 这里只实现「Hermes 到底怎么干活」—— runTask 把任务交给注入的 HostExecutor。
  */
 class HermesTaskBridge extends AbstractHostTaskBridge {
   /**
-   * ★ 宿主真实执行接缝 ★
-   * 当前为安全占位（结构化回显，保证可运行）。
-   * 接入真实能力时，把下面这段替换为对 Hermes 宿主运行时的调用，例如：
-   *   const ctx = await this.host.loadContext(task);
-   *   const out = await this.host.runLLM(ctx);          // 调 LLM / MCP 工具
-   * 记得用 report(p, msg) 在关键阶段回报进度。
+   * ★ 宿主真实执行 ★
+   * 不再使用 setTimeout 占位。runTask 把任务交给注入的 HostExecutor
+   * （默认 defaultHostExecutor()：有 HOST_EXEC_ENDPOINT 走 HTTP，否则走 LLM）。
+   * Hermes 作为宿主，默认通过 LLM 直接产出结果，实现「任务到达 → 自动干活」。
+   * 想接 Hermes 宿主真实运行时，构造时传入自定义 HostExecutor 即可：
+   *   new HermesTaskBridge({ client, requestAuth, executor: myExecutor })
    */
-  private async executeViaHost(task: TaskEvent): Promise<string> {
-    // TODO(host): 替换为 Hermes 宿主的真实执行器调用。
-    await new Promise((r) => setTimeout(r, 300)); // 模拟宿主调用耗时（删除此行）
-    return JSON.stringify(
-      {
-        summary: `Hermes 完成了任务：${task.description.slice(0, 80)}`,
-        data: { processed: true, context: task.context },
-        timestamp: new Date().toISOString(),
-        note: "占位执行结果；请接入 Hermes 宿主真实能力。",
-      },
-      null,
-      2
-    );
-  }
-
   protected async runTask(task: TaskEvent, report: ProgressReporter): Promise<string> {
-    report(30, "收集数据");
-    report(60, "分析处理");
-    const output = await this.executeViaHost(task);
-    report(90, "生成报告");
+    report(30, "解析任务并规划");
+    report(50, "调用宿主执行器");
+    const output = await this.executor.execute(task, report);
+    report(90, "汇总结果");
     return output;
   }
 }

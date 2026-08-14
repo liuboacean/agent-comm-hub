@@ -87,27 +87,65 @@ protected abstract runTask(task: TaskEvent, report: ProgressReporter): Promise<s
 
 ## 4. 接入宿主真实能力的接缝
 
-`client-sdk/workbuddy-integration.ts` 与 `client-sdk/hermes-integration.ts` 内各有一个
-标记好的接缝方法 `executeViaHost()`：
+「宿主到底怎么干活」被抽象为一个统一的 `HostExecutor` 契约（见
+`client-sdk/adapters/host-task-bridge.ts`），由宿主在构造桥时**注入**。
+基座 `AbstractHostTaskBridge` 默认使用 `defaultHostExecutor()`，因此开箱即可真实执行，
+不再是 `setTimeout` 占位。
 
 ```ts
-private async executeViaHost(task: TaskEvent): Promise<string> {
-  // TODO(host): 替换为宿主真实执行器调用
-  //   const plan  = await this.host.plan(task);
-  //   const output = await this.host.runTools(plan);   // LLM / MCP 工具 / 脚本 / 外部 API
-  await new Promise((r) => setTimeout(r, 300)); // 占位：模拟耗时，接入后删除
-  return JSON.stringify({ note: "占位执行结果；请接入宿主真实能力。" }, null, 2);
+export interface HostExecutor {
+  execute(task: TaskEvent, report: ProgressReporter): Promise<string>;
 }
 ```
 
-把它替换为对**宿主自身运行时**的调用即可：
+`runTask()` 只需把任务交给注入的执行器：
 
-- **WorkBuddy**：调用其 LLM / 工具编排能力（参考 `parseIntent()` 做轻量预处理）。
-- **Hermes**：调用其 Agent 运行时（加载上下文 → 调 LLM → 产出）。
-- 自定义宿主：任何能接收 `TaskEvent` 并返回字符串的逻辑。
+```ts
+// client-sdk/workbuddy-integration.ts / hermes-integration.ts
+protected async runTask(task: TaskEvent, report: ProgressReporter): Promise<string> {
+  report(30, "解析任务并规划");
+  report(50, "调用宿主执行器");
+  const output = await this.executor.execute(task, report); // ← 真实干活
+  report(90, "汇总结果");
+  return output;
+}
+```
 
-> ⚠️ 当前仓库内的 `executeViaHost` 是**安全占位**（结构化回显，保证可运行），
-> 不是真实业务执行。生产接入时务必替换。
+### 开箱即用的参考实现（`client-sdk/adapters/host-executor.ts`）
+
+| 实现 | 触发条件 | 说明 |
+|------|---------|------|
+| `HttpHostExecutor` | 设置了 `HOST_EXEC_ENDPOINT` | POST `{ task }` 到宿主自身暴露的 HTTP 任务端点（适配 Hermes 这类自带 API 的宿主） |
+| `LlmHostExecutor` | 未设置 `HOST_EXEC_ENDPOINT` | 直接调 LLM（Anthropic / OpenAI 兼容），需 `HOST_LLM_API_KEY` |
+
+`defaultHostExecutor()` 的选择优先级：有 `HOST_EXEC_ENDPOINT` → `HttpHostExecutor`，否则 → `LlmHostExecutor`。
+
+### 相关环境变量
+
+| 变量 | 用途 |
+|------|------|
+| `HOST_EXEC_ENDPOINT` | HTTP 执行器端点；设置后即走 HTTP 模式 |
+| `HOST_LLM_PROVIDER` | `anthropic`（默认）/ `openai` |
+| `HOST_LLM_BASE_URL` | LLM 接口地址（不填则用官方默认） |
+| `HOST_LLM_API_KEY` | LLM 调用密钥（必填，否则 `LlmHostExecutor` 抛错） |
+| `HOST_LLM_MODEL` | 模型名（不填则用各 provider 默认值） |
+
+### 自定义执行器
+
+想接入宿主的真实运行时（内部 LLM / MCP 工具 / 脚本引擎），实现 `HostExecutor`
+并在构造桥时传入即可，无需改动基座：
+
+```ts
+const bridge = new WorkBuddyTaskBridge({
+  client,
+  requestAuth: (op) => runtime.requestAuthorization(op),
+  executor: myCustomExecutor, // 注入你自己的真实能力
+});
+```
+
+> ✅ 当前仓库内的 WorkBuddy / Hermes 接入示例均已切换到 `HostExecutor` 委托，
+> 默认通过 LLM 直接产出结果，真正实现「任务到达 → Agent 自动干活」。
+> 仅在你未配置任何执行器环境变量时，LLM 模式会因缺 `HOST_LLM_API_KEY` 而抛错——届时注入自定义执行器或配置密钥即可。
 
 ---
 

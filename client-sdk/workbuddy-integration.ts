@@ -54,10 +54,10 @@ const workbuddy = new AgentClient({
 /**
  * WorkBuddy 的任务执行桥。
  * 基类已处理：敏感操作授权挂起 + 进度骨架（10% 起点）。
- * 这里只实现「宿主到底怎么干活」—— 替换 executeViaHost 即可接入真实能力。
+ * 这里只实现「宿主到底怎么干活」—— runTask 把任务交给注入的 HostExecutor。
  */
 class WorkBuddyTaskBridge extends AbstractHostTaskBridge {
-  /** 解析任务意图（轻量预处理，非阻塞） */
+  /** 解析任务意图（轻量预处理，用于进度文案，不影响执行） */
   private parseIntent(task: TaskEvent): { domain: string; action: string } {
     const d = task.description.toLowerCase();
     let domain = "general";
@@ -69,35 +69,18 @@ class WorkBuddyTaskBridge extends AbstractHostTaskBridge {
   }
 
   /**
-   * ★ 宿主真实执行接缝 ★
-   * 当前为安全占位（结构化回显，保证可运行）。
-   * 接入真实能力时，把下面这段替换为对 WorkBuddy 宿主运行时的调用，例如：
-   *   const plan  = await this.host.plan(task);
-   *   const output = await this.host.runTools(plan);   // MCP 工具 / LLM / 脚本
-   * 记得用 report(p, msg) 在关键阶段回报进度。
+   * ★ 宿主真实执行 ★
+   * 不再使用 setTimeout 占位。runTask 把任务交给注入的 HostExecutor
+   * （默认 defaultHostExecutor()：有 HOST_EXEC_ENDPOINT 走 HTTP，否则走 LLM）。
+   * 想接 WorkBuddy 宿主真实运行时，构造时传入自定义 HostExecutor 即可：
+   *   new WorkBuddyTaskBridge({ client, requestAuth, executor: myExecutor })
    */
-  private async executeViaHost(task: TaskEvent, intent: { domain: string; action: string }): Promise<string> {
-    // TODO(host): 替换为 WorkBuddy 宿主的真实执行器调用。
-    await new Promise((r) => setTimeout(r, 300)); // 模拟宿主调用耗时（删除此行）
-    return JSON.stringify(
-      {
-        agent: "workbuddy",
-        domain: intent.domain,
-        action: intent.action,
-        echo: task.description.slice(0, 120),
-        note: "占位执行结果；请接入 WorkBuddy 宿主真实能力。",
-      },
-      null,
-      2
-    );
-  }
-
   protected async runTask(task: TaskEvent, report: ProgressReporter): Promise<string> {
-    report(30, "解析任务意图");
     const intent = this.parseIntent(task);
+    report(25, `意图识别: ${intent.domain} / ${intent.action}`);
 
-    report(55, "调用宿主能力执行");
-    const output = await this.executeViaHost(task, intent);
+    report(50, "调用宿主执行器");
+    const output = await this.executor.execute(task, report);
 
     report(90, "汇总结果");
     return output;

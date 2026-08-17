@@ -1,0 +1,43 @@
+%% Agent 间自主协调时序图（含 HITL 边界）
+%% 绿区 = 全自动路径（Human 不在环）；红区 = 敏感操作卡 HITL（Human 点一下批准）
+%% 对应 v3.0.24：execute() 已接真实 HostExecutor（非占位回声），收到 task_assigned 即自动干活
+sequenceDiagram
+  autonumber
+  actor H as Human（Web 授权面板）
+  participant A as Agent A（宿主执行器）
+  participant Hub as Agent Comm Hub（协调层 / SSE 路由）
+  participant B as Agent B（宿主执行器）
+
+  %% ① 全自动路径 —— Human 不在环
+  Note over A,B: ① 全自动路径 —— Human 不在环
+  A->>Hub: assign_task(from=A, to=B, description)
+  Note right of A: Agent 自主决策派活<br/>工具描述：「无需人工确认」(T5 校验 from===调用方)
+  Hub->>B: task_assigned 事件（SSE pushToAgent）
+  B->>B: AgentRuntime 收到 → updateTaskStatus(in_progress, 5)
+  B->>B: execute() = HostExecutor 真实干活<br/>（v3.0.24 收口：非占位回声）
+  B->>Hub: updateTaskStatus(completed, result, 100)
+  Hub->>A: SSE 通知结果
+  A->>A: 拿到结果，继续编排
+
+  %% ② HITL 路径 —— 敏感操作卡 Human
+  Note over A,B: ② HITL 路径 —— 敏感操作卡 Human
+  A->>Hub: assign_task(from=A, to=B, 敏感任务)
+  Hub->>B: task_assigned 事件
+  B->>B: in_progress → execute()
+  B->>Hub: requestAuthorization(敏感操作)
+  Hub->>H: 推送 auth_request（默认拒绝 / TTL 10min）
+  H-->>Hub: resolve_authorization(approve / reject)
+  alt 批准
+    Hub-->>B: 授权通过 → resume 执行
+    B->>B: 继续 HostExecutor
+    B->>Hub: updateTaskStatus(completed, result)
+    Hub->>A: 通知结果
+  else 拒绝 / 超时
+    Hub-->>B: AuthorizationRejected / Expired
+    B->>Hub: updateTaskStatus(failed, "授权被拒")
+    Hub->>A: 通知失败
+  end
+
+  %% 护栏 —— 两侧通用，不影响 Human 是否在环
+  Note over A,B: 护栏（两侧通用，不影响 Human 是否在环）
+  Note right of B: 幂等去重(inFlight) · 并发上限(默认4)<br/>崩溃恢复(requeueIncomplete) · 防自杀循环(loopGuard)

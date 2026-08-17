@@ -357,6 +357,7 @@ agent-comm-hub/
 | 进化引擎指南 | 实验性，欢迎 PR（计划从 A 层 `evolution-guide.md` 同步） |
 | Hermes 集成指南 | 实验性，欢迎 PR（计划从 A 层 `hermes-integration-guide.md` 同步） |
 | [DB 三层防护](docs/hub-db-split-three-layer-protection.md) | 运维/稳定性保障 |
+| [Agent 协调时序图](docs/agent-coordination-flow.mermaid) | 想看清「任务从 A 到 B 全自动流转、哪里卡 HITL」的人 |
 | [English README](docs/README_EN.md) | English speakers |
 
 > 📌 **文档同步说明（B 层为权威源）**：服务端仓库（`agent-comm-hub-src`）是文档的单一权威来源。当前 `package.json` 的 `docs:sync` 脚本依赖 `scripts/sync-docs.ts`，**该文件尚未提供**，因此 A 层 Skill 分发包（`~/.workbuddy/skills/agent-comm-hub/`）需**手动同步**：将本仓库的 `docs/`、`SKILL.md`、`README.md` 复制到 A 层对应位置。后续若补充 `scripts/sync-docs.ts`，可用 `npm run docs:sync` 自动同步。

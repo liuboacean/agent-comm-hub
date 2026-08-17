@@ -147,29 +147,99 @@ export function pushToAgent(agentId: string, event: object, dedupId?: string): b
     return false;
   }
 
-  const res = clients.get(agentId);
-  if (!res) {
-    // 离线：事件已持久化，等待首连 / 重连补发
-    return false;
-  }
-  if (!isWritable(res)) {
-    // P2-5 修复：连接已关闭，勿写，退回离线补发路径
+  // 2a. 本地命中：本进程持有该 Agent 的 SSE 连接 → 直接投递（以全局 seq 作为 SSE id）
+  if (clients.has(agentId)) {
+    const ok = deliverToLocalClient(agentId, event, dedupId, seq);
+    if (ok) {
+      eventLogRepo.markDelivered(seq);
+      return true;
+    }
     return false;
   }
 
-  // 2. 在线：以全局 seq 作为 SSE id 发送，仅成功才标记 delivered
+  // 2b. 跨进程桥接（方案 B）：本进程无该 Agent 的 SSE 连接。
+  //     典型场景：stdio MCP 进程派单，而 SSE 长连接挂在 HTTP 服务进程。
+  //     事件已落库，转发到桥接地址由其本地投递；失败则靠重连 replay 兜底（至少一次）。
+  const bridgeUrl = process.env.SSE_BRIDGE_URL;
+  if (bridgeUrl) {
+    void forwardToBridge(bridgeUrl, agentId, event, dedupId, seq);
+    return true; // 已派发至桥接进程（乐观：事件已持久化，至少一次投递）
+  }
+
+  // 2c. 离线且未配置桥接：事件已持久化，等待首连 / 重连补发
+  return false;
+}
+
+/**
+ * 仅向「本地」SSE 连接投递（不落库、不生成 seq）。
+ * - pushToAgent 本地命中路径复用
+ * - 跨进程桥接端点 /internal/sse/push 复用（避免事件在 event_log 重复写入）
+ * @param eventId 可选 SSE id，跨进程场景传全局 seq，保证与重连 replay 一致
+ * @returns true = 命中本地连接且成功写入
+ */
+export function deliverToLocalClient(
+  agentId: string,
+  event: object,
+  dedupId?: string,
+  eventId?: number,
+): boolean {
+  const res = clients.get(agentId);
+  if (!res) return false;
+  if (!isWritable(res)) {
+    removeClient(agentId);
+    return false;
+  }
+  const payload: Record<string, unknown> = {
+    ...(event as Record<string, unknown>),
+    ...(dedupId ? { _hub_dedup_id: dedupId } : {}),
+  };
+  const id = eventId ?? nextEventId(agentId);
   try {
-    payload._hub_event_id = seq;
-    res.write(`id: ${seq}\n`);
+    payload._hub_event_id = id;
+    res.write(`id: ${id}\n`);
     res.write(`event: message\n`);
     res.write(`data: ${JSON.stringify(payload)}\n\n`);
     touchActivity(agentId);
-    eventLogRepo.markDelivered(seq);
     return true;
   } catch (err) {
-    // 连接异常，移除
     removeClient(agentId);
     return false;
+  }
+}
+
+/**
+ * 跨进程桥接转发（方案 B）：把事件 POST 到桥接进程的 /internal/sse/push，
+ * 由其本地投递到持有 SSE 连接的 Agent。fire-and-forget（pushToAgent 保持同步）。
+ */
+async function forwardToBridge(
+  bridgeUrl: string,
+  agentId: string,
+  event: object,
+  dedupId: string | undefined,
+  seq: number,
+): Promise<void> {
+  const url = `${bridgeUrl.replace(/\/$/, "")}/internal/sse/push`;
+  try {
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.HUB_AUTH_TOKEN ?? ""}`,
+      },
+      body: JSON.stringify({ agentId, event, dedupId, seq }),
+    });
+    if (!resp.ok) {
+      logError("sse_bridge_forward_failed", new Error(`HTTP ${resp.status}`), {
+        module: "sse", agent_id: agentId, bridge: bridgeUrl,
+      });
+      return;
+    }
+    const data = (await resp.json().catch(() => ({}))) as { delivered?: boolean };
+    if (!data.delivered) {
+      logger.warn("sse_bridge_not_delivered", { module: "sse", agent_id: agentId, bridge: bridgeUrl });
+    }
+  } catch (err) {
+    logError("sse_bridge_forward_error", err, { module: "sse", agent_id: agentId, bridge: bridgeUrl });
   }
 }
 

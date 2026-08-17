@@ -46,6 +46,14 @@ export declare function removeClient(agentId: string, connId?: number): void;
  */
 export declare function pushToAgent(agentId: string, event: object, dedupId?: string): boolean;
 /**
+ * 仅向「本地」SSE 连接投递（不落库、不生成 seq）。
+ * - pushToAgent 本地命中路径复用
+ * - 跨进程桥接端点 /internal/sse/push 复用（避免事件在 event_log 重复写入）
+ * @param eventId 可选 SSE id，跨进程场景传全局 seq，保证与重连 replay 一致
+ * @returns true = 命中本地连接且成功写入
+ */
+export declare function deliverToLocalClient(agentId: string, event: object, dedupId?: string, eventId?: number): boolean;
+/**
  * 从持久化事件日志回放一条已存储事件（重连/首连补发路径）。
  * 直接使用存储的 seq 作为 SSE id，不会再次写入 event_log（避免无限递归）。
  * @returns true = 成功写入响应；false = 离线或写入失败

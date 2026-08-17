@@ -15,7 +15,7 @@ import express from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { registerTools } from "./tools.js";
-import { registerClient, removeClient, pushToAgent, onlineAgents, drainAllClients, startZombieCleanup, stopZombieCleanup, writeStoredEvent, MAX_SSE_CONNECTIONS, connectedCount } from "./sse.js";
+import { registerClient, removeClient, pushToAgent, deliverToLocalClient, onlineAgents, drainAllClients, startZombieCleanup, stopZombieCleanup, writeStoredEvent, MAX_SSE_CONNECTIONS, connectedCount } from "./sse.js";
 import { eventLogRepo } from "./repo/event-log.js";
 import { getDbStats, db, scheduleCleanup, stopCleanup, archiveOldAuditLogs, enforceAuditLogCap } from "./db.js";
 import { messageRepo, taskRepo, consumedRepo } from "./repo/sqlite-impl.js";
@@ -784,6 +784,32 @@ app.delete("/mcp", optionalAuthMiddleware, async (req, res) => {
             res.status(500).end();
         }
     }
+});
+// ═══════════════════════════════════════════════════════════════
+// 内部桥接端点（方案 B）：跨进程事件转发
+// stdio MCP 进程派单时其 SSE clients Map 为空；通过此端点把事件交给
+// 「持有 SSE 连接」的 HTTP 进程本地投递。token 保护（与 /api/* 同源）。
+//   POST /internal/sse/push
+//   body: { agentId, event, dedupId?, seq? }
+//   → deliverToLocalClient 本地投递；成功且带 seq 则标记 event_log 已投递（防重连 replay 重复）
+// ═══════════════════════════════════════════════════════════════
+app.post("/internal/sse/push", authMiddleware, (req, res) => {
+    const body = (req.body ?? {});
+    const { agentId, event, dedupId, seq } = body;
+    if (typeof agentId !== "string" || !event || typeof event !== "object") {
+        res.status(400).json({ delivered: false, error: "agentId(string) and event(object) required" });
+        return;
+    }
+    const delivered = deliverToLocalClient(agentId, event, typeof dedupId === "string" ? dedupId : undefined, typeof seq === "number" ? seq : undefined);
+    if (delivered && typeof seq === "number") {
+        try {
+            eventLogRepo.markDelivered(seq);
+        }
+        catch (err) {
+            logError("sse_bridge_mark_delivered_failed", err, { module: "server", seq });
+        }
+    }
+    res.json({ delivered });
 });
 // ═══════════════════════════════════════════════════════════════
 // Phase 5b: 404 处理（在 error handler 之前）

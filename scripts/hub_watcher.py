@@ -39,6 +39,8 @@ from urllib.error import URLError
 
 HUB_URL = os.getenv("HUB_URL", "http://localhost:3100")
 AGENT_ID = os.getenv("HUB_AGENT_ID", "workbuddy")
+# 用于调用受 authMiddleware 保护的 REST API（/api/tasks PATCH、积压任务 GET 等）
+HUB_AUTH_TOKEN = os.getenv("HUB_AUTH_TOKEN", "")
 
 SIGNAL_DIR = Path(os.getenv(
     "SIGNAL_DIR",
@@ -73,6 +75,8 @@ def http_get(url: str, timeout: int = 10) -> Optional[bytes]:
     """简单的 HTTP GET，用于健康检查和 REST API 调用"""
     try:
         req = Request(url)
+        if HUB_AUTH_TOKEN:
+            req.add_header("Authorization", f"Bearer {HUB_AUTH_TOKEN}")
         with urlopen(req, timeout=timeout) as resp:
             return resp.read()
     except Exception as e:
@@ -86,6 +90,8 @@ def http_patch(url: str, data: dict, timeout: int = 10) -> bool:
         body = json.dumps(data).encode("utf-8")
         req = Request(url, data=body, method="PATCH")
         req.add_header("Content-Type", "application/json")
+        if HUB_AUTH_TOKEN:
+            req.add_header("Authorization", f"Bearer {HUB_AUTH_TOKEN}")
         with urlopen(req, timeout=timeout) as resp:
             return resp.status < 400
     except Exception as e:
@@ -277,6 +283,8 @@ class SSEStream:
             try:
                 logger.info(f"连接 SSE: {self.url}")
                 req = Request(self.url)
+                if HUB_AUTH_TOKEN:
+                    req.add_header("Authorization", f"Bearer {HUB_AUTH_TOKEN}")
                 with urlopen(req, timeout=self.timeout) as resp:
                     logger.info("SSE 连接成功，开始监听...")
                     self._read_stream(resp)
@@ -289,24 +297,45 @@ class SSEStream:
         return True
 
     def _read_stream(self, resp: Any) -> None:
-        """持续读取 SSE 流"""
-        buffer = ""
-        raw_buf = b""
-        while True:
-            if not self._running:
-                break
-            chunk = resp.read(4096)
-            if not chunk:
-                break
-            raw_buf += chunk
-            # 完整解码，避免逐字节截断多字节 UTF-8 字符
-            buffer += raw_buf.decode("utf-8", errors="replace")
-            raw_buf = b""
+        """
+        持续读取 SSE 流（按行 readline 解析）。
 
-            # 解析 SSE 事件
-            while "\n\n" in buffer:
-                event_text, buffer = buffer.split("\n\n", 1)
-                self._parse_event(event_text)
+        关键修复：旧实现用 resp.read(4096)，而 http.client 的缓冲读会
+        一直阻塞直到凑满 4096 字节或连接关闭。SSE 是低吞吐长连接（单条事件
+        约 200-300 字节，心跳每 10s 一条），永远凑不满 4096，导致 _parse_event
+        永不触发 —— 事件字节虽抵达 socket，却被卡在缓冲层，触发文件始终不写。
+
+        改用 readline()：遇到 \\n 立即返回一行，天然适配 SSE「行协议」，
+        无需第三方库即可增量、实时解析。
+        """
+        event_lines: list[str] = []
+        while self._running:
+            try:
+                raw_line = resp.readline()
+            except Exception:
+                # 连接异常/超时，交由 connect() 统一重连
+                break
+            if not raw_line:
+                # EOF（服务端关闭）
+                break
+            # 完整的一行，UTF-8 不会在此被截断
+            try:
+                line = raw_line.decode("utf-8", errors="replace")
+            except Exception:
+                continue
+            # 去掉行尾换行（兼容 \n 与 \r\n）
+            if line.endswith("\r\n"):
+                line = line[:-2]
+            elif line.endswith("\n"):
+                line = line[:-1]
+
+            if line == "":
+                # 空行 = 一个 SSE 事件块结束，触发解析
+                if event_lines:
+                    self._parse_event("\n".join(event_lines))
+                    event_lines = []
+            else:
+                event_lines.append(line)
 
     def _parse_event(self, event_text: str) -> None:
         """解析单个 SSE 事件块"""
@@ -347,9 +376,9 @@ class SSEStream:
                                 pass
                 return
 
-            # 普通事件格式
+            # 普通事件格式：真实事件类型在 payload.event（SSE event: 行恒为 "message"）
             if event_type or "event" in payload:
-                et = event_type or payload.get("event", "unknown")
+                et = payload.get("event", event_type) or "unknown"
                 handle_event(et, payload)
 
     def _wait_reconnect(self) -> None:

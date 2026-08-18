@@ -1,7 +1,7 @@
 ---
 name: agent-comm-hub
 description: "本地多智能体通信 Hub（MCP stdio / HTTP-SSE），提供消息、任务编排、共享记忆、进化引擎，暴露 58 个 MCP 工具 + Web 管理面板"
-version: "3.0.24"
+version: "3.0.25"
 category: autonomous-ai-agents
 triggers:
   - "agent-comm-hub"
@@ -19,7 +19,7 @@ triggers:
 
 # Agent Communication Hub
 
-> 多智能体消息转发与上下文共享中间件 — **v3.0.24**
+> 多智能体消息转发与上下文共享中间件 — **v3.0.25**
 
 让两个或多个独立 AI 智能体之间实现**实时双向通信**和**上下文自动同步**。基于 MCP 协议 + stdio 模式，消息本地持久化，延迟 < 50ms。
 
@@ -309,6 +309,14 @@ inbox → assigned → [waiting] → in_progress → completed / failed / cancel
 |------|------|------|
 | 宿主执行 | HostExecutor 契约 + 参考实现 | 新增 `client-sdk/adapters/host-executor.ts`（`LlmHostExecutor` / `HttpHostExecutor` / `defaultHostExecutor()`）；`AbstractHostTaskBridge` 可注入 `executor` |
 | 闭环 | 消灭 setTimeout 占位 | WorkBuddy / Hermes 桥 `runTask()` 委托 `this.executor.execute()`，任务到达即触发宿主真实能力 |
+
+### v3.0.25 — 跨进程 SSE 桥接 + watcher 实时解析修复
+| 类别 | 内容 | 说明 |
+|------|------|------|
+| 推送 | 跨进程 SSE 桥接（方案 B） | `pushToAgent` 在当前进程无目标 SSE 连接且配置 `SSE_BRIDGE_URL` 时，转发事件至桥接进程 `/internal/sse/push`，打通 stdio MCP 派单进程 → HTTP SSE 服务进程的实时送达 |
+| 服务端 | 桥接接收端点 | `server.ts` 新增 `POST /internal/sse/push`（鉴权保护），由持有 SSE 连接的进程本地投递 |
+| 客户端(watcher) | SSE 实时解析修复 | `hub_watcher.py` 由 `resp.read(4096)` 缓冲读改为逐行 `readline()`，消除低吞吐 SSE 流缓冲阻塞；修正事件分发（`payload.event` 取真实类型）与受保护 REST API 的 Bearer 鉴权头 |
+| 效果 | 派单→自动执行闭环 | 接收方持有 SSE 长连接（如 WorkBuddy 本地 watcher）即可实时收到 `task_assigned` 并触发宿主自动化执行 |
 
 ### v3.0.x（安全加固）
 | 类别 | 内容 | 说明 |

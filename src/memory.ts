@@ -419,19 +419,14 @@ export function getMemoryStats(caller?: { role: string }): MemoryStats {
 export function rebuildFtsIndex(): void {
   try {
     const memCount = (db.prepare(`SELECT COUNT(*) as cnt FROM memories`).get() as CountRow)?.cnt ?? 0;
-    let ftsCount = 0;
-    try {
-      ftsCount = (db.prepare(`SELECT COUNT(*) as cnt FROM memories_fts`).get() as CountRow)?.cnt ?? 0;
-    } catch {
-      // FTS 表不存在，跳过
-      return;
+    if (memCount === 0) {
+      return; // 无数据无需重建
     }
-
-    if (memCount === 0 || ftsCount >= memCount) {
-      return; // 不需要重建
-    }
-
-    logger.info("memory_fts_rebuild_start", { module: "memory", mem_count: memCount, fts_count: ftsCount });
+    // 全量重建：先清空 fts5，再按 memories 重新填充，保证两者完全一致。
+    // 原逻辑不清空就全量重插，在「fts 部分恢复」场景下会重复插入导致
+    // 索引膨胀 / constraint failed（memories 与 memories_fts 行数漂移）。
+    // DELETE 后重插是幂等的，每次启动都能自愈对齐。
+    db.prepare(`DELETE FROM memories_fts`).run();
 
     const memories = db.prepare(
       `SELECT id, title, content, tags, source_agent_id, source_task_id FROM memories`

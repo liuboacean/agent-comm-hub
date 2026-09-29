@@ -1222,3 +1222,33 @@ export function fts5IntegrityCheck(): { ok: boolean; details: string } {
   }
   return { ok: checks.length === 0, details: checks.join("; ") || "OK" };
 }
+
+/**
+ * 数据库整体完整性自检（PRAGMA integrity_check）。
+ *
+ * 用途：早期暴露「磁盘文件损坏」（SQLITE_CORRUPT），避免像 3.0.25 联调那样
+ * 直到回写失败才在 err.log 里成片刷 `database disk image is malformed`。
+ * 注意：进程重启无法修复盘损，必须由运维用 `sqlite3 .recover` 重建。
+ *
+ * - 健康：{ ok: true, details: "ok" }
+ * - 损坏：{ ok: false, details: "<首行损坏描述>" }（最多拼接前 3 行）
+ * - PRAGMA 本身抛错（库彻底打不开）：{ ok: false, details: "integrity_check_error: ..." }
+ */
+export function integrityCheckDb(): { ok: boolean; details: string } {
+  try {
+    const rows = db.prepare("PRAGMA integrity_check").all() as Array<Record<string, string>>;
+    const first = rows[0]?.["integrity_check"] ?? "ok";
+    if (first === "ok") {
+      return { ok: true, details: "ok" };
+    }
+    const details = rows
+      .slice(0, 3)
+      .map((r) => r["integrity_check"] ?? "")
+      .filter(Boolean)
+      .join("; ");
+    return { ok: false, details };
+  } catch (err) {
+    // 连 PRAGMA 本身都抛错，视为盘损
+    return { ok: false, details: `integrity_check_error: ${getErrorMessage(err)}` };
+  }
+}

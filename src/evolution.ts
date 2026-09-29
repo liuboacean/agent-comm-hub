@@ -990,16 +990,13 @@ export function scoreAppliedStrategies(): {
 export function rebuildStrategiesFts(): void {
   try {
     const stratCount = (db.prepare(`SELECT COUNT(*) as cnt FROM strategies`).get() as any)?.cnt ?? 0;
-    let ftsCount = 0;
-    try {
-      ftsCount = (db.prepare(`SELECT COUNT(*) as cnt FROM strategies_fts`).get() as any)?.cnt ?? 0;
-    } catch {
-      return; // FTS 表不存在
+    if (stratCount === 0) {
+      return; // 无数据无需重建
     }
-
-    if (stratCount === 0 || ftsCount >= stratCount) {
-      return; // 不需要重建
-    }
+    // 全量重建：先清空 fts5，再按 strategies 重新填充，保证两者完全一致。
+    // 原逻辑不清空就全量重插，在「fts 部分恢复」场景下会因 rowid 重复触发
+    // SQLITE_CONSTRAINT（constraint failed）。DELETE 后重插是幂等的。
+    db.prepare(`DELETE FROM strategies_fts`).run();
 
     const strategies = db.prepare(
       `SELECT id, title, content, category FROM strategies`

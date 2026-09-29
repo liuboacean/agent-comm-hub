@@ -17,7 +17,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { registerTools } from "./tools.js";
 import { registerClient, removeClient, pushToAgent, deliverToLocalClient, onlineAgents, drainAllClients, startZombieCleanup, stopZombieCleanup, broadcastToAll, writeStoredEvent, MAX_SSE_CONNECTIONS, connectedCount } from "./sse.js";
 import { eventLogRepo } from "./repo/event-log.js";
-import { getDbStats, db, scheduleCleanup, stopCleanup, archiveOldAuditLogs, enforceAuditLogCap } from "./db.js";
+import { getDbStats, db, scheduleCleanup, stopCleanup, archiveOldAuditLogs, enforceAuditLogCap, integrityCheckDb } from "./db.js";
 import { messageRepo, taskRepo, consumedRepo } from "./repo/sqlite-impl.js";
 import {
   authMiddleware,
@@ -280,8 +280,28 @@ function stopAuthSweep(): void {
   }
 }
 
+function runIntegrityCheck(): void {
+  try {
+    const check = integrityCheckDb();
+    if (check.ok) {
+      logger.info("db_integrity_ok", { module: "server", details: check.details });
+    } else {
+      // 严重：磁盘文件损坏。仅告警，不自动修复（保留原始损坏现场供 .recover 重建）。
+      // 重启进程无法修复盘损，需由运维用 `sqlite3 .recover` 重建。
+      logger.warn("db_integrity_failed", {
+        module: "server",
+        details: check.details,
+        hint: "磁盘文件可能损坏，建议用 sqlite3 .recover 重建；重启进程无法修复盘损",
+      });
+    }
+  } catch (err) {
+    logError("db_integrity_check_error", err, { module: "server" });
+  }
+}
+
 function runMaintenanceOnce(): void {
   try {
+    runIntegrityCheck(); // 每次维护先自检盘损，尽早暴露 SQLITE_CORRUPT
     archiveOldAuditLogs(90);
     const auditMax = parseInt(process.env.AUDIT_LOG_MAX_ROWS ?? "3000", 10);
     enforceAuditLogCap(auditMax);

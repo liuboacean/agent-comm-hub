@@ -77,5 +77,33 @@ if [ "$DIST_INODE" != "$ROOT_INODE" ]; then
   exit 5
 fi
 
+# ─── 5. SQLite 结构完整性探针（2026-09-02 新增）────────────
+# 背景：2026-09-02 发生 WAL 页级损坏（"2nd reference to page N"），
+# search_memories / store_memory 全面报 database disk image is malformed，
+# 但本看门狗的进程/端口/inode 三项检查全部"正常"，损坏潜伏数天才被发现。
+# 故补此探针：只读 quick_check，6MB 库耗时 <1s，每 10 分钟一次无压力。
+if command -v sqlite3 > /dev/null 2>&1; then
+  # 只读打开，避免本脚本自身成为写入者（WAL 下 -shm 仍会出现，属正常）
+  DB_CHECK=$(sqlite3 "file:$ROOT_DB?mode=ro" "PRAGMA quick_check;" 2>&1 | head -5)
+  if [ "$DB_CHECK" != "ok" ]; then
+    echo "[ALERT] ⚠️  Hub DB 结构完整性检查失败（quick_check）"
+    echo "[ALERT] $ROOT_DB"
+    echo "[ALERT] 输出: $DB_CHECK"
+    echo "[ALERT] 修复 SOP: 1) 字节级备份 db/-wal/-shm  2) sqlite3 old.db '.recover' | sqlite3 new.db"
+    echo "[ALERT]          3) 重建 memories_fts / strategies_fts  4) VACUUM  5) 换库并重启 server.js"
+    exit 6
+  fi
+
+  # FTS5 与主表行数一致性（FTS 被清空是历史复发故障，2026-06-08 已修代码，此处加运行时兜底）
+  FTS_DRIFT=$(sqlite3 "file:$ROOT_DB?mode=ro" \
+    "SELECT (SELECT COUNT(*) FROM memories) - (SELECT COUNT(*) FROM memories_fts);" 2>/dev/null)
+  if [ -n "$FTS_DRIFT" ] && [ "$FTS_DRIFT" != "0" ] 2>/dev/null; then
+    echo "[ALERT] ⚠️  Hub FTS5 索引漂移：memories 比 memories_fts 多 $FTS_DRIFT 条"
+    echo "[ALERT] 影响：search_memories / recall_memory 搜不到内容（但不报错，极易被忽略）"
+    echo "[ALERT] 修复：sqlite3 $ROOT_DB \"INSERT INTO memories_fts(memories_fts) VALUES('rebuild');\""
+    exit 7
+  fi
+fi
+
 # ─── 一切正常，静默退出 ─────────────────────────────────────
 exit 0

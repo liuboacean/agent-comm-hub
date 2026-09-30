@@ -33,3 +33,9 @@ backups/
 # Web deps
 web/node_modules/
 web/package-lock.json
+
+# Incident artifacts — never commit
+# comm_hub.db.corrupt_bak_* 是损坏旧库字节级备份，可能含敏感数据（记忆/token），禁止入库
+# test_ci.db* 是 CI 测试产生的临时库，禁止入库
+comm_hub.db.corrupt_bak_*
+test_ci.db*

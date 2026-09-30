@@ -318,6 +318,15 @@ inbox → assigned → [waiting] → in_progress → completed / failed / cancel
 | 客户端(watcher) | SSE 实时解析修复 | `hub_watcher.py` 由 `resp.read(4096)` 缓冲读改为逐行 `readline()`，消除低吞吐 SSE 流缓冲阻塞；修正事件分发（`payload.event` 取真实类型）与受保护 REST API 的 Bearer 鉴权头 |
 | 效果 | 派单→自动执行闭环 | 接收方持有 SSE 长连接（如 WorkBuddy 本地 watcher）即可实时收到 `task_assigned` 并触发宿主自动化执行 |
 
+### v3.0.25.1 — 数据库损坏恢复与运维加固（2026-09-29）
+| 类别 | 内容 | 说明 |
+|------|------|------|
+| 事故 | comm_hub.db SQLITE_CORRUPT | 多进程共享 WAL（含 7 天僵尸进程持锁）阻止 checkpoint + 历史联调盘损未修，导致主库 btree 损坏、归档停摆(2026-07-23)、`get_online_agents` 空 |
+| 恢复 | sqlite3 .recover 重建 | 主表零丢失（agents/strategies/tasks），仅坏页极少量丢失；`integrity_check=ok` |
+| Bugfix | FTS 重建幂等化 | `rebuildStrategiesFts`/`rebuildFtsIndex` 改为「先 DELETE 再全量 INSERT」，根治 `constraint failed` 与索引漂移（孤儿行致 `search_memories` 搜不到内容） |
+| 看门狗 | SQLite 结构完整性探针 | `scripts/cron_db_watchdog.sh` 新增 `quick_check` + `memories_fts` 行数漂移检查，每 10 分钟一次，仅告警（exit 6/7）不自动重启 |
+| 安全 | 凭据泄露三件套 | `scripts/scan_leaked_credentials.py`（只读、sha256 命中库判定有效凭据）／`redact_leaked_credentials.py`（减害脱敏，默认 dry-run）／`rotate_token.py`（先发后撤可逆轮换，明文仅写 600 文件） |
+
 ### v3.0.x（安全加固）
 | 类别 | 内容 | 说明 |
 |------|------|------|

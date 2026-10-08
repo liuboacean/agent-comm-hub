@@ -52,6 +52,15 @@ class SqliteMessageRepo implements IMessageRepo {
     return stmt.all(toAgent, status) as Message[];
   }
 
+  // 缺省查询（不传 status）用：返回该接收方**全部状态**消息，按 `rowid` 倒序取最近 N 条。
+  // 🔴 用 rowid 而非 created_at —— 本库 created_at 混型（历史行小数值 / 新行 13 位 ms），按它排序不可靠。
+  listForAgent(toAgent: string, limit: number): Message[] {
+    const stmt = db.prepare(
+      `SELECT * FROM messages WHERE to_agent=? ORDER BY rowid DESC LIMIT ?`
+    );
+    return stmt.all(toAgent, limit) as Message[];
+  }
+
   updateStatus(id: string, status: string): void {
     const stmt = db.prepare(`UPDATE messages SET status=? WHERE id=?`);
     stmt.run(status, id);

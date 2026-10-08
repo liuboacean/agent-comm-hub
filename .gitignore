@@ -45,9 +45,11 @@ web/package-lock.json
 # 可能含敏感数据（记忆/token），禁止入库。
 # 2026-10-08 补全：原仅忽略 corrupt_bak_*，实际在库的是 corrupt_<ts> / pre_repair_<ts>，
 # 落到根目录会成为 `git add -A` 的事故口（每个约 9–13 MB）。
+# 2026-10-08 再补：damaged_<ts> 是修库时留证的损坏旧库（单个约 12 MB），同属 `git add -A` 事故口。
 # test_ci.db* 是 CI 测试产生的临时库，禁止入库
 comm_hub.db.corrupt_*
 comm_hub.db.pre_repair_*
+comm_hub.db.damaged_*
 test_ci.db*
 
 # 留痕备份 .bak_<md5> —— 本地留痕件不入库（git 历史本身即版本记录）

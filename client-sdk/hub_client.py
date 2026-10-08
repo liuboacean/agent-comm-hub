@@ -1404,12 +1404,19 @@ class SynergyHubClient:
         )
         return json.loads(raw.decode("utf-8"))
 
-    def get_messages(self, status: str = "unread") -> dict:
-        """REST API 获取消息列表"""
-        raw = self._request(
-            "GET", f"/api/messages?agent_id={self.agent_id}&status={status}",
-            headers=self._auth_headers(),
-        )
+    def get_messages(self, status: Optional[str] = None, limit: int = 50) -> dict:
+        """REST API 获取消息列表。
+
+        ⚠️ 语义坑：`unread` ＝「尚未经 SSE 投递」，**不是**「用户未读」；
+           历史缺省值曾是 "unread" ⇒ 对活跃 agent 几乎恒空（已修正）。
+
+        不传 status ⇒ 服务端返回该 agent **全部状态**消息（`rowid` 倒序，`limit` 默认 50）。
+        显式传 status ⇒ 按状态过滤，行为与历史一致（服务端不设 limit）。
+        """
+        q = f"/api/messages?agent_id={self.agent_id}&limit={limit}"
+        if status is not None:
+            q += f"&status={status}"
+        raw = self._request("GET", q, headers=self._auth_headers())
         return json.loads(raw.decode("utf-8"))
 
     def update_task_via_rest(self, task_id: str, status: str, result: Optional[str] = None, progress: int = 0) -> dict:

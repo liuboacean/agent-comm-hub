@@ -31,8 +31,11 @@ export interface IMessageRepo {
   /** 按 ID 查询消息 */
   getById(id: string): Message | undefined;
 
-  /** 按接收方 + 状态查询消息 */
+  /** 按接收方 + 状态查询消息（行为与历史一致；不设 limit） */
   listByStatus(toAgent: string, status: string): Message[];
+
+  /** 按接收方列出**全部状态**消息（REST 缺省查询用；`rowid` 倒序，`limit` 上限防全量拉爆） */
+  listForAgent(toAgent: string, limit: number): Message[];
 
   /** 更新消息状态（REST PATCH 用） */
   updateStatus(id: string, status: string): void;

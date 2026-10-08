@@ -66,7 +66,7 @@ Authorization: Bearer <api_token>
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
 | GET | `/api/tasks?agent_id=<id>&status=<s>` | authMiddleware | 列出指定 Agent 的任务；`status` ∈ `pending`/`in_progress`/`completed`/`failed` |
-| GET | `/api/messages?agent_id=<id>&status=<s>` | authMiddleware | 列出消息；`status` ∈ `unread`/`delivered`/`read`/`acknowledged` |
+| GET | `/api/messages?agent_id=<id>[&status=<s>][&limit=<n>]` | authMiddleware | 列出消息。**不传 `status` ⇒ 返回该 agent 全部状态消息**（`rowid` 倒序，`limit` 默认 50、夹紧 `[1,500]`）；传 `status` ⇒ 按状态过滤（∈ `unread`/`delivered`/`read`/`acknowledged`，**不设 limit**，行为与历史一致）。⚠️ `unread` ＝「尚未经 SSE 投递」，非「用户未读」 |
 | PATCH | `/api/tasks/:id/status` | authMiddleware | body：`status`(`in_progress`/`completed`/`failed`)、`result`、`progress`；成功后 SSE 通知发起方 |
 | PATCH | `/api/messages/:id/status` | authMiddleware | body：`status` ∈ `read`/`delivered`/`acknowledged` |
 | GET | `/api/consumed?agent_id=<id>&resource=<r>` | authMiddleware | 查询消费水位线（防重复处理）；带 `resource` 查单条，否则列最近 50 条 |

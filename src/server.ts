@@ -453,9 +453,9 @@ app.get("/api/tasks", authMiddleware, (req: Request, res: Response) => {
   res.json({ tasks, count: tasks.length });
 });
 
-// GET /api/messages?agent_id=workbuddy&status=unread
+// GET /api/messages?agent_id=<id>[&status=<s>][&limit=<n>]
 app.get("/api/messages", authMiddleware, (req: Request, res: Response) => {
-  const { agent_id, status } = req.query;
+  const { agent_id, status, limit } = req.query;
   if (!agent_id) {
     res.status(400).json({ error: "agent_id is required" });
     return;
@@ -465,8 +465,14 @@ app.get("/api/messages", authMiddleware, (req: Request, res: Response) => {
     res.status(400).json({ error: `Invalid status: ${status}. Valid: ${validStatuses.join(", ")}` });
     return;
   }
-  const queryStatus = (status as string) || "unread";
-  const messages = messageRepo.listByStatus(agent_id as string, queryStatus);
+  // 🔴 不传 status ⇒ 返回该 agent **全部状态**消息（`rowid` 倒序，`limit` 默认 50、夹紧 [1,500]）。
+  //    历史缺陷：不传 status 曾缺省为 "unread"，而本系统 unread ＝「尚未经 SSE 投递」
+  //    （见 db.ts pendingFor/markAllDelivered：unread→delivered）⇒ 对活跃 agent 几乎恒空。
+  //    显式传 status ⇒ 行为与历史逐字节一致（走 listByStatus，不设 limit）。
+  const maxRows = Math.min(Math.max(Number.parseInt(limit as string, 10) || 50, 1), 500);
+  const messages = status
+    ? messageRepo.listByStatus(agent_id as string, status as string)
+    : messageRepo.listForAgent(agent_id as string, maxRows);
   res.json({ messages, count: messages.length });
 });
 

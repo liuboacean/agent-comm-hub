@@ -30,6 +30,12 @@ class SqliteMessageRepo {
         const stmt = db.prepare(`SELECT * FROM messages WHERE to_agent=? AND status=? ORDER BY created_at ASC`);
         return stmt.all(toAgent, status);
     }
+    // 缺省查询（不传 status）用：返回该接收方**全部状态**消息，按 `rowid` 倒序取最近 N 条。
+    // 🔴 用 rowid 而非 created_at —— 本库 created_at 混型（历史行小数值 / 新行 13 位 ms），按它排序不可靠。
+    listForAgent(toAgent, limit) {
+        const stmt = db.prepare(`SELECT * FROM messages WHERE to_agent=? ORDER BY rowid DESC LIMIT ?`);
+        return stmt.all(toAgent, limit);
+    }
     updateStatus(id, status) {
         const stmt = db.prepare(`UPDATE messages SET status=? WHERE id=?`);
         stmt.run(status, id);

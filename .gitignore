@@ -1,5 +1,8 @@
 node_modules/
 *.js.map
+# 🔴 2026-10-08 按刘博指示：dist/ 的 sourcemap 随 dist 一并入库。
+#    其余位置的 *.js.map 仍忽略（保留上面的全局规则，仅对 dist 开例外）。
+!/dist/**/*.js.map
 comm_hub.db
 comm_hub.db-shm
 comm_hub.db-wal
@@ -27,7 +30,7 @@ node_verify.mjs
 # Build outputs
 # 🔴 2026-10-08 按刘博指示：dist/ 纳入版本控制 —— 运行件（dist/src/*.js）须有版本记录，便于审计与回滚。
 #   · 原 `/dist/` 忽略规则已废止
-#   · *.js.map 沿用顶部全局忽略（sourcemap 非运行件，且每次构建必变，避免无谓 churn）
+#   · dist 的 *.js.map 已入库（见顶部 !/dist/**/*.js.map 例外；其余位置仍忽略）
 #   · dist 内的 .bak_<md5> 留痕件由下方 `*.bak_*` 规则排除
 /coverage/
 coverage_backup_*/

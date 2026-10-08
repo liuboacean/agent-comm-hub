@@ -1,0 +1,591 @@
+/**
+ * security.ts — Security Guard
+ * Token 认证 + 速率限制 + MCP 工具权限矩阵 + 邀请码 + 审计日志
+ *
+ * 踩坑经验：
+ *   - better-sqlite3 不接受 JS boolean，必须用 1/0
+ *   - better-sqlite3 不接受 undefined，必须用 null
+ *   - optionalAuth 未认证时不要默认创建 authContext
+ */
+import { createHash, randomBytes } from "crypto";
+import { db } from "./db.js";
+import { logError } from "./logger.js";
+import { HubError, HubErrorCode } from "./errors.js";
+// ─── Token 工具函数 ──────────────────────────────────────
+/** SHA-256 哈希 */
+export function sha256(input) {
+    return createHash("sha256").update(input).digest("hex");
+}
+/** 生成明文 Token（一次性返回） */
+export function generateToken() {
+    return randomBytes(32).toString("hex"); // 64 字符明文 Token
+}
+/** 验证 Token 并返回 AuthContext，失败返回 null */
+export function verifyToken(plainToken) {
+    const hash = sha256(plainToken);
+    const row = db
+        .prepare(`SELECT agent_id, role FROM auth_tokens
+       WHERE token_type='api_token' AND token_value=? AND used=1 AND revoked_at IS NULL`)
+        .get(hash);
+    if (!row)
+        return null;
+    // 检查是否过期
+    const expiresRow = db
+        .prepare(`SELECT expires_at FROM auth_tokens WHERE token_value=?`)
+        .get(hash);
+    if (expiresRow?.expires_at && Date.now() > expiresRow.expires_at) {
+        return null;
+    }
+    return { agentId: row.agent_id, role: row.role };
+}
+// ─── 速率限制 ────────────────────────────────────────────
+const rateLimitMap = new Map();
+const RATE_LIMIT_WINDOW = parseInt(process.env.RATE_LIMIT_WINDOW ?? "1000", 10); // 默认 1 秒窗口
+const RATE_LIMIT_MAX = parseInt(process.env.RATE_LIMIT_MAX ?? "10", 10); // 默认每秒 10 请求
+export function rateLimiter(agentId) {
+    const now = Date.now();
+    const entry = rateLimitMap.get(agentId);
+    if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW) {
+        rateLimitMap.set(agentId, { count: 1, windowStart: now });
+        return true;
+    }
+    entry.count++;
+    return entry.count <= RATE_LIMIT_MAX;
+}
+// ─── P1-3 修复：认证前置限流（防令牌爆破 / 未认证请求耗尽资源）───
+// 原 rateLimiter 仅在 verifyToken 成功后才调用，无 token/无效 token 的恶意请求
+// 零节流（可被用来爆破令牌或打爆 /mcp）。此处改为先按「客户端 IP + 全局」限流。
+const preAuthMap = new Map();
+const PRE_AUTH_WINDOW = parseInt(process.env.PRE_AUTH_WINDOW ?? "1000", 10); // 1 秒窗口
+const PRE_AUTH_MAX = parseInt(process.env.PRE_AUTH_MAX ?? "60", 10); // 每 IP 每秒 60 请求
+const preAuthGlobal = { count: 0, windowStart: Date.now() };
+const PRE_AUTH_GLOBAL_MAX = parseInt(process.env.PRE_AUTH_GLOBAL_MAX ?? "600", 10); // 全局每秒 600
+function clientIp(req) {
+    const raw = req.ip ?? req.socket?.remoteAddress ?? "unknown";
+    return raw.replace(/^::ffff:/, "");
+}
+/** 认证前限流：按客户端 IP + 全局桶双重限制。超限返回 false。 */
+export function preAuthRateLimit(req) {
+    const now = Date.now();
+    if (now - preAuthGlobal.windowStart > PRE_AUTH_WINDOW) {
+        preAuthGlobal.count = 0;
+        preAuthGlobal.windowStart = now;
+    }
+    preAuthGlobal.count++;
+    if (preAuthGlobal.count > PRE_AUTH_GLOBAL_MAX)
+        return false;
+    const ip = clientIp(req);
+    const entry = preAuthMap.get(ip);
+    if (!entry || now - entry.windowStart > PRE_AUTH_WINDOW) {
+        preAuthMap.set(ip, { count: 1, windowStart: now });
+        return true;
+    }
+    entry.count++;
+    return entry.count <= PRE_AUTH_MAX;
+}
+export const TOOL_PERMISSIONS = {
+    // 注册免认证
+    register_agent: "public",
+    // 邀请码生成 — 仅 admin（T1：补充到矩阵，避免 fail-closed 误杀）
+    generate_invite: "admin",
+    // 心跳与查询 — member 及以上
+    heartbeat: "member",
+    query_agents: "member",
+    get_online_agents: "member",
+    // 消息与任务 — member 及以上
+    send_message: "member",
+    assign_task: "member",
+    update_task_status: "member",
+    get_task_status: "member",
+    broadcast_message: "member",
+    acknowledge_message: "member",
+    mark_consumed: "member",
+    check_consumed: "member",
+    // 消息批量确认 — member 及以上（T1：补充到矩阵）
+    batch_acknowledge_messages: "member",
+    // 记忆 — member 及以上
+    store_memory: "member",
+    recall_memory: "member",
+    list_memories: "member",
+    delete_memory: "member",
+    // 记忆检索 — member 及以上（T1：补充到矩阵）
+    search_memories: "member",
+    // 消息检索 — member 及以上（T9 回归修复：此前遗漏导致 fail-closed 误杀；工具内 effectiveAgentId 已做数据隔离）
+    search_messages: "member",
+    // 管理 — 仅 admin
+    revoke_token: "admin",
+    set_trust_score: "admin",
+    set_agent_role: "admin", // Phase 5a: 任命/撤销 group_admin
+    recalculate_trust_scores: "admin", // Phase 5a: 手动重算信任分
+    // Phase 3: Evolution Engine
+    share_experience: "member",
+    propose_strategy: "member",
+    list_strategies: "member",
+    search_strategies: "member",
+    apply_strategy: "member",
+    feedback_strategy: "member",
+    approve_strategy: "admin", // 审批仅 admin
+    get_evolution_status: "member",
+    // Phase 4b Day 2: 依赖链 + 并行组
+    add_dependency: "member",
+    remove_dependency: "member",
+    get_task_dependencies: "member",
+    create_parallel_group: "member",
+    // Phase 4b Day 3: 交接协议 + 质量门
+    request_handoff: "member",
+    accept_handoff: "member",
+    reject_handoff: "member",
+    add_quality_gate: "member",
+    evaluate_quality_gate: "member",
+    // Phase 4b Day 5: Pipeline 编排（T1：补充到矩阵，避免 fail-closed 误杀）
+    create_pipeline: "member",
+    get_pipeline: "member",
+    list_pipelines: "member",
+    add_task_to_pipeline: "member",
+    // D8: 角色门控为 member（已认证即可），对象级鉴权在 handler 内强制 self||admin
+    activate_agent: "member",
+    deactivate_agent: "member",
+    pause_pipeline: "member",
+    resume_pipeline: "member",
+    // Phase 4b Day 4: 分级审批
+    propose_strategy_tiered: "member",
+    check_veto_window: "member",
+    veto_strategy: "admin",
+    // Phase 2.2: 策略采纳闭环
+    score_applied_strategies: "admin",
+    // v2.3 Phase 1.1: 文件传输
+    upload_file: "member",
+    download_file: "member",
+    list_attachments: "member",
+    // v2.3 Phase 3.2: 数据库维护
+    get_db_stats: "admin",
+    archive_data: "admin",
+    // Feature B: 操作级人在环授权队列
+    request_authorization: "member", // Agent 提交敏感操作授权
+    list_authorization_requests: "member", // 调试/仪表盘查询
+    resolve_authorization: "admin", // 决议是敏感动作，仅 admin（主路径为仪表盘 REST）
+};
+/**
+ * 检查工具调用权限
+ * group_admin 权限等同于 member（仅任务相关工具），其余 admin 工具不可用
+ * @returns true=允许, false=拒绝
+ */
+export function checkPermission(toolName, role) {
+    // fail-closed：未注册工具一律拒绝（T1 安全加固，修复原 fail-open 漏洞）
+    const level = TOOL_PERMISSIONS[toolName];
+    if (!level)
+        return false;
+    if (level === "public")
+        return true;
+    if (level === "member")
+        return role != null; // 已认证即可（admin/group_admin 亦满足）
+    if (level === "admin")
+        return role === "admin";
+    return false;
+}
+/**
+ * MCP handler 内角色护栏：要求调用者为 admin，否则抛错（T1 安全加固）。
+ * 用于管理类工具的 authed() 回调首行（参照 generate_invite 现有写法）。
+ * @throws Error 当 ctx.role !== "admin"
+ */
+export function requireAdmin(ctx) {
+    if (ctx.role !== "admin") {
+        throw new Error(`Admin role required for ${ctx.agentId}`);
+    }
+}
+export function assertOwns(resourceType, resourceId, ctx, mode) {
+    if (ctx.role === "admin")
+        return;
+    const owners = getResourceOwners(resourceType, resourceId, mode);
+    if (owners.length === 0)
+        return; // 资源不存在，让调用方按 not-found 处理
+    if (owners.includes(ctx.agentId))
+        return;
+    throw new HubError(HubErrorCode.OBJECT_ACCESS_DENIED, `Agent ${ctx.agentId} not authorized for ${resourceType} ${resourceId}`, { resourceType, resourceId, agentId: ctx.agentId });
+}
+function getResourceOwners(resourceType, resourceId, mode) {
+    switch (resourceType) {
+        case "message": {
+            const sql = mode === "recipient"
+                ? `SELECT to_agent FROM messages WHERE id = ?`
+                : `SELECT from_agent, to_agent FROM messages WHERE id = ?`;
+            const row = db.prepare(sql).get(resourceId);
+            if (!row)
+                return [];
+            const owners = [];
+            if (row.from_agent)
+                owners.push(row.from_agent);
+            if (row.to_agent)
+                owners.push(row.to_agent);
+            return owners;
+        }
+        case "attachment": {
+            const row = db.prepare(`SELECT m.from_agent, m.to_agent FROM attachments a
+         JOIN messages m ON a.message_id = m.id WHERE a.id = ?`).get(resourceId);
+            if (!row)
+                return [];
+            const owners = [];
+            if (row.from_agent)
+                owners.push(row.from_agent);
+            if (row.to_agent)
+                owners.push(row.to_agent);
+            return owners;
+        }
+        case "task": {
+            const row = db.prepare(`SELECT assigned_by, assigned_to, parallel_group FROM tasks WHERE id = ?`).get(resourceId);
+            if (!row)
+                return [];
+            const owners = [];
+            if (row.assigned_by)
+                owners.push(row.assigned_by);
+            if (row.assigned_to && row.assigned_to !== row.assigned_by)
+                owners.push(row.assigned_to);
+            if (row.parallel_group) {
+                const members = db.prepare(`SELECT assigned_to FROM tasks WHERE parallel_group = ? AND id != ?`).all(row.parallel_group, resourceId);
+                for (const m of members) {
+                    if (m.assigned_to && !owners.includes(m.assigned_to)) {
+                        owners.push(m.assigned_to);
+                    }
+                }
+            }
+            return owners;
+        }
+        default:
+            return [];
+    }
+}
+/**
+ * 获取权限级别（用于返回错误信息）
+ */
+export function getRequiredPermission(toolName) {
+    return TOOL_PERMISSIONS[toolName];
+}
+// ─── Express 中间件 ──────────────────────────────────────
+/**
+ * 强制认证中间件 — 所有 API/MCP 端点使用
+ * 无有效 Token → 401
+ */
+export function authMiddleware(req, res, next) {
+    // P1-3 修复：认证前置限流（防令牌爆破 / 资源耗尽）
+    if (!preAuthRateLimit(req)) {
+        res.status(429).json({ error: "Rate limit exceeded" });
+        return;
+    }
+    const token = extractToken(req);
+    if (!token) {
+        res.status(401).json({ error: "Missing authentication token" });
+        return;
+    }
+    const ctx = verifyToken(token);
+    if (!ctx) {
+        res.status(401).json({ error: "Invalid or expired token" });
+        return;
+    }
+    // 速率限制
+    if (!rateLimiter(ctx.agentId)) {
+        res.status(429).json({ error: "Rate limit exceeded (10 req/s)" });
+        return;
+    }
+    // 将认证信息挂载到 req 上
+    req.auth = { agent: ctx };
+    next();
+}
+/**
+ * 可选认证中间件 — SSE 端点使用
+ * 有 Token 则验证，无 Token 则 auth = undefined
+ * ⚠️ 关键：未认证时 auth 必须为 undefined，不能创建默认 authContext
+ */
+export function optionalAuthMiddleware(req, res, next) {
+    // D7 修复：SSE/MCP 端点仅接受 Authorization: Bearer，拒绝 ?token= 与 x-api-key
+    const token = extractTokenBearerOnly(req);
+    if (!token) {
+        req.auth = { agent: undefined };
+        next();
+        return;
+    }
+    const ctx = verifyToken(token);
+    req.auth = { agent: ctx ?? undefined }; // undefined 不是 null
+    next();
+}
+// ─── 受保护端点中间件（T3 安全加固）──────────────────
+/** 判断请求是否来自 loopback（127.0.0.1 / ::1，含 IPv4-mapped 前缀）*/
+function isLoopback(req) {
+    const raw = req.ip ?? req.socket?.remoteAddress;
+    if (!raw)
+        return false;
+    const ip = raw.replace(/^::ffff:/, ""); // 剥离 IPv4-mapped 前缀
+    return ip === "127.0.0.1" || ip === "::1" || ip === "localhost";
+}
+/**
+ * 内部监控端点认证（/health、/health/detailed、/metrics）
+ * 规则：loopback（本地探针 / Prometheus scraper 同源）或携带有效 HUB_AUTH_TOKEN 才放行。
+ */
+export function internalMonitorAuth(req, res, next) {
+    if (isLoopback(req)) {
+        next();
+        return;
+    }
+    const token = extractToken(req);
+    if (!token) {
+        res.status(401).json({ error: "Missing authentication token" });
+        return;
+    }
+    const ctx = verifyToken(token);
+    if (!ctx) {
+        res.status(401).json({ error: "Invalid or expired token" });
+        return;
+    }
+    req.auth = { agent: ctx };
+    next();
+}
+/**
+ * 管理端点认证（REST）：要求有效 HUB_AUTH_TOKEN 且 role==='admin'。
+ * 用于 /dashboard、/api/status、/api/agents、/api/audit/tail。
+ * 注意：不识别 loopback 放行（D4：/dashboard 强制 admin 鉴权）。
+ */
+export function requireAdminApi(req, res, next) {
+    // P1-3 修复：认证前置限流（防 admin 端点爆破）
+    if (!preAuthRateLimit(req)) {
+        res.status(429).json({ error: "Rate limit exceeded" });
+        return;
+    }
+    const token = extractToken(req);
+    if (!token) {
+        res.status(401).json({ error: "Missing authentication token" });
+        return;
+    }
+    const ctx = verifyToken(token);
+    if (!ctx) {
+        res.status(401).json({ error: "Invalid or expired token" });
+        return;
+    }
+    if (ctx.role !== "admin") {
+        res.status(403).json({ error: "Admin role required" });
+        return;
+    }
+    req.auth = { agent: ctx };
+    next();
+}
+/** 从 Header 提取 Token（仅 Bearer，P2-6 修复：移除 ?token= 与 x-api-key 以免令牌泄漏到访问日志） */
+function extractToken(req) {
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith("Bearer ")) {
+        return authHeader.slice(7);
+    }
+    return null;
+}
+/**
+ * 仅从 Authorization: Bearer <token> 提取令牌（D7）。
+ * 用于 SSE(/events) 与 MCP(/mcp) 端点：不接受 query-string ?token= 或 x-api-key，
+ * 避免令牌进入访问日志 / 代理日志 / 浏览器历史造成泄露。
+ */
+function extractTokenBearerOnly(req) {
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith("Bearer ")) {
+        return authHeader.slice(7).trim();
+    }
+    return null;
+}
+// ─── 邀请码管理 ──────────────────────────────────────────
+/**
+ * 生成邀请码（明文）
+ * @returns 明文邀请码
+ */
+export function generateInviteCode() {
+    return randomBytes(4).toString("hex"); // 8 字符
+}
+/**
+ * 创建邀请码记录
+ * @returns 明文邀请码（唯一一次可见）
+ */
+export function createInviteCode(role = "member") {
+    const plain = generateInviteCode();
+    const hash = sha256(plain);
+    const now = Date.now();
+    const expiresAt = now + 24 * 60 * 60 * 1000; // 24 小时有效
+    db.prepare(`INSERT INTO auth_tokens (token_id, token_type, token_value, role, used, created_at, expires_at)
+     VALUES (?, 'invite_code', ?, ?, 0, ?, ?)`).run(`invite_${now}_${randomBytes(4).toString("hex")}`, hash, role, now, expiresAt);
+    return plain;
+}
+/**
+ * 验证邀请码并标记已使用
+ * @returns 有效邀请码的角色，或 null
+ */
+export function verifyInviteCode(plainCode) {
+    const hash = sha256(plainCode);
+    const row = db
+        .prepare(`SELECT role, expires_at FROM auth_tokens
+       WHERE token_type='invite_code' AND token_value=? AND used=0 AND revoked_at IS NULL`)
+        .get(hash);
+    if (!row)
+        return null;
+    // 检查过期
+    if (row.expires_at && Date.now() > row.expires_at) {
+        return null;
+    }
+    return row.role;
+}
+/**
+ * 标记邀请码已使用
+ */
+export function markInviteCodeUsed(plainCode) {
+    const hash = sha256(plainCode);
+    db.prepare(`UPDATE auth_tokens SET used=1 WHERE token_type='invite_code' AND token_value=?`).run(hash);
+}
+// ─── Token 吊销 ──────────────────────────────────────────
+/**
+ * 吊销 API Token
+ */
+export function revokeToken(tokenId) {
+    const now = Date.now();
+    const result = db
+        .prepare(`UPDATE auth_tokens SET revoked_at=? WHERE token_id=? AND token_type='api_token'`)
+        .run(now, tokenId);
+    return result.changes > 0;
+}
+// ─── 审计日志（Phase 5a: 哈希链防篡改） ─────────────────
+/**
+ * 记录审计日志（带哈希链）
+ * 每条记录包含 prev_hash 和 record_hash，形成不可篡改链
+ */
+export function auditLog(action, agentId, target, details) {
+    const id = `audit_${Date.now()}_${randomBytes(4).toString("hex")}`;
+    const now = Date.now();
+    try {
+        // 获取上一条记录的 record_hash
+        const lastRow = db.prepare(`SELECT record_hash FROM audit_log ORDER BY created_at DESC, id DESC LIMIT 1`).get();
+        const prevHash = lastRow?.record_hash ?? "GENESIS";
+        // 计算当前记录的 hash
+        const hashInput = `${prevHash}|${action}|${agentId ?? ""}|${target ?? ""}|${details ?? ""}|${now}`;
+        const recordHash = createHash("sha256").update(hashInput).digest("hex");
+        db.prepare(`INSERT INTO audit_log (id, action, agent_id, target, details, prev_hash, record_hash, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(id, action, agentId, target || null, details || null, prevHash, recordHash, now);
+    }
+    catch (err) {
+        logError("audit_log_failed", err);
+    }
+}
+/**
+ * 验证审计日志哈希链完整性
+ * @returns { valid, total, checked, firstBreak } — valid=true 表示链完整
+ */
+export function verifyAuditChain() {
+    const rows = db.prepare(`SELECT id, action, agent_id, target, details, prev_hash, record_hash, created_at
+     FROM audit_log ORDER BY created_at ASC, id ASC`).all();
+    if (rows.length === 0) {
+        return { valid: true, total: 0, checked: 0 };
+    }
+    let expectedPrev = "GENESIS";
+    for (const row of rows) {
+        // 旧数据（哈希链实现前写入的）prev_hash/record_hash 为 null，跳过验证
+        if (row.prev_hash === null || row.record_hash === null) {
+            if (row.record_hash)
+                expectedPrev = row.record_hash;
+            // 继续用上一条的 record_hash 作为 expectedPrev
+            continue;
+        }
+        // 检查 prev_hash 连续性
+        if (row.prev_hash !== expectedPrev) {
+            return {
+                valid: false,
+                total: rows.length,
+                checked: rows.indexOf(row),
+                firstBreak: {
+                    id: row.id,
+                    action: row.action,
+                    expected: expectedPrev,
+                    actual: row.prev_hash,
+                },
+            };
+        }
+        // 重新计算 hash 验证
+        const hashInput = `${row.prev_hash}|${row.action}|${row.agent_id ?? ""}|${row.target ?? ""}|${row.details ?? ""}|${row.created_at}`;
+        const computedHash = createHash("sha256").update(hashInput).digest("hex");
+        if (computedHash !== row.record_hash) {
+            return {
+                valid: false,
+                total: rows.length,
+                checked: rows.indexOf(row) + 1,
+                firstBreak: {
+                    id: row.id,
+                    action: row.action,
+                    expected: computedHash,
+                    actual: row.record_hash,
+                },
+            };
+        }
+        expectedPrev = row.record_hash;
+    }
+    return { valid: true, total: rows.length, checked: rows.length };
+}
+// ─── 信任评分自动化（Phase 5a Day 2） ───────────────────
+/**
+ * 重新计算 Agent 信任评分
+ *
+ * 公式：
+ *   base = 50
+ *   + verified_capabilities × 3
+ *   + auto_approved_strategies × 2
+ *   + positive_feedback × 1
+ *   - negative_feedback × 2
+ *   - rejected_applications × 3
+ *   - revoked_token_count × 10
+ *   → clamp(0, 100)
+ *
+ * @returns 计算后的信任分数
+ */
+export function recalculateTrustScore(agentId) {
+    const verifiedCaps = db.prepare(`SELECT COUNT(*) as cnt FROM agent_capabilities WHERE agent_id=? AND verified=1`).get(agentId)?.cnt ?? 0;
+    const autoStrategies = db.prepare(`SELECT COUNT(*) as cnt FROM strategies WHERE proposer_id=? AND status='approved'`).get(agentId)?.cnt ?? 0;
+    // 注意：strategy_applications 没有 status/rejected 列，无法直接统计拒绝数
+    // 退而查 apply_strategy_fail 审计记录
+    const rejectedApps = db.prepare(`SELECT COUNT(*) as cnt FROM audit_log WHERE action='apply_strategy' AND agent_id=? AND details LIKE '%fail%'`).get(agentId)?.cnt ?? 0;
+    const revokedTokens = db.prepare(
+    // P2-1 修复：被吊销者记录在 target 列（见 tools/identity.ts 的 revoke_token），
+    // 此前按 agent_id（操作者 admin）统计会误扣管理员、漏扣被吊销者。
+    `SELECT COUNT(*) as cnt FROM audit_log WHERE action='revoke_token' AND target=?`).get(agentId)?.cnt ?? 0;
+    // 注意：strategy_feedback.agent_id 是反馈者，不是提案者
+    // 要查"别人给该 agent 策略的反馈"需要 JOIN strategies.proposer_id
+    const positiveFb = db.prepare(`SELECT COUNT(*) as cnt FROM strategy_feedback sf
+     JOIN strategies s ON sf.strategy_id = s.id
+     WHERE s.proposer_id = ? AND sf.feedback = 'positive' AND sf.agent_id != ?`).get(agentId, agentId)?.cnt ?? 0;
+    const negativeFb = db.prepare(`SELECT COUNT(*) as cnt FROM strategy_feedback sf
+     JOIN strategies s ON sf.strategy_id = s.id
+     WHERE s.proposer_id = ? AND sf.feedback = 'negative' AND sf.agent_id != ?`).get(agentId, agentId)?.cnt ?? 0;
+    let score = 50;
+    score += verifiedCaps * 3;
+    score += autoStrategies * 2;
+    score += positiveFb * 1;
+    score -= negativeFb * 2;
+    score -= rejectedApps * 3;
+    score -= revokedTokens * 10;
+    // clamp(0, 100)
+    score = Math.max(0, Math.min(100, score));
+    // 写回 agents.trust_score
+    db.prepare(`UPDATE agents SET trust_score=? WHERE agent_id=?`).run(score, agentId);
+    return score;
+}
+/**
+ * 重新计算所有 Agent 的信任评分
+ * @returns { agent_id, score } 数组
+ */
+export function recalculateAllTrustScores() {
+    const agents = db.prepare(`SELECT agent_id FROM agents`).all();
+    const results = [];
+    for (const agent of agents) {
+        const score = recalculateTrustScore(agent.agent_id);
+        results.push({ agent_id: agent.agent_id, score });
+    }
+    return results;
+}
+// ─── 路径安全 ────────────────────────────────────────────
+/**
+ * 检查路径是否安全（防止路径遍历）
+ */
+export function sanitizePath(inputPath) {
+    const normalized = inputPath.replace(/\\/g, "/");
+    return (!normalized.includes("..") &&
+        !normalized.startsWith("/") &&
+        !normalized.includes("\0"));
+}
+//# sourceMappingURL=security.js.map

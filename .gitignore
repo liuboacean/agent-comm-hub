@@ -25,7 +25,10 @@ node_verify.js
 node_verify.mjs
 
 # Build outputs
-/dist/
+# 🔴 2026-10-08 按刘博指示：dist/ 纳入版本控制 —— 运行件（dist/src/*.js）须有版本记录，便于审计与回滚。
+#   · 原 `/dist/` 忽略规则已废止
+#   · *.js.map 沿用顶部全局忽略（sourcemap 非运行件，且每次构建必变，避免无谓 churn）
+#   · dist 内的 .bak_<md5> 留痕件由下方 `*.bak_*` 规则排除
 /coverage/
 coverage_backup_*/
 backups/
@@ -39,3 +42,7 @@ web/package-lock.json
 # test_ci.db* 是 CI 测试产生的临时库，禁止入库
 comm_hub.db.corrupt_bak_*
 test_ci.db*
+
+# 留痕备份 .bak_<md5> —— 本地留痕件不入库（git 历史本身即版本记录）
+# 覆盖：scripts/*.bak_*、src/*.bak_*、dist/**/*.bak_*
+*.bak_*

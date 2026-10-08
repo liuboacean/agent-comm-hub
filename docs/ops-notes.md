@@ -46,17 +46,28 @@
 **性质**：`/api/messages` 缺省语义缺陷修复（走 A）＋ `.gitignore` 补漏。**代码面 7 件，全部「先留痕、后覆写」**（顺序未颠倒）。
 **commit**：`83607d732a578b9739a6d8f437aeaf175717d14a`（`d59d09c..83607d7  master -> master`，local ≡ remote HEAD）；版本 `3.0.25` → `3.0.26`。
 
-| # | 路径 | 前 md5（`.bak_` 留痕后缀） | 后 md5（现行） | 说明 |
-|---|---|---|---|---|
-| 1 | `.gitignore` | `ed23bba0144499c51ce667c5fc05e889` | `426ab34dc15e5615bd3b6be359eccc72` | 补 `comm_hub.db.damaged_*`（第 52 行） |
-| 2 | `src/repo/interfaces.ts` | `4730d2e8c5c891da6d6ee343a0ab542b` | `f366f270083646e020ee41ab6adbafc2` | 加 `listForAgent`；**`listByStatus` 一字未动** |
-| 3 | `src/repo/sqlite-impl.ts` | `2f6cf753add59d5f43748f3b8f07c8bc` | `a671d1ce03de16865983f8d7730c4b28` | 实现 `listForAgent`（`rowid DESC LIMIT ?`） |
-| 4 | `src/server.ts` | `4cb207cd12e8c946db6d0f84e5fe1511` | `bea60274c649393561a8e7db08a6da82` | `457-471`：缺省分支走 `listForAgent`；显式 `status` 路径不变 |
-| 5 | `client-sdk/hub_client.py` | `1c3d6be30b293bd67704b7b85f5cba14` | `4c08c9dc57ccbe95ba218766b6b7928c` | `get_messages(status=None, limit=50)` |
-| 6 | `docs/API_REFERENCE.md` | `9ca6e48c195eb33270f86028736dcb24` | `3fbe7e1e576ce1f83e3e074a5d226fa4` | 写死缺省语义 ＋ `unread` 语义坑 |
-| 7 | `package.json` | `f6cf23f91f5ed5740b7d4e34ba99d337` | `df0e435ca4b6b62c839ddaf612191b7f` | `3.0.25` → `3.0.26` |
+| # | 路径 | 前 md5（`.bak_` 留痕后缀） | 后 md5（现行） | 时点 | 说明 |
+|---|---|---|---|---|---|
+| 1 | `.gitignore` | `ed23bba0144499c51ce667c5fc05e889` | `426ab34dc15e5615bd3b6be359eccc72` | 2026-10-08 09:00 | 补 `comm_hub.db.damaged_*`（第 52 行） |
+| 2 | `src/repo/interfaces.ts` | `4730d2e8c5c891da6d6ee343a0ab542b` | `f366f270083646e020ee41ab6adbafc2` | 2026-10-08 09:00 | 加 `listForAgent`；**`listByStatus` 一字未动** |
+| 3 | `src/repo/sqlite-impl.ts` | `2f6cf753add59d5f43748f3b8f07c8bc` | `a671d1ce03de16865983f8d7730c4b28` | 2026-10-08 09:00 | 实现 `listForAgent`（`rowid DESC LIMIT ?`） |
+| 4 | `src/server.ts` | `4cb207cd12e8c946db6d0f84e5fe1511` | `bea60274c649393561a8e7db08a6da82` | 2026-10-08 09:00 | `457-471`：缺省分支走 `listForAgent`；显式 `status` 路径不变 |
+| 5 | `client-sdk/hub_client.py` | `1c3d6be30b293bd67704b7b85f5cba14` | `4c08c9dc57ccbe95ba218766b6b7928c` | 2026-10-08 09:00 | `get_messages(status=None, limit=50)` |
+| 6 | `docs/API_REFERENCE.md` | `9ca6e48c195eb33270f86028736dcb24` | `3fbe7e1e576ce1f83e3e074a5d226fa4` | 2026-10-08 09:00 | 写死缺省语义 ＋ `unread` 语义坑 |
+| 7 | `package.json` | `f6cf23f91f5ed5740b7d4e34ba99d337` | `df0e435ca4b6b62c839ddaf612191b7f` | 2026-10-08 09:00 | `3.0.25` → `3.0.26` |
 
 > 七笔留痕均已**在位**且**名实相符**现测（文件名内 md5 ≡ 内容 md5），时点 2026-10-08 09:0x。
 > **回归**（隔离沙箱：活库副本 ＋ 端口 3199，**不扰 3100**）**9/9 通过**：缺省 `count=50` 且首条为最新件（`rowid DESC`）／`status=read`＝130 与改前一致／`delivered`＝8 一致／`limit=3`→3／`limit=0|abc`→回落 50／`limit=9999`→夹紧 500／缺 `agent_id`→400／非法 `status`→400。
 > **未同步项**：`src/repo/*.d.ts` 为入库的**陈旧声明镜像**（`tsc` `outDir=dist` 不会再生它们），本次未随 `interfaces.ts` 同步 ⇒ 待另议。
+
+## 六、本文件 md5 沿革（**活件** —— 引用请现测并同屏时点）
+
+> he 2026-10-08 09:0x 指示：把「活库/活件 md5 是**时点值**」这条纪律用在 `ops-notes` 它自己身上。
+> 本文件**每次补记都会变 md5** ⇒ 任何引用都必须「现测 ＋ 同屏时点」，不得手抄沿用。
+
+| 时点 | md5 | 行数 | 事由 |
+|---|---|---|---|
+| 2026-10-08 08:48 | `35ca6a173f3da18c368116657c7e162a` | 42 | 建库（commit `d59d09c`） |
+| 2026-10-08 09:03 | `e8a262540930d5fa11d26ec1110a1b72` | 62 | 补记 §五（commit `62218df`） |
+
 

@@ -5,6 +5,9 @@
 export declare function startBackupScheduler(dbPath: string): void;
 /**
  * 获取备份状态
+ *
+ * 大小与件数均按「成套」统计（.db + .db-wal + .db-shm），
+ * 因为 sidecar 是备份的组成部分，只统计 .db 会低报磁盘占用。
  */
 export declare function getBackupStatus(): {
     enabled: boolean;
@@ -13,6 +16,7 @@ export declare function getBackupStatus(): {
     backup_dir: string;
     total_size_bytes: number;
     total_size_mb: string;
+    host_count: number;
     interval_ms: number;
     max_backups: number;
 };

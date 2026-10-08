@@ -38,9 +38,13 @@ web/node_modules/
 web/package-lock.json
 
 # Incident artifacts — never commit
-# comm_hub.db.corrupt_bak_* 是损坏旧库字节级备份，可能含敏感数据（记忆/token），禁止入库
+# comm_hub.db.corrupt_* / .pre_repair_* 是损坏旧库或换库前旧库的字节级备份，
+# 可能含敏感数据（记忆/token），禁止入库。
+# 2026-10-08 补全：原仅忽略 corrupt_bak_*，实际在库的是 corrupt_<ts> / pre_repair_<ts>，
+# 落到根目录会成为 `git add -A` 的事故口（每个约 9–13 MB）。
 # test_ci.db* 是 CI 测试产生的临时库，禁止入库
-comm_hub.db.corrupt_bak_*
+comm_hub.db.corrupt_*
+comm_hub.db.pre_repair_*
 test_ci.db*
 
 # 留痕备份 .bak_<md5> —— 本地留痕件不入库（git 历史本身即版本记录）

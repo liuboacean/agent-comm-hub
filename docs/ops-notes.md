@@ -40,3 +40,23 @@
 | 备份脚本直开 | `/Users/liubo/Scripts/hub-backup.sh:44`（`sqlite3 "$DB" ".backup '…'"`） | launchd `com.liubo.hub-backup` 状态 `-78`（未运行） |
 | 启动期 probe | `src/db.ts:23`（`isPopulatedDb` 的 `readonly:true` 打开） | 待先件后码 |
 | 另一套备份 | `src/backup.ts`（`copyFileSync` 三件） | hub 内建小时调度 |
+
+## 五、修 A 落码记账（2026-10-08 09:0x，刘博放行）
+
+**性质**：`/api/messages` 缺省语义缺陷修复（走 A）＋ `.gitignore` 补漏。**代码面 7 件，全部「先留痕、后覆写」**（顺序未颠倒）。
+**commit**：`83607d732a578b9739a6d8f437aeaf175717d14a`（`d59d09c..83607d7  master -> master`，local ≡ remote HEAD）；版本 `3.0.25` → `3.0.26`。
+
+| # | 路径 | 前 md5（`.bak_` 留痕后缀） | 后 md5（现行） | 说明 |
+|---|---|---|---|---|
+| 1 | `.gitignore` | `ed23bba0144499c51ce667c5fc05e889` | `426ab34dc15e5615bd3b6be359eccc72` | 补 `comm_hub.db.damaged_*`（第 52 行） |
+| 2 | `src/repo/interfaces.ts` | `4730d2e8c5c891da6d6ee343a0ab542b` | `f366f270083646e020ee41ab6adbafc2` | 加 `listForAgent`；**`listByStatus` 一字未动** |
+| 3 | `src/repo/sqlite-impl.ts` | `2f6cf753add59d5f43748f3b8f07c8bc` | `a671d1ce03de16865983f8d7730c4b28` | 实现 `listForAgent`（`rowid DESC LIMIT ?`） |
+| 4 | `src/server.ts` | `4cb207cd12e8c946db6d0f84e5fe1511` | `bea60274c649393561a8e7db08a6da82` | `457-471`：缺省分支走 `listForAgent`；显式 `status` 路径不变 |
+| 5 | `client-sdk/hub_client.py` | `1c3d6be30b293bd67704b7b85f5cba14` | `4c08c9dc57ccbe95ba218766b6b7928c` | `get_messages(status=None, limit=50)` |
+| 6 | `docs/API_REFERENCE.md` | `9ca6e48c195eb33270f86028736dcb24` | `3fbe7e1e576ce1f83e3e074a5d226fa4` | 写死缺省语义 ＋ `unread` 语义坑 |
+| 7 | `package.json` | `f6cf23f91f5ed5740b7d4e34ba99d337` | `df0e435ca4b6b62c839ddaf612191b7f` | `3.0.25` → `3.0.26` |
+
+> 七笔留痕均已**在位**且**名实相符**现测（文件名内 md5 ≡ 内容 md5），时点 2026-10-08 09:0x。
+> **回归**（隔离沙箱：活库副本 ＋ 端口 3199，**不扰 3100**）**9/9 通过**：缺省 `count=50` 且首条为最新件（`rowid DESC`）／`status=read`＝130 与改前一致／`delivered`＝8 一致／`limit=3`→3／`limit=0|abc`→回落 50／`limit=9999`→夹紧 500／缺 `agent_id`→400／非法 `status`→400。
+> **未同步项**：`src/repo/*.d.ts` 为入库的**陈旧声明镜像**（`tsc` `outDir=dist` 不会再生它们），本次未随 `interfaces.ts` 同步 ⇒ 待另议。
+

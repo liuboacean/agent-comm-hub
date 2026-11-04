@@ -1,7 +1,7 @@
 ---
 name: agent-comm-hub
 description: "本地多智能体通信 Hub（MCP stdio / HTTP-SSE），提供消息、任务编排、共享记忆、进化引擎，暴露 59 个 MCP 工具 + Web 管理面板"
-version: "3.0.30"
+version: "3.0.31"
 category: autonomous-ai-agents
 triggers:
   - "agent-comm-hub"
@@ -19,7 +19,7 @@ triggers:
 
 # Agent Communication Hub
 
-> 多智能体消息转发与上下文共享中间件 — **v3.0.30**
+> 多智能体消息转发与上下文共享中间件 — **v3.0.31**
 
 让两个或多个独立 AI 智能体之间实现**实时双向通信**和**上下文自动同步**。基于 MCP 协议 + stdio 模式，消息本地持久化，延迟 < 50ms。
 
@@ -338,13 +338,20 @@ inbox → assigned → [waiting] → in_progress → completed / failed / cancel
 | 看门狗 | SQLite 结构完整性探针 | `scripts/cron_db_watchdog.sh` 新增 `quick_check` + `memories_fts` 行数漂移检查，每 10 分钟一次，仅告警（exit 6/7）不自动重启 |
 | 安全 | 凭据泄露三件套 | `scripts/scan_leaked_credentials.py`（只读、sha256 命中库判定有效凭据）／`redact_leaked_credentials.py`（减害脱敏，默认 dry-run）／`rotate_token.py`（先发后撤可逆轮换，明文仅写 600 文件） |
 
+### v3.0.31 — P1 批处理改为 opt-in（默认关闭，保住 D1 同步可靠性契约）
+
+- **行为变更**：`HUB_SSE_BATCH_MS` 默认从 `120` 改为 `0`（关闭），批处理变为 **opt-in**。
+- **动机**：P1 默认 120ms 窗口异步冲刷破坏了 D1 可靠性契约回归测试（`sse-replay.test.ts` 断言同步 `delivered=1`）；用户拍板优先严格同步可靠性，批处理仅作可选优化。
+- 设为 `HUB_SSE_BATCH_MS=120`（或任意 >0）即恢复窗口合并；桥接转发与重连补发始终立即投递 + 至少一次，不受影响。
+- `sse.ts` 环境变量改为调用时读取（原已修复），生产默认 0；`sse-replay.test.ts` 文件级仍显式关批处理锁定 D1 契约 + 批处理专测（显式开 50ms 验证）。
+
 ### v3.0.30 — P1 订阅直通 + 事件批处理（借鉴 DeepSeek Super-Agent「订阅 + 批处理」，零回归）
 | 类别 | 内容 | 说明 |
 |------|------|------|
 | 背景 | 对照 DeepSeek《Super-agent 设计探索》 | 明确**不移植** LLM 慢判/投机执行/Router 重写（违背 Hub「零 LLM + 确定性 + WORM 审计」铁律）；仅采纳「订阅直通 + 批处理」两项确定性增强 |
 | 订阅表 | `subscriptions` 表（db.ts） | 字段 `id/agent_id/event_type/topic_filter/created_at`，唯一约束 `(agent_id, event_type, topic_filter)` 保证幂等；`subscribeEvent`/`unsubscribeEvent`/`getSubscriptions`/`getAllSubscriptions` + 纯函数 `subscriptionMatches` |
 | 剪枝 | `broadcastToAll` 订阅剪枝（sse.ts） | 仅「有订阅且规则未命中」的 Agent 被跳过；未订阅 Agent 维持全投；点对点 `pushToAgent` 不受影响。内存缓存 `subsCache` 仅含已订阅 Agent，`reloadSubsCache()` 启动 + 订阅变更热刷新 |
-| 批处理 | SSE 事件批处理窗口（sse.ts） | 实时投递路径新增 `enqueueForDelivery`/`flushAgentBuffer`：默认 120ms 窗口 / 25 条上限突发合并，降低实时写开销；桥接转发与重连补发保持立即投递 + 至少一次；`HUB_SSE_BATCH_MS=0` 可关闭 |
+| 批处理 | SSE 事件批处理窗口（sse.ts） | 实时投递路径新增 `enqueueForDelivery`/`flushAgentBuffer`：实现为 **opt-in**，默认 `HUB_SSE_BATCH_MS=0`（关闭，逐条立即投递，保住 D1 严格同步可靠性契约 `delivered=1`）；设为 >0（如 120ms）启用窗口 / 25 条上限突发合并；桥接转发与重连补发始终立即投递 + 至少一次 |
 | 工具 | `subscribe_events`（member 权限） | 单一工具支持 subscribe/unsubscribe/list 三动作，handler 内强制 `agentId === ctx.agentId`（仅能管理自身订阅）；已登记进 fail-closed 权限矩阵 |
 | 安全 | 零回归 + 可逆 | 剪枝只作用于广播、不触碰点对点；订阅写审计无关、删除即恢复全投 |
 
@@ -413,7 +420,7 @@ inbox → assigned → [waiting] → in_progress → completed / failed / cancel
 | `DB_PATH` | ./comm_hub.db | SQLite 数据库路径 |
 | `LOG_LEVEL` | info | 日志级别：debug / info / warn / error |
 | `CORS_LIST` | (空) | CORS 白名单（逗号分隔），空=拒绝所有跨域 |
-| `HUB_SSE_BATCH_MS` | 120 | SSE 实时投递批处理窗口（毫秒）；突发事件在该窗口内合并写入。设为 `0` 关闭批处理（逐条立即投递） |
+| `HUB_SSE_BATCH_MS` | 0 | SSE 实时投递批处理窗口（毫秒）；**默认 0 = 关闭（opt-in）**，突发事件逐条立即投递（D1 严格同步可靠性契约默认路径）。设为 >0（如 120）启用窗口合并优化，突发事件在该窗口内合并写入 |
 | `HUB_SSE_BATCH_MAX` | 25 | 单 Agent 批处理缓冲上限，达到即立即冲刷（防止突发撑爆内存 / 延迟过高） |
 
 ## 技术依赖

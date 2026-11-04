@@ -35,9 +35,9 @@ vi.mock("../../src/db.js", () => ({
 import { eventLogRepo } from "../../src/repo/event-log.js";
 import { registerClient, removeClient, pushToAgent, onlineAgents } from "../../src/sse.js";
 
-// D1 可靠性契约测试需要同步投递语义（批处理默认 120ms 异步冲刷会破坏「即时 delivered=1」等断言）。
-// 在文件级关闭批处理，确保既有同步契约回归测试继续成立；批处理路径由下方独立 describe 覆盖。
-// 注：这仅影响本测试文件的进程，Hub 生产默认仍是 HUB_SSE_BATCH_MS=120（见 sse.ts）。
+// D1 可靠性契约测试需要同步投递语义（批处理异步冲刷会破坏「即时 delivered=1」等断言）。
+// Hub 生产默认现在也是 HUB_SSE_BATCH_MS=0（opt-in 关闭），此处仍显式关闭以绝对锁定 D1 同步契约回归；
+// 批处理路径由下方独立 describe 覆盖（显式设 HUB_SSE_BATCH_MS>0 启用）。
 process.env.HUB_SSE_BATCH_MS = "0";
 
 function createMockRes(): any {
@@ -165,7 +165,7 @@ describe("D1 SSE — 重放边界（eventLogRepo.getEventsAfter 仅返回 seq �
   });
 });
 
-describe("P1 SSE 事件批处理（可选优化：合并实时写入，默认 120ms 窗口）", () => {
+describe("P1 SSE 事件批处理（可选优化：opt-in，设 HUB_SSE_BATCH_MS>0 启用窗口合并）", () => {
   beforeEach(() => {
     process.env.HUB_SSE_BATCH_MS = "50"; // 开启批处理（小窗口，便于测试）
     testDb = createTestDb();

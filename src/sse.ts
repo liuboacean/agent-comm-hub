@@ -134,10 +134,10 @@ const deliveryBuffers = new Map<string, Array<{ event: object; dedupId?: string;
 const deliveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 // 在【调用时】读取环境变量（非模块加载时），便于运行时调整与测试覆盖。
-// HUB_SSE_BATCH_MS=0 关闭批处理（逐条立即投递）；默认 120ms 窗口。
-// HUB_SSE_BATCH_MAX=25 单 Agent 缓冲上限，达到即立即冲刷。
+// HUB_SSE_BATCH_MS 默认 0 = 关闭批处理（逐条立即投递，D1 严格同步可靠性契约默认路径）；
+// 设为 >0（如 120）才启用窗口合并优化（opt-in）。HUB_SSE_BATCH_MAX=25 单 Agent 缓冲上限，达到即立即冲刷。
 function batchWindowMs(): number {
-  return Math.max(0, Number(process.env.HUB_SSE_BATCH_MS ?? 120));
+  return Math.max(0, Number(process.env.HUB_SSE_BATCH_MS ?? 0));
 }
 function batchMaxSize(): number {
   return Math.max(1, Number(process.env.HUB_SSE_BATCH_MAX ?? 25));

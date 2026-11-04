@@ -13,6 +13,7 @@ import { registerOrchestratorTools } from "./tools/orchestrator.js";
 import { registerSecurityTools } from "./tools/security.js";
 import { registerFileTools } from "./tools/file.js";
 import { registerAuthorizationTools } from "./tools/authorization.js";
+import { registerSubscriptionTools } from "./tools/subscription.js";
 
 /**
  * 注册所有 MCP 工具
@@ -29,4 +30,5 @@ export function registerTools(server: McpServer, authContext?: AuthContext): voi
   registerSecurityTools(server, authContext);
   registerFileTools(server, authContext);
   registerAuthorizationTools(server, authContext);
+  registerSubscriptionTools(server, authContext);
 }

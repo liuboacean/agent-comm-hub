@@ -15,7 +15,7 @@ import express from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { registerTools } from "./tools.js";
-import { registerClient, removeClient, pushToAgent, deliverToLocalClient, onlineAgents, drainAllClients, startZombieCleanup, stopZombieCleanup, writeStoredEvent, MAX_SSE_CONNECTIONS, connectedCount } from "./sse.js";
+import { registerClient, removeClient, pushToAgent, deliverToLocalClient, onlineAgents, drainAllClients, startZombieCleanup, stopZombieCleanup, writeStoredEvent, MAX_SSE_CONNECTIONS, connectedCount, reloadSubsCache } from "./sse.js";
 import { eventLogRepo } from "./repo/event-log.js";
 import { getDbStats, db, scheduleCleanup, stopCleanup, archiveOldAuditLogs, enforceAuditLogCap, integrityCheckDb } from "./db.js";
 import { messageRepo, taskRepo, consumedRepo } from "./repo/sqlite-impl.js";
@@ -1029,6 +1029,8 @@ httpServer = app.listen(config.port, () => {
     scheduleCleanup(config.dedupTTL);
     // P2-3: SSE 僵尸连接清理（5分钟检测，10分钟超时）
     startZombieCleanup();
+    // P1: 加载 SSE 事件订阅缓存（订阅直通剪枝依赖，变更后由 subscribe_events 工具热刷新）
+    reloadSubsCache();
     // 重建 FTS 索引
     rebuildFtsIndex();
 });

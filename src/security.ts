@@ -205,6 +205,8 @@ export const TOOL_PERMISSIONS: Record<string, PermissionLevel> = {
   request_authorization:       "member",  // Agent 提交敏感操作授权
   list_authorization_requests: "member",  // 调试/仪表盘查询
   resolve_authorization:       "admin",   // 决议是敏感动作，仅 admin（主路径为仪表盘 REST）
+  // P1: 事件订阅（订阅直通）— member 及以上，仅能管理自身订阅（handler 内强制 self）
+  subscribe_events:            "member",
 };
 
 /**

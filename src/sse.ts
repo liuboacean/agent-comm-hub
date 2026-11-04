@@ -9,6 +9,7 @@
 import type { Response } from "express";
 import { logger, logError } from "./logger.js";
 import { eventLogRepo, type StoredEvent } from "./repo/event-log.js";
+import { getAllSubscriptions, subscriptionMatches, type Subscription } from "./db.js";
 
 // 在线 Agent 连接池
 const clients = new Map<string, Response>();
@@ -110,12 +111,110 @@ export function removeClient(agentId: string, connId?: number): void {
   clients.delete(agentId);
   clientEventCounters.delete(agentId);
   clientConnIds.delete(agentId);
+  // 清理该 Agent 的待发缓冲与定时器（断线后投递无意义，事件仍留 event_log 待重连补发）
+  deliveryBuffers.delete(agentId);
+  const pendingTimer = deliveryTimers.get(agentId);
+  if (pendingTimer) {
+    clearTimeout(pendingTimer);
+    deliveryTimers.delete(agentId);
+  }
   logger.info("sse_client_disconnected", { module: "sse", agent_id: agentId, total: clients.size });
 }
 
 /** 连接是否仍可写（P2-5 修复：防 write-after-end 噪声） */
 function isWritable(res: Response): boolean {
   return !res.writableEnded && !res.destroyed && res.writable;
+}
+
+// ─── P1: SSE 事件批处理（突发合并，降低实时写开销） ───────
+// 仅作用于「本进程持有 SSE 连接的实时投递路径」（clients.has 命中）。
+// 桥接转发（SSE_BRIDGE_URL）与重连补发（writeStoredEvent）保持立即投递 + 至少一次语义。
+// 每条事件仍先落 event_log 取全局 seq（保证去重/补发），仅把「网络写入」做窗口合并。
+const deliveryBuffers = new Map<string, Array<{ event: object; dedupId?: string; seq: number }>>();
+const deliveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const BATCH_MS = Math.max(0, Number(process.env.HUB_SSE_BATCH_MS ?? 120)); // 0 = 关闭批处理
+const BATCH_MAX = Math.max(1, Number(process.env.HUB_SSE_BATCH_MAX ?? 25)); // 缓冲上限，触发即冲
+
+/**
+ * 将一条已持久化（已取得 seq）的事件入队，等待窗口到期或达上限后批量落网。
+ * @returns true = 已入队（事件已落库，至少一次）；false = 立即投递失败
+ */
+function enqueueForDelivery(agentId: string, event: object, dedupId: string | undefined, seq: number): boolean {
+  // 批处理关闭：保持旧行为，立即投递
+  if (BATCH_MS <= 0) {
+    const ok = deliverToLocalClient(agentId, event, dedupId, seq);
+    if (ok) eventLogRepo.markDelivered(seq);
+    return ok;
+  }
+  let buf = deliveryBuffers.get(agentId);
+  if (!buf) {
+    buf = [];
+    deliveryBuffers.set(agentId, buf);
+  }
+  buf.push({ event, dedupId, seq });
+  // 达上限：立即冲刷（避免单 Agent 突发撑爆内存 / 延迟过高）
+  if (buf.length >= BATCH_MAX) {
+    flushAgentBuffer(agentId);
+    return true;
+  }
+  if (!deliveryTimers.has(agentId)) {
+    const timer = setTimeout(() => {
+      deliveryTimers.delete(agentId);
+      flushAgentBuffer(agentId);
+    }, BATCH_MS);
+    deliveryTimers.set(agentId, timer);
+  }
+  return true;
+}
+
+/**
+ * 冲刷某 Agent 的缓冲：按序逐条投递（每条仍独立成 SSE 消息，保留协议/去重不变），
+ * 成功写入即标记 delivered；失败不标记，依赖重连 replay 兜底。
+ */
+function flushAgentBuffer(agentId: string): void {
+  const timer = deliveryTimers.get(agentId);
+  if (timer) {
+    clearTimeout(timer);
+    deliveryTimers.delete(agentId);
+  }
+  const buf = deliveryBuffers.get(agentId);
+  if (!buf || buf.length === 0) {
+    deliveryBuffers.delete(agentId);
+    return;
+  }
+  deliveryBuffers.delete(agentId);
+  for (const d of buf) {
+    const ok = deliverToLocalClient(agentId, d.event, d.dedupId, d.seq);
+    if (ok) eventLogRepo.markDelivered(d.seq);
+    // 失败：不标记 delivered，重连 replay 会补发（至少一次）
+  }
+}
+
+/** 冲刷全部缓冲（优雅关闭时调用，尽量把待发事件推出去） */
+function flushAllBuffers(): void {
+  for (const agentId of deliveryBuffers.keys()) {
+    flushAgentBuffer(agentId);
+  }
+}
+
+// ─── P1: 订阅缓存（SSE 事件订阅剪枝） ─────────────────
+// 仅「有订阅」的 Agent 进入缓存；未订阅 Agent 不进入，broadcastToAll 维持全投（零回归）。
+let subsCache: Map<string, Subscription[]> = new Map();
+
+/**
+ * 重新从 DB 加载订阅规则到内存缓存。
+ * 订阅变更（subscribe_events 工具）与进程启动后均应调用。
+ */
+export function reloadSubsCache(): void {
+  const all = getAllSubscriptions();
+  const map = new Map<string, Subscription[]>();
+  for (const s of all) {
+    const arr = map.get(s.agent_id);
+    if (arr) arr.push(s);
+    else map.set(s.agent_id, [s]);
+  }
+  subsCache = map;
+  logger.info("sse_subs_cache_reloaded", { module: "sse", agents: map.size, rules: all.length });
 }
 
 /**
@@ -147,14 +246,9 @@ export function pushToAgent(agentId: string, event: object, dedupId?: string): b
     return false;
   }
 
-  // 2a. 本地命中：本进程持有该 Agent 的 SSE 连接 → 直接投递（以全局 seq 作为 SSE id）
+  // 2a. 本地命中：本进程持有该 Agent 的 SSE 连接 → 入队批量投递（以全局 seq 作为 SSE id）
   if (clients.has(agentId)) {
-    const ok = deliverToLocalClient(agentId, event, dedupId, seq);
-    if (ok) {
-      eventLogRepo.markDelivered(seq);
-      return true;
-    }
-    return false;
+    return enqueueForDelivery(agentId, event, dedupId, seq);
   }
 
   // 2b. 跨进程桥接（方案 B）：本进程无该 Agent 的 SSE 连接。
@@ -279,10 +373,21 @@ export function broadcast(agentIds: string[], event: object): Record<string, boo
 
 /**
  * SSE 广播：推送给所有已连接 Agent（P1-4 激活态变更广播）
+ *
+ * P1 订阅剪枝：仅当 Agent 已声明订阅且其订阅规则**未命中**本次事件时才跳过；
+ * 未订阅（缓存中无该 Agent）的 Agent 维持现状全投，零回归。
+ * 注意：剪枝只在「实时广播」生效；点对点 pushToAgent 不受影响（仍按收件人精确投递）。
  */
 export function broadcastToAll(event: object): Record<string, boolean> {
   const results: Record<string, boolean> = {};
+  const eventType = String((event as Record<string, unknown>).event ?? "event");
+  const payloadStr = JSON.stringify(event);
   for (const agentId of clients.keys()) {
+    const subs = subsCache.get(agentId);
+    if (subs && !subscriptionMatches(eventType, payloadStr, subs)) {
+      results[agentId] = false; // 订阅剪枝：不投递
+      continue;
+    }
     results[agentId] = pushToAgent(agentId, event);
   }
   return results;
@@ -312,6 +417,8 @@ export function connectedCount(): number {
  * 向每个客户端发送 close 事件后关闭连接
  */
 export function drainAllClients(): void {
+  // 先冲刷所有待发缓冲，把缓冲中的事件尽可能推出去，再发关闭信号
+  flushAllBuffers();
   for (const [agentId, res] of clients.entries()) {
     try {
       const eventId = nextEventId(agentId);

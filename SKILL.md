@@ -1,7 +1,7 @@
 ---
 name: agent-comm-hub
-description: "本地多智能体通信 Hub（MCP stdio / HTTP-SSE），提供消息、任务编排、共享记忆、进化引擎，暴露 58 个 MCP 工具 + Web 管理面板"
-version: "3.0.29"
+description: "本地多智能体通信 Hub（MCP stdio / HTTP-SSE），提供消息、任务编排、共享记忆、进化引擎，暴露 59 个 MCP 工具 + Web 管理面板"
+version: "3.0.30"
 category: autonomous-ai-agents
 triggers:
   - "agent-comm-hub"
@@ -19,7 +19,7 @@ triggers:
 
 # Agent Communication Hub
 
-> 多智能体消息转发与上下文共享中间件 — **v3.0.29**
+> 多智能体消息转发与上下文共享中间件 — **v3.0.30**
 
 让两个或多个独立 AI 智能体之间实现**实时双向通信**和**上下文自动同步**。基于 MCP 协议 + stdio 模式，消息本地持久化，延迟 < 50ms。
 
@@ -31,7 +31,7 @@ triggers:
 │  (Hermes)    │◄───────►│  (stdio)                    │◄───────►│ (WorkBuddy)  │
 │              │  MCP    │                              │  MCP    │              │
 └──────────────┘◄───────►│  SQLite WAL + 30 表          │◄───────►└──────────────┘
-                          │  58 MCP 工具 + RBAC 权限     │
+                          │  59 MCP 工具 + RBAC 权限     │
                           │  上下文暂存 + 建议闭环       │
                           └──────────────┬──────────────┘
                                          │
@@ -120,7 +120,7 @@ triggers:
 
 ## 核心能力
 
-### 58 个 MCP 工具（当前版本）
+### 59 个 MCP 工具（当前版本）
 
 #### Identity 身份 (6)
 
@@ -205,6 +205,17 @@ triggers:
 |------|------|
 | `mark_consumed` | 标记任务/消息为已消费，防止重复处理 |
 | `check_consumed` | 查询资源是否已被消费 |
+
+#### 事件订阅 (1)
+
+| 工具 | 功能 |
+|------|------|
+| `subscribe_events` | 管理**当前 Agent 自身**的 SSE 事件订阅（订阅直通）：`subscribe` 订阅、`unsubscribe` 退订（默认参数清空全部）、`list` 列出。仅可管理自身订阅 |
+
+> **订阅直通语义**：Agent 订阅后，Hub 在 `broadcastToAll` 广播时按订阅规则剪枝——仅投递命中订阅的事件；**未订阅的 Agent 维持现状全投（零回归）**。点对点 `pushToAgent` 不受影响。
+> - `event_type`：`'*'` 或空 = 订阅全部；具体值（如 `'message'`/`'task_assigned'`/`'activation_changed'`）须相等才命中。
+> - `topic_filter`：空 = 不限主题；非空 = 对事件 payload 的 JSON 串做子串 `includes`。
+> - 退订时若 `event_type` 与 `topic_filter` 均为默认（`'*'`/空），则清空该 Agent 全部订阅。
 
 > 所有工具内置 try-catch + 3 次指数退避重试（100ms → 200ms → 400ms）。v2.4.0 统一错误格式：`HubError` 错误码 + `mcpError()`/`mcpFail()` 标准返回。`check_consumed` 查询失败时降级返回 `consumed=false`（不阻塞业务）。
 
@@ -327,6 +338,16 @@ inbox → assigned → [waiting] → in_progress → completed / failed / cancel
 | 看门狗 | SQLite 结构完整性探针 | `scripts/cron_db_watchdog.sh` 新增 `quick_check` + `memories_fts` 行数漂移检查，每 10 分钟一次，仅告警（exit 6/7）不自动重启 |
 | 安全 | 凭据泄露三件套 | `scripts/scan_leaked_credentials.py`（只读、sha256 命中库判定有效凭据）／`redact_leaked_credentials.py`（减害脱敏，默认 dry-run）／`rotate_token.py`（先发后撤可逆轮换，明文仅写 600 文件） |
 
+### v3.0.30 — P1 订阅直通 + 事件批处理（借鉴 DeepSeek Super-Agent「订阅 + 批处理」，零回归）
+| 类别 | 内容 | 说明 |
+|------|------|------|
+| 背景 | 对照 DeepSeek《Super-agent 设计探索》 | 明确**不移植** LLM 慢判/投机执行/Router 重写（违背 Hub「零 LLM + 确定性 + WORM 审计」铁律）；仅采纳「订阅直通 + 批处理」两项确定性增强 |
+| 订阅表 | `subscriptions` 表（db.ts） | 字段 `id/agent_id/event_type/topic_filter/created_at`，唯一约束 `(agent_id, event_type, topic_filter)` 保证幂等；`subscribeEvent`/`unsubscribeEvent`/`getSubscriptions`/`getAllSubscriptions` + 纯函数 `subscriptionMatches` |
+| 剪枝 | `broadcastToAll` 订阅剪枝（sse.ts） | 仅「有订阅且规则未命中」的 Agent 被跳过；未订阅 Agent 维持全投；点对点 `pushToAgent` 不受影响。内存缓存 `subsCache` 仅含已订阅 Agent，`reloadSubsCache()` 启动 + 订阅变更热刷新 |
+| 批处理 | SSE 事件批处理窗口（sse.ts） | 实时投递路径新增 `enqueueForDelivery`/`flushAgentBuffer`：默认 120ms 窗口 / 25 条上限突发合并，降低实时写开销；桥接转发与重连补发保持立即投递 + 至少一次；`HUB_SSE_BATCH_MS=0` 可关闭 |
+| 工具 | `subscribe_events`（member 权限） | 单一工具支持 subscribe/unsubscribe/list 三动作，handler 内强制 `agentId === ctx.agentId`（仅能管理自身订阅）；已登记进 fail-closed 权限矩阵 |
+| 安全 | 零回归 + 可逆 | 剪枝只作用于广播、不触碰点对点；订阅写审计无关、删除即恢复全投 |
+
 ### v3.0.29 — P0 运行时 Watchdog 自治自愈（借鉴 DeepSeek Super-Agent，重发修正 latest 指针）
 | 类别 | 内容 | 说明 |
 |------|------|------|
@@ -392,6 +413,8 @@ inbox → assigned → [waiting] → in_progress → completed / failed / cancel
 | `DB_PATH` | ./comm_hub.db | SQLite 数据库路径 |
 | `LOG_LEVEL` | info | 日志级别：debug / info / warn / error |
 | `CORS_LIST` | (空) | CORS 白名单（逗号分隔），空=拒绝所有跨域 |
+| `HUB_SSE_BATCH_MS` | 120 | SSE 实时投递批处理窗口（毫秒）；突发事件在该窗口内合并写入。设为 `0` 关闭批处理（逐条立即投递） |
+| `HUB_SSE_BATCH_MAX` | 25 | 单 Agent 批处理缓冲上限，达到即立即冲刷（防止突发撑爆内存 / 延迟过高） |
 
 ## 技术依赖
 

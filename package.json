@@ -1,6 +1,6 @@
 {
   "name": "agent-comm-hub",
-  "version": "3.0.29",
+  "version": "3.0.30",
   "description": "Production-grade multi-agent communication infrastructure via MCP + SSE",
   "type": "module",
   "engines": {

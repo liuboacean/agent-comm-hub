@@ -3,6 +3,7 @@
  * 消息 + 任务 两张表，进程重启数据不丢失
  */
 import Database, { type Database as DatabaseType, type Statement } from "better-sqlite3";
+import { randomUUID } from "crypto";
 import * as fs from "fs";
 import { join, dirname, resolve } from "path";
 import { fileURLToPath } from "url";
@@ -228,6 +229,107 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_event_log_agent        ON event_log(agent_id, id);
   CREATE INDEX IF NOT EXISTS idx_event_log_undelivered  ON event_log(agent_id, delivered, id);
 `);
+
+// ─── P1: 订阅表（SSE 事件订阅剪枝） ───────────────────
+// 借鉴 DeepSeek Super-Agent「订阅直通」思想：让 Agent 显式声明关心哪些事件，
+// Hub 在 broadcastToAll 时按订阅规则剪枝，未订阅 Agent 维持现状全投（保守零回归）。
+//   - event_type：'*' 或空 = 匹配任意事件类型；具体值（如 'message'/'task_assigned'）须相等
+//   - topic_filter：空 = 不限主题；非空 = 对事件 payload 的 JSON 串做子串 includes
+// 唯一约束 (agent_id, event_type, topic_filter) 保证幂等写入。
+db.exec(`
+  CREATE TABLE IF NOT EXISTS subscriptions (
+    id           TEXT PRIMARY KEY,
+    agent_id     TEXT NOT NULL,
+    event_type   TEXT NOT NULL DEFAULT '*',
+    topic_filter TEXT NOT NULL DEFAULT '',
+    created_at   INTEGER NOT NULL,
+    UNIQUE(agent_id, event_type, topic_filter)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_subscriptions_agent ON subscriptions(agent_id);
+`);
+
+export interface Subscription {
+  id: string;
+  agent_id: string;
+  event_type: string;
+  topic_filter: string;
+  created_at: number;
+}
+
+export const subscriptionStmt: Record<string, Statement> = {
+  subscribe: db.prepare<Subscription>(
+    `INSERT OR IGNORE INTO subscriptions (id, agent_id, event_type, topic_filter, created_at)
+     VALUES (@id, @agent_id, @event_type, @topic_filter, @created_at)`
+  ),
+  unsubscribe: db.prepare<[string, string, string]>(
+    `DELETE FROM subscriptions WHERE agent_id=? AND event_type=? AND topic_filter=?`
+  ),
+  unsubscribeAll: db.prepare<string>(
+    `DELETE FROM subscriptions WHERE agent_id=?`
+  ),
+  getByAgent: db.prepare<string>(
+    `SELECT * FROM subscriptions WHERE agent_id=? ORDER BY created_at ASC`
+  ),
+  getAll: db.prepare(
+    `SELECT * FROM subscriptions ORDER BY agent_id ASC, created_at ASC`
+  ),
+};
+
+/**
+ * 订阅事件（幂等：基于唯一约束，重复订阅静默忽略）。
+ * @param eventType '*' 或空表示订阅全部事件类型
+ * @param topicFilter 空表示不限主题；非空为对事件 payload JSON 的子串过滤
+ */
+export function subscribeEvent(agentId: string, eventType: string, topicFilter: string): void {
+  subscriptionStmt.subscribe.run({
+    id: randomUUID(),
+    agent_id: agentId,
+    event_type: eventType && eventType.trim() ? eventType : "*",
+    topic_filter: topicFilter && topicFilter.trim() ? topicFilter : "",
+    created_at: Date.now(),
+  });
+}
+
+/**
+ * 退订。
+ * - 若 eventType 与 topicFilter 均为默认（'*'/空），则清空该 Agent 的全部订阅；
+ * - 否则仅删除精确匹配的那一条规则。
+ * @returns 受影响行数
+ */
+export function unsubscribeEvent(agentId: string, eventType?: string, topicFilter?: string): number {
+  if ((eventType ?? "*") === "*" && (topicFilter ?? "") === "") {
+    return subscriptionStmt.unsubscribeAll.run(agentId).changes;
+  }
+  return subscriptionStmt.unsubscribe.run(agentId, eventType ?? "*", topicFilter ?? "").changes;
+}
+
+/** 查询某 Agent 的全部订阅规则 */
+export function getSubscriptions(agentId: string): Subscription[] {
+  return subscriptionStmt.getByAgent.all(agentId) as Subscription[];
+}
+
+/** 查询全量订阅规则（用于启动时构建内存缓存） */
+export function getAllSubscriptions(): Subscription[] {
+  return subscriptionStmt.getAll.all() as Subscription[];
+}
+
+/**
+ * 纯函数：判断某事件是否命中 Agent 的订阅规则集合。
+ * - 任一规则命中即返回 true（应投递）；
+ * - 全部不命中返回 false（剪枝掉）。
+ * 匹配规则：
+ *   - event_type：空或 '*' 匹配任意类型；否则须与事件类型相等；
+ *   - topic_filter：空匹配任意主题；否则事件 payload JSON 串须包含该子串。
+ */
+export function subscriptionMatches(eventType: string, payloadStr: string, subs: Subscription[]): boolean {
+  for (const s of subs) {
+    const typeOk = !s.event_type || s.event_type === "*" || s.event_type === eventType;
+    const topicOk = !s.topic_filter || payloadStr.includes(s.topic_filter);
+    if (typeOk && topicOk) return true;
+  }
+  return false;
+}
 
 // ─── Phase 4a Migration: tasks 表新增字段 ──────────────
 // 必须在 taskStmt.insert 之前执行
@@ -1029,6 +1131,7 @@ export function getDbStats(): Record<string, number> {
     "task_dependencies", "quality_gates",
     "attachments",
     "event_log",
+    "subscriptions",
     "messages_archive", "audit_log_archive",
   ];
   const stats: Record<string, number> = {};

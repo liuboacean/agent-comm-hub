@@ -32,6 +32,11 @@ export declare function registerClient(agentId: string, res: Response): number;
  */
 export declare function removeClient(agentId: string, connId?: number): void;
 /**
+ * 重新从 DB 加载订阅规则到内存缓存。
+ * 订阅变更（subscribe_events 工具）与进程启动后均应调用。
+ */
+export declare function reloadSubsCache(): void;
+/**
  * 向指定 Agent 推送事件。
  *
  * D1 修复：每次推送先持久化到 event_log 取得**全局单调 seq**，并以该 seq 作为
@@ -65,6 +70,10 @@ export declare function writeStoredEvent(agentId: string, ev: StoredEvent): bool
 export declare function broadcast(agentIds: string[], event: object): Record<string, boolean>;
 /**
  * SSE 广播：推送给所有已连接 Agent（P1-4 激活态变更广播）
+ *
+ * P1 订阅剪枝：仅当 Agent 已声明订阅且其订阅规则**未命中**本次事件时才跳过；
+ * 未订阅（缓存中无该 Agent）的 Agent 维持现状全投，零回归。
+ * 注意：剪枝只在「实时广播」生效；点对点 pushToAgent 不受影响（仍按收件人精确投递）。
  */
 export declare function broadcastToAll(event: object): Record<string, boolean>;
 /**

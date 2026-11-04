@@ -5,6 +5,40 @@
 import { type Database as DatabaseType, type Statement } from "better-sqlite3";
 export declare const db: DatabaseType;
 export declare function transaction<T>(fn: () => T): T;
+export interface Subscription {
+    id: string;
+    agent_id: string;
+    event_type: string;
+    topic_filter: string;
+    created_at: number;
+}
+export declare const subscriptionStmt: Record<string, Statement>;
+/**
+ * 订阅事件（幂等：基于唯一约束，重复订阅静默忽略）。
+ * @param eventType '*' 或空表示订阅全部事件类型
+ * @param topicFilter 空表示不限主题；非空为对事件 payload JSON 的子串过滤
+ */
+export declare function subscribeEvent(agentId: string, eventType: string, topicFilter: string): void;
+/**
+ * 退订。
+ * - 若 eventType 与 topicFilter 均为默认（'*'/空），则清空该 Agent 的全部订阅；
+ * - 否则仅删除精确匹配的那一条规则。
+ * @returns 受影响行数
+ */
+export declare function unsubscribeEvent(agentId: string, eventType?: string, topicFilter?: string): number;
+/** 查询某 Agent 的全部订阅规则 */
+export declare function getSubscriptions(agentId: string): Subscription[];
+/** 查询全量订阅规则（用于启动时构建内存缓存） */
+export declare function getAllSubscriptions(): Subscription[];
+/**
+ * 纯函数：判断某事件是否命中 Agent 的订阅规则集合。
+ * - 任一规则命中即返回 true（应投递）；
+ * - 全部不命中返回 false（剪枝掉）。
+ * 匹配规则：
+ *   - event_type：空或 '*' 匹配任意类型；否则须与事件类型相等；
+ *   - topic_filter：空匹配任意主题；否则事件 payload JSON 串须包含该子串。
+ */
+export declare function subscriptionMatches(eventType: string, payloadStr: string, subs: Subscription[]): boolean;
 export interface Message {
     id: string;
     from_agent: string;

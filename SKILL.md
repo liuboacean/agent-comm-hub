@@ -1,7 +1,7 @@
 ---
 name: agent-comm-hub
 description: "本地多智能体通信 Hub（MCP stdio / HTTP-SSE），提供消息、任务编排、共享记忆、进化引擎，暴露 58 个 MCP 工具 + Web 管理面板"
-version: "3.0.28"
+version: "3.0.29"
 category: autonomous-ai-agents
 triggers:
   - "agent-comm-hub"
@@ -19,7 +19,7 @@ triggers:
 
 # Agent Communication Hub
 
-> 多智能体消息转发与上下文共享中间件 — **v3.0.28**
+> 多智能体消息转发与上下文共享中间件 — **v3.0.29**
 
 让两个或多个独立 AI 智能体之间实现**实时双向通信**和**上下文自动同步**。基于 MCP 协议 + stdio 模式，消息本地持久化，延迟 < 50ms。
 
@@ -327,7 +327,7 @@ inbox → assigned → [waiting] → in_progress → completed / failed / cancel
 | 看门狗 | SQLite 结构完整性探针 | `scripts/cron_db_watchdog.sh` 新增 `quick_check` + `memories_fts` 行数漂移检查，每 10 分钟一次，仅告警（exit 6/7）不自动重启 |
 | 安全 | 凭据泄露三件套 | `scripts/scan_leaked_credentials.py`（只读、sha256 命中库判定有效凭据）／`redact_leaked_credentials.py`（减害脱敏，默认 dry-run）／`rotate_token.py`（先发后撤可逆轮换，明文仅写 600 文件） |
 
-### v3.0.28 — P0 运行时 Watchdog 自治自愈（借鉴 DeepSeek Super-Agent）
+### v3.0.29 — P0 运行时 Watchdog 自治自愈（借鉴 DeepSeek Super-Agent，重发修正 latest 指针）
 | 类别 | 内容 | 说明 |
 |------|------|------|
 | 背景 | 借鉴 DeepSeek《Super-agent 设计探索》「外部 Watchdog + 自治自愈 + 持久化」三思想 | 直击 9-29 事故根因：任务卡死 / Agent 掉线后任务变孤儿 |

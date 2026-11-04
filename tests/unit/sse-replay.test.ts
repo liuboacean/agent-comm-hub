@@ -35,6 +35,11 @@ vi.mock("../../src/db.js", () => ({
 import { eventLogRepo } from "../../src/repo/event-log.js";
 import { registerClient, removeClient, pushToAgent, onlineAgents } from "../../src/sse.js";
 
+// D1 可靠性契约测试需要同步投递语义（批处理默认 120ms 异步冲刷会破坏「即时 delivered=1」等断言）。
+// 在文件级关闭批处理，确保既有同步契约回归测试继续成立；批处理路径由下方独立 describe 覆盖。
+// 注：这仅影响本测试文件的进程，Hub 生产默认仍是 HUB_SSE_BATCH_MS=120（见 sse.ts）。
+process.env.HUB_SSE_BATCH_MS = "0";
+
 function createMockRes(): any {
   const writes: string[] = [];
   return {
@@ -157,5 +162,45 @@ describe("D1 SSE — 重放边界（eventLogRepo.getEventsAfter 仅返回 seq �
     const result = eventLogRepo.getEventsAfter(a1, "d1-A");
     expect(result.map((e) => e.id)).toEqual([a1 + 1]);
     expect(result.every((e) => e.agent_id === "d1-A")).toBe(true);
+  });
+});
+
+describe("P1 SSE 事件批处理（可选优化：合并实时写入，默认 120ms 窗口）", () => {
+  beforeEach(() => {
+    process.env.HUB_SSE_BATCH_MS = "50"; // 开启批处理（小窗口，便于测试）
+    testDb = createTestDb();
+  });
+  afterEach(() => {
+    process.env.HUB_SSE_BATCH_MS = "0"; // 还原，避免影响其它用例
+    for (const id of onlineAgents()) removeClient(id);
+    if (testDb) { try { testDb.close(); } catch { /* ignore */ } }
+  });
+
+  it("开启批处理时事件不会立即落网，窗口到期后批量写入并标记 delivered", async () => {
+    const res = createMockRes();
+    registerClient("batch-1", res as any);
+    pushToAgent("batch-1", { a: 1 });
+    pushToAgent("batch-1", { a: 2 });
+    // 尚未到冲刷窗口：不应有任何写入
+    expect(res.writes.length).toBe(0);
+    // 等待窗口（50ms）到期触发冲刷
+    await new Promise((r) => setTimeout(r, 120));
+    const ids = extractEventIds(res);
+    expect(ids.length).toBe(2);
+    expect(ids).toEqual([1, 2]);
+    const all = eventLogRepo.getEventsAfter(0, "batch-1");
+    expect(all.length).toBe(2);
+    expect(all.every((e) => e.delivered === 1)).toBe(true);
+  });
+
+  it("达到缓冲上限（HUB_SSE_BATCH_MAX）立即冲刷", () => {
+    process.env.HUB_SSE_BATCH_MAX = "3";
+    const res = createMockRes();
+    registerClient("batch-2", res as any);
+    pushToAgent("batch-2", { n: 1 });
+    pushToAgent("batch-2", { n: 2 });
+    expect(res.writes.length).toBe(0); // 未达上限，仍缓冲
+    pushToAgent("batch-2", { n: 3 });  // 达上限 3，立即冲刷
+    expect(extractEventIds(res).length).toBe(3);
   });
 });

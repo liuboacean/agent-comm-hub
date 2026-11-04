@@ -121,13 +121,22 @@ function isWritable(res) {
 // 每条事件仍先落 event_log 取全局 seq（保证去重/补发），仅把「网络写入」做窗口合并。
 const deliveryBuffers = new Map();
 const deliveryTimers = new Map();
-const BATCH_MS = Math.max(0, Number(process.env.HUB_SSE_BATCH_MS ?? 120)); // 0 = 关闭批处理
-const BATCH_MAX = Math.max(1, Number(process.env.HUB_SSE_BATCH_MAX ?? 25)); // 缓冲上限，触发即冲
+// 在【调用时】读取环境变量（非模块加载时），便于运行时调整与测试覆盖。
+// HUB_SSE_BATCH_MS=0 关闭批处理（逐条立即投递）；默认 120ms 窗口。
+// HUB_SSE_BATCH_MAX=25 单 Agent 缓冲上限，达到即立即冲刷。
+function batchWindowMs() {
+    return Math.max(0, Number(process.env.HUB_SSE_BATCH_MS ?? 120));
+}
+function batchMaxSize() {
+    return Math.max(1, Number(process.env.HUB_SSE_BATCH_MAX ?? 25));
+}
 /**
  * 将一条已持久化（已取得 seq）的事件入队，等待窗口到期或达上限后批量落网。
  * @returns true = 已入队（事件已落库，至少一次）；false = 立即投递失败
  */
 function enqueueForDelivery(agentId, event, dedupId, seq) {
+    const BATCH_MS = batchWindowMs();
+    const BATCH_MAX = batchMaxSize();
     // 批处理关闭：保持旧行为，立即投递
     if (BATCH_MS <= 0) {
         const ok = deliverToLocalClient(agentId, event, dedupId, seq);

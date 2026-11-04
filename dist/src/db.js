@@ -293,6 +293,53 @@ export const taskStmt = {
     listFor: db.prepare(`SELECT * FROM tasks WHERE assigned_to=? AND status=? ORDER BY created_at DESC`),
     listByPipeline: db.prepare(`SELECT t.* FROM tasks t JOIN pipeline_tasks pt ON t.id=pt.task_id WHERE pt.pipeline_id=? ORDER BY pt.order_index ASC`),
 };
+// ─── P0 Watchdog: 卡死 / 离线任务自愈（纯 DB 操作） ──────────
+// 借鉴 DeepSeek Super-Agent「外部 Watchdog + 自治自愈」思想：
+// 把「任务卡死 / Agent 掉线后的孤儿任务」检测与回收下沉到 DB 层，
+// 与 orchestrator 的编排逻辑解耦（本文件不引入 auditLog，避免循环依赖），
+// 审计与通知由 orchestrator 层负责。
+/**
+ * 查询某 Agent 处于指定状态的任务（用于离线释放）。
+ */
+export function findTasksByAgentStatus(agentId, statuses) {
+    if (statuses.length === 0)
+        return [];
+    const placeholders = statuses.map(() => "?").join(", ");
+    return db
+        .prepare(`SELECT * FROM tasks WHERE assigned_to=? AND status IN (${placeholders}) ORDER BY updated_at ASC`)
+        .all(agentId, ...statuses);
+}
+/**
+ * 检测卡死任务：assigned / in_progress 但长时间无进展，或已过 due_at 仍未完成。
+ * @param stuckMs 无进展判定阈值（毫秒）
+ */
+export function findStuckTasks(stuckMs) {
+    const now = Date.now();
+    return db
+        .prepare(`SELECT * FROM tasks
+       WHERE status IN ('assigned','in_progress')
+         AND (updated_at < ? OR (due_at IS NOT NULL AND due_at < ?))
+       ORDER BY updated_at ASC`)
+        .all(now - stuckMs, now);
+}
+/**
+ * 将卡死 / 离线任务安全退回收件箱（inbox），清空承接人。
+ * 仅当任务仍处于 assigned / in_progress 才生效（已完成/已取消不动），幂等。
+ * 返回是否实际发生了释放。
+ */
+export function releaseTaskToInbox(taskId) {
+    const now = Date.now();
+    return transaction(() => {
+        const before = db
+            .prepare(`SELECT assigned_to, status FROM tasks WHERE id=?`)
+            .get(taskId);
+        if (!before || (before.status !== "assigned" && before.status !== "in_progress")) {
+            return false;
+        }
+        db.prepare(`UPDATE tasks SET status='inbox', assigned_to='', assigned_at=NULL, updated_at=? WHERE id=?`).run(now, taskId);
+        return true;
+    });
+}
 export const pipelineStmt = {
     insert: db.prepare(`INSERT INTO pipelines VALUES (@id,@name,@description,@status,@creator,@config,@created_at,@updated_at)`),
     getById: db.prepare(`SELECT * FROM pipelines WHERE id=?`),

@@ -53,6 +53,21 @@ export type PipelineCreateInput = {
     };
 };
 /**
+ * Agent 离线时，释放其所有 assigned / in_progress 任务回收件箱，并通知创建者。
+ * 通过 server.ts 注入为 startHeartbeatMonitor 的 onAgentOffline 回调。
+ * @returns 实际释放的任务数
+ */
+export declare function releaseTasksForOfflineAgent(agentId: string): number;
+/**
+ * 卡死任务巡检：扫描长时间无进展或已过期的 assigned / in_progress 任务，
+ * 退回收件箱并通知创建者。由 server.ts 的 watchdog 定时器周期调用。
+ * @returns { scanned, released }
+ */
+export declare function runWatchdogScan(): {
+    scanned: number;
+    released: number;
+};
+/**
  * 创建 Pipeline
  */
 export declare function createPipeline(input: PipelineCreateInput): Pipeline;

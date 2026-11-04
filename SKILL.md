@@ -1,7 +1,7 @@
 ---
 name: agent-comm-hub
 description: "本地多智能体通信 Hub（MCP stdio / HTTP-SSE），提供消息、任务编排、共享记忆、进化引擎，暴露 58 个 MCP 工具 + Web 管理面板"
-version: "3.0.25"
+version: "3.0.28"
 category: autonomous-ai-agents
 triggers:
   - "agent-comm-hub"
@@ -19,7 +19,7 @@ triggers:
 
 # Agent Communication Hub
 
-> 多智能体消息转发与上下文共享中间件 — **v3.0.25**
+> 多智能体消息转发与上下文共享中间件 — **v3.0.28**
 
 让两个或多个独立 AI 智能体之间实现**实时双向通信**和**上下文自动同步**。基于 MCP 协议 + stdio 模式，消息本地持久化，延迟 < 50ms。
 
@@ -326,6 +326,15 @@ inbox → assigned → [waiting] → in_progress → completed / failed / cancel
 | Bugfix | FTS 重建幂等化 | `rebuildStrategiesFts`/`rebuildFtsIndex` 改为「先 DELETE 再全量 INSERT」，根治 `constraint failed` 与索引漂移（孤儿行致 `search_memories` 搜不到内容） |
 | 看门狗 | SQLite 结构完整性探针 | `scripts/cron_db_watchdog.sh` 新增 `quick_check` + `memories_fts` 行数漂移检查，每 10 分钟一次，仅告警（exit 6/7）不自动重启 |
 | 安全 | 凭据泄露三件套 | `scripts/scan_leaked_credentials.py`（只读、sha256 命中库判定有效凭据）／`redact_leaked_credentials.py`（减害脱敏，默认 dry-run）／`rotate_token.py`（先发后撤可逆轮换，明文仅写 600 文件） |
+
+### v3.0.28 — P0 运行时 Watchdog 自治自愈（借鉴 DeepSeek Super-Agent）
+| 类别 | 内容 | 说明 |
+|------|------|------|
+| 背景 | 借鉴 DeepSeek《Super-agent 设计探索》「外部 Watchdog + 自治自愈 + 持久化」三思想 | 直击 9-29 事故根因：任务卡死 / Agent 掉线后任务变孤儿 |
+| 离线释放 | `releaseTasksForOfflineAgent` 注入 `startHeartbeatMonitor` 的 `onAgentOffline` 回调 | Agent 离线即将其 `assigned`/`in_progress` 任务退回收件箱（清空 `assigned_to`），逐条写 `audit_log`，并 `pushToAgent` 通知任务创建者 |
+| 卡死巡检 | `runWatchdogScan` + `startWatchdogScheduler`（默认每 5 分钟，`WATCHDOG_INTERVAL_MS` 可覆盖） | 扫描 `status IN ('assigned','in_progress')` 且 `updated_at` 超阈值（默认 30 分钟，`WATCHDOG_STUCK_MS` 可覆盖）无进展，或 `due_at` 已过期的任务，退回收件箱 + 通知创建者 |
+| DB 层 | `findTasksByAgentStatus` / `findStuckTasks` / `releaseTaskToInbox`（db.ts 纯 SQL，无循环依赖） | `releaseTaskToInbox` 仅对 `assigned`/`in_progress` 生效（已完成/已取消不动），幂等；全部动作入审计日志，安全可逆 |
+| 哲学 | human-in-loop + WORM 审计 | 自愈仅做「退回 + 通知」，重派决策留给任务创建者，契合既有 human-in-loop 安全边界 |
 
 ### v3.0.x（安全加固）
 | 类别 | 内容 | 说明 |

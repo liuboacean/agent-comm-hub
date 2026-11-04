@@ -50,6 +50,21 @@ export interface Task {
     updated_at: number;
 }
 export declare const taskStmt: Record<string, Statement>;
+/**
+ * 查询某 Agent 处于指定状态的任务（用于离线释放）。
+ */
+export declare function findTasksByAgentStatus(agentId: string, statuses: string[]): Task[];
+/**
+ * 检测卡死任务：assigned / in_progress 但长时间无进展，或已过 due_at 仍未完成。
+ * @param stuckMs 无进展判定阈值（毫秒）
+ */
+export declare function findStuckTasks(stuckMs: number): Task[];
+/**
+ * 将卡死 / 离线任务安全退回收件箱（inbox），清空承接人。
+ * 仅当任务仍处于 assigned / in_progress 才生效（已完成/已取消不动），幂等。
+ * 返回是否实际发生了释放。
+ */
+export declare function releaseTaskToInbox(taskId: string): boolean;
 export interface Pipeline {
     id: string;
     name: string;

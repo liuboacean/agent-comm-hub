@@ -26,7 +26,7 @@ import { rebuildFtsIndex } from "./memory.js";
 import { logger, logError } from "./logger.js";
 import { join } from "path";
 import { getMetricsOutput, trackHttpRequest, incrementGauge, decrementGauge, collectHubMetrics, getTopLimited, } from "./metrics.js";
-import { ActivationOrchestrator } from "./orchestrator.js";
+import { ActivationOrchestrator, releaseTasksForOfflineAgent, runWatchdogScan } from "./orchestrator.js";
 import { RateLimiter } from "./ratelimit.js";
 import { setMessageRateLimiter } from "./tools/message.js";
 import { createDashboardRouter } from "./web/server.js";
@@ -287,6 +287,31 @@ function stopMaintenanceScheduler() {
         clearInterval(maintenanceTimer);
         maintenanceTimer = null;
         logger.info("maintenance_scheduler_stopped", { module: "server" });
+    }
+}
+// ─── P0 Watchdog: 卡死任务巡检定时器 ───────────────────────
+let watchdogTimer = null;
+function startWatchdogScheduler() {
+    if (watchdogTimer)
+        return;
+    const intervalMs = parseInt(process.env.WATCHDOG_INTERVAL_MS ?? "300000", 10); // 默认 5 分钟
+    runWatchdogScan(); // 启动即执行一次
+    watchdogTimer = setInterval(() => {
+        try {
+            const res = runWatchdogScan();
+            logger.info("watchdog_scan_done", { module: "server", ...res });
+        }
+        catch (err) {
+            logError("watchdog_scan_failed", err, { module: "server" });
+        }
+    }, intervalMs);
+    logger.info("watchdog_scheduler_started", { module: "server", interval_ms: intervalMs });
+}
+function stopWatchdogScheduler() {
+    if (watchdogTimer) {
+        clearInterval(watchdogTimer);
+        watchdogTimer = null;
+        logger.info("watchdog_scheduler_stopped", { module: "server" });
     }
 }
 // ═══════════════════════════════════════════════════════════════
@@ -886,6 +911,7 @@ async function gracefulShutdown(signal) {
     stopBackupScheduler();
     stopMaintenanceScheduler();
     stopAuthSweep();
+    stopWatchdogScheduler();
     stopDedupCleanup();
     stopCleanup();
     stopZombieCleanup();
@@ -984,9 +1010,10 @@ httpServer = app.listen(config.port, () => {
         port: config.port,
         phase: "5b",
     });
-    // 启动心跳超时监控
+    // 启动心跳超时监控；Agent 离线时由 Watchdog 回收其孤儿任务
     startHeartbeatMonitor((agentId) => {
-        logger.info("agent_offline_timeout", { module: "monitor", agent_id: agentId });
+        const released = releaseTasksForOfflineAgent(agentId);
+        logger.info("agent_offline_timeout", { module: "monitor", agent_id: agentId, released_tasks: released });
     });
     // 启动数据库定时备份
     startBackupScheduler(config.dbPath);
@@ -994,6 +1021,8 @@ httpServer = app.listen(config.port, () => {
     startMaintenanceScheduler();
     // Feature B: 启动授权过期清扫
     startAuthSweep();
+    // P0 Watchdog: 启动卡死任务巡检调度
+    startWatchdogScheduler();
     // 启动去重缓存 TTL 清理（15min）
     startDedupCleanup();
     // Phase 6: 启动定时清理（过期 Token / Dedup / Consumed）

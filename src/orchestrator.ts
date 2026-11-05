@@ -9,6 +9,7 @@ import { pushToAgent } from "./sse.js";
 import { getOnlineAgentIds } from "./identity.js";
 import { auditLog, recalculateTrustScore } from "./security.js";
 import { logError, logger } from "./logger.js";
+import { notifyScheduleChanged } from "./event-driven.js";
 import type { DepType } from "./repo/types.js";
 import { taskRepo } from "./repo/sqlite-impl.js";
 
@@ -105,6 +106,7 @@ export function createTask(input: TaskCreateInput): Task {
   ).run(task);
 
   auditLog("create_task", input.assigned_by, task.id, `status=${status}`);
+  notifyScheduleChanged(); // P2-A: 重算最早到期（关闭时 no-op）
 
   return task;
 }
@@ -123,6 +125,7 @@ export function assignTask(taskId: string, toAgent: string, operatorId: string):
   ).run(toAgent, now, now, taskId);
 
   auditLog("assign_task", operatorId, taskId, `to=${toAgent}`);
+  notifyScheduleChanged(); // P2-A: 新任务进入 assigned，可能提前最早到期
 
   pushToAgent(toAgent, {
     event: "task_assigned",
@@ -209,6 +212,7 @@ export function updateTaskStatus(
   );
 
   auditLog("update_task_status", operatorId, taskId, `${task.status}→${status}`);
+  notifyScheduleChanged(); // P2-A: 进入/离开 in_progress 都会改变到期集合
 
   pushToAgent(task.assigned_by, {
     type: "task_update",

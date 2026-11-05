@@ -1,7 +1,7 @@
 ---
 name: agent-comm-hub
 description: "本地多智能体通信 Hub（MCP stdio / HTTP-SSE），提供消息、任务编排、共享记忆、进化引擎，暴露 59 个 MCP 工具 + Web 管理面板"
-version: "3.0.31"
+version: "3.0.32"
 category: autonomous-ai-agents
 triggers:
   - "agent-comm-hub"
@@ -19,7 +19,7 @@ triggers:
 
 # Agent Communication Hub
 
-> 多智能体消息转发与上下文共享中间件 — **v3.0.31**
+> 多智能体消息转发与上下文共享中间件 — **v3.0.32**
 
 让两个或多个独立 AI 智能体之间实现**实时双向通信**和**上下文自动同步**。基于 MCP 协议 + stdio 模式，消息本地持久化，延迟 < 50ms。
 
@@ -338,6 +338,18 @@ inbox → assigned → [waiting] → in_progress → completed / failed / cancel
 | 看门狗 | SQLite 结构完整性探针 | `scripts/cron_db_watchdog.sh` 新增 `quick_check` + `memories_fts` 行数漂移检查，每 10 分钟一次，仅告警（exit 6/7）不自动重启 |
 | 安全 | 凭据泄露三件套 | `scripts/scan_leaked_credentials.py`（只读、sha256 命中库判定有效凭据）／`redact_leaked_credentials.py`（减害脱敏，默认 dry-run）／`rotate_token.py`（先发后撤可逆轮换，明文仅写 600 文件） |
 
+### v3.0.32 — P2-A 事件驱动（outbox-lite 事务化发射 + 到期驱动，默认 opt-in）
+
+| 类别 | 内容 | 说明 |
+|------|------|------|
+| 背景 | 借鉴 DeepSeek Super-Agent「事件驱动」 | **明确不移植** LLM 两级过滤 / 投机执行 / Router-Worker 重写（违背 Hub「零 LLM + 确定性 + WORM 审计」铁律）；仅采纳确定性事件驱动 |
+| A1 outbox-lite | `src/event-driven.ts` 的 `withEvents(business, events)` | 复用 `event_log.delivered=0` 作待发队列，**不新建表**；业务写与事件落库放【同一事务】，事务提交后才同步 `dispatchPersistedEvent(seq)`（成功写 `delivered=1`），回滚则事件一并回滚、绝不外发（无幽灵通知）。`pushToAgent` 契约与现有调用方零改动 |
+| A2 到期驱动 | `computeNextDeadline` + 单 timer | 从 tasks 表算全局最早到期 `MIN(due_at, updated_at+stuckMs)`，单个 `setTimeout`（unref）到点触发 `runEventDrivenScan()`（事务化释放 + 审计 + 通知）；任务状态变更由 `notifyScheduleChanged()` 重算；启动即从 DB 重建 |
+| A2 断线宽限期 | `onClientConnected/Disconnected` | SSE 断线启动 90s 宽限期 timer（重连即取消，不误判），到期仍未重连才 `releaseTasksForOfflineAgent`（幂等）；`gracefulShutdown` 在 drain 前停止调度器，避免关机误释放 |
+| 兜底 | Watchdog / 心跳保留 | 事件驱动启用时 Watchdog 降为 30min 低频兜底（防重启丢 timer）；**默认 `HUB_EVENT_DRIVEN=0` 关闭**，关闭时所有挂钩 no-op，行为与 v3.0.31 完全一致，一键回滚 |
+| 限制 | 本地 SSE 投递 | 事件驱动路径【同步】投递、不走批处理窗口；跨进程桥接（`SSE_BRIDGE_URL`）与 P1 批处理仍走原 `pushToAgent` 路径；无本地连接时事件留 `delivered=0` 靠重连 replay 兜底（至少一次） |
+| 测试 | `tests/integration/p2-event-driven.test.ts` | 14 项跨模块集成：事务提交必达 / 回滚无幽灵事件 / 条件事件 / dispatch 幂等 / 离线补投 / D1 同步契约、MIN 到期计算 / 启动重建 / 准点释放 / 重算 / 宽限期重连 / 到期释放 / stop 清理 / 默认关闭零回归 |
+
 ### v3.0.31 — P1 批处理改为 opt-in（默认关闭，保住 D1 同步可靠性契约）
 
 - **行为变更**：`HUB_SSE_BATCH_MS` 默认从 `120` 改为 `0`（关闭），批处理变为 **opt-in**。
@@ -422,6 +434,11 @@ inbox → assigned → [waiting] → in_progress → completed / failed / cancel
 | `CORS_LIST` | (空) | CORS 白名单（逗号分隔），空=拒绝所有跨域 |
 | `HUB_SSE_BATCH_MS` | 0 | SSE 实时投递批处理窗口（毫秒）；**默认 0 = 关闭（opt-in）**，突发事件逐条立即投递（D1 严格同步可靠性契约默认路径）。设为 >0（如 120）启用窗口合并优化，突发事件在该窗口内合并写入 |
 | `HUB_SSE_BATCH_MAX` | 25 | 单 Agent 批处理缓冲上限，达到即立即冲刷（防止突发撑爆内存 / 延迟过高） |
+| `HUB_EVENT_DRIVEN` | 0 | **P2-A 事件驱动总开关**；设 `1` 启用到期驱动 + 断线宽限期。默认 0 = 关闭（opt-in），关闭时所有挂钩 no-op、零回归，设 0 即一键回滚 |
+| `HUB_EVENT_GRACE_MS` | 90000 | SSE 断线宽限期（毫秒）；到期仍未重连才释放该 Agent 的孤儿任务，重连即取消 |
+| `HUB_EVENT_MAX_DELAY_MS` | 1800000 | 到期 timer 单次最大延迟（毫秒）；超长到期会被 clamp 并周期性重算，防 timer 过长 |
+| `WATCHDOG_STUCK_MS` | 1800000 | 任务卡死阈值（毫秒）；同时用于到期计算 `updated_at + stuckMs` |
+| `WATCHDOG_INTERVAL_MS` | 300000 / 1800000 | Watchdog 定时巡检间隔；事件驱动关闭时 5min，启用时降为 30min 低频兜底。显式设置始终优先 |
 
 ## 技术依赖
 

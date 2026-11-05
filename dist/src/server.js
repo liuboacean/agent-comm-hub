@@ -32,6 +32,7 @@ import { setMessageRateLimiter } from "./tools/message.js";
 import { createDashboardRouter } from "./web/server.js";
 import { startBackupScheduler, stopBackupScheduler } from "./backup.js";
 import { HUB_VERSION } from "./version.js";
+import { startEventDrivenScheduler, stopEventDrivenScheduler, onClientConnected, onClientDisconnected, runEventDrivenScan, isEventDrivenEnabled, } from "./event-driven.js";
 import { authorizationService } from "./authorization.js";
 // ═══════════════════════════════════════════════════════════════
 // Phase 6: 配置外部化（零依赖，所有配置有默认值）
@@ -140,6 +141,7 @@ app.get("/events/:agent_id", optionalAuthMiddleware, (req, res) => {
     const connId = registerClient(agent_id, res);
     markAgentSseOnline(agent_id); // SSE 已连 = 在线，同步 agents 表
     incrementGauge("active_sse_connections");
+    onClientConnected(agent_id); // P2-A: 取消该 Agent 的断线宽限期（重连不误判离线；关闭时 no-op）
     // 检查 Last-Event-ID（断线重连场景）
     // D1 修复：Last-Event-ID 即持久化事件日志的全局单调 seq；
     // 重连时只精确补发 id > seq 的事件（不重放整窗），且覆盖所有事件类型。
@@ -209,6 +211,7 @@ app.get("/events/:agent_id", optionalAuthMiddleware, (req, res) => {
         removeClient(agent_id, connId);
         markAgentSseOffline(agent_id); // 心跳也陈旧才标记离线
         decrementGauge("active_sse_connections");
+        onClientDisconnected(agent_id); // P2-A: 启动宽限期，到期仍未重连才释放孤儿任务
     });
 });
 // ═══════════════════════════════════════════════════════════════
@@ -294,7 +297,10 @@ let watchdogTimer = null;
 function startWatchdogScheduler() {
     if (watchdogTimer)
         return;
-    const intervalMs = parseInt(process.env.WATCHDOG_INTERVAL_MS ?? "300000", 10); // 默认 5 分钟
+    // P2-A: 事件驱动启用时 Watchdog 降为低频兜底（30min），主路径由到期 timer 精确触发；
+    // 关闭时维持原 5min 巡检。显式设置 WATCHDOG_INTERVAL_MS 始终优先。
+    const fallbackInterval = isEventDrivenEnabled() ? "1800000" : "300000";
+    const intervalMs = parseInt(process.env.WATCHDOG_INTERVAL_MS ?? fallbackInterval, 10);
     runWatchdogScan(); // 启动即执行一次
     watchdogTimer = setInterval(() => {
         try {
@@ -894,6 +900,9 @@ app.use((err, req, res, _next) => {
 let httpServer = null;
 async function gracefulShutdown(signal) {
     logger.info("shutdown_initiated", { signal, module: "server" });
+    // P2-A: 必须在 drain SSE 之前停掉事件驱动调度器，否则 close 事件会被当成
+    // 真实断线而启动宽限期 timer，在关机过程中误释放任务。
+    stopEventDrivenScheduler();
     // 1. 停止接受新连接（await 关闭回调，确保进行中的请求完成）
     if (httpServer) {
         await new Promise((resolve) => {
@@ -1021,8 +1030,14 @@ httpServer = app.listen(config.port, () => {
     startMaintenanceScheduler();
     // Feature B: 启动授权过期清扫
     startAuthSweep();
-    // P0 Watchdog: 启动卡死任务巡检调度
+    // P0 Watchdog: 启动卡死任务巡检调度（P2-A 启用时降为低频兜底）
     startWatchdogScheduler();
+    // P2-A: 事件驱动调度（默认关闭 opt-in；启用时按任务到期时间精确触发扫描，
+    // SSE 断线宽限期到期释放孤儿任务）。回调注入避免与 orchestrator 循环依赖。
+    startEventDrivenScheduler({
+        onDeadline: runEventDrivenScan,
+        onGraceExpired: releaseTasksForOfflineAgent,
+    });
     // 启动去重缓存 TTL 清理（15min）
     startDedupCleanup();
     // Phase 6: 启动定时清理（过期 Token / Dedup / Consumed）

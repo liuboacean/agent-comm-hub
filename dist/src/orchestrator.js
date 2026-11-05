@@ -9,6 +9,7 @@ import { pushToAgent } from "./sse.js";
 import { getOnlineAgentIds } from "./identity.js";
 import { auditLog, recalculateTrustScore } from "./security.js";
 import { logError, logger } from "./logger.js";
+import { notifyScheduleChanged } from "./event-driven.js";
 import { taskRepo } from "./repo/sqlite-impl.js";
 function getOne(sql, ...params) {
     return db.prepare(sql).get(...params);
@@ -69,6 +70,7 @@ export function createTask(input) {
     db.prepare(`INSERT INTO tasks (id, assigned_by, assigned_to, description, context, priority, status, result, progress, pipeline_id, order_index, required_capability, due_at, assigned_at, completed_at, tags, created_at, updated_at)
      VALUES (@id, @assigned_by, @assigned_to, @description, @context, @priority, @status, @result, @progress, @pipeline_id, @order_index, @required_capability, @due_at, @assigned_at, @completed_at, @tags, @created_at, @updated_at)`).run(task);
     auditLog("create_task", input.assigned_by, task.id, `status=${status}`);
+    notifyScheduleChanged(); // P2-A: 重算最早到期（关闭时 no-op）
     return task;
 }
 /**
@@ -83,6 +85,7 @@ export function assignTask(taskId, toAgent, operatorId) {
     const now = Date.now();
     db.prepare(`UPDATE tasks SET assigned_to=?, assigned_at=?, status='assigned', updated_at=? WHERE id=?`).run(toAgent, now, now, taskId);
     auditLog("assign_task", operatorId, taskId, `to=${toAgent}`);
+    notifyScheduleChanged(); // P2-A: 新任务进入 assigned，可能提前最早到期
     pushToAgent(toAgent, {
         event: "task_assigned",
         task: {
@@ -145,6 +148,7 @@ export function updateTaskStatus(taskId, status, operatorId, result, progress) {
     const completedAt = (status === "completed" || status === "failed") ? now : null;
     db.prepare(`UPDATE tasks SET status=?, result=?, progress=?, completed_at=?, updated_at=? WHERE id=?`).run(status, result ?? task.result, progress ?? task.progress, completedAt ?? task.completed_at, now, taskId);
     auditLog("update_task_status", operatorId, taskId, `${task.status}→${status}`);
+    notifyScheduleChanged(); // P2-A: 进入/离开 in_progress 都会改变到期集合
     pushToAgent(task.assigned_by, {
         type: "task_update",
         content: JSON.stringify({

@@ -10,35 +10,53 @@ export interface Subscription {
     agent_id: string;
     event_type: string;
     topic_filter: string;
+    condition_json: string;
     created_at: number;
 }
 export declare const subscriptionStmt: Record<string, Statement>;
+export type ConditionOp = "eq" | "ne" | "in" | "contains" | "gt" | "lt" | "exists";
+export interface StructuredCondition {
+    path: string;
+    op: ConditionOp;
+    value?: unknown;
+}
+/** 解析并校验 condition_json。非法一律抛错（fail-closed，绝不静默放宽规则）。 */
+export declare function parseConditions(raw: string): StructuredCondition[];
+/** 规范化：固定键序重序列化，保证语义相同的条件字符串幂等去重。 */
+export declare function normalizeConditionJson(raw: string): string;
+/** 纯函数：全部条件 AND 命中才返回 true；无条件返回 true。 */
+export declare function evaluateConditions(conds: StructuredCondition[], event: Record<string, unknown>): boolean;
+/** 从订阅规则的 condition_json 求值；非法规则 fail-closed（不投递）。 */
+export declare function evaluateConditionJson(raw: string, event: Record<string, unknown>): boolean;
 /**
  * 订阅事件（幂等：基于唯一约束，重复订阅静默忽略）。
  * @param eventType '*' 或空表示订阅全部事件类型
  * @param topicFilter 空表示不限主题；非空为对事件 payload JSON 的子串过滤
+ * @param conditionJson L2 结构化条件 JSON 数组字符串（空 = 仅 L1，保持 P1 语义）
  */
-export declare function subscribeEvent(agentId: string, eventType: string, topicFilter: string): void;
+export declare function subscribeEvent(agentId: string, eventType: string, topicFilter: string, conditionJson?: string): void;
 /**
  * 退订。
- * - 若 eventType 与 topicFilter 均为默认（'*'/空），则清空该 Agent 的全部订阅；
- * - 否则仅删除精确匹配的那一条规则。
+ * - 若 eventType 与 topicFilter 均为默认（'*'/空）且未指定 conditionJson，则清空该 Agent 全部订阅；
+ * - 指定 conditionJson 时按四元组精确删除（不同 L2 条件可并存）；
+ * - 未指定 conditionJson 时按旧三元组删除（兼容 P1 行为）。
  * @returns 受影响行数
  */
-export declare function unsubscribeEvent(agentId: string, eventType?: string, topicFilter?: string): number;
+export declare function unsubscribeEvent(agentId: string, eventType?: string, topicFilter?: string, conditionJson?: string): number;
 /** 查询某 Agent 的全部订阅规则 */
 export declare function getSubscriptions(agentId: string): Subscription[];
 /** 查询全量订阅规则（用于启动时构建内存缓存） */
 export declare function getAllSubscriptions(): Subscription[];
 /**
- * 纯函数：判断某事件是否命中 Agent 的订阅规则集合。
- * - 任一规则命中即返回 true（应投递）；
- * - 全部不命中返回 false（剪枝掉）。
- * 匹配规则：
- *   - event_type：空或 '*' 匹配任意类型；否则须与事件类型相等；
- *   - topic_filter：空匹配任意主题；否则事件 payload JSON 串须包含该子串。
+ * 纯函数：判断某事件是否命中 Agent 的订阅规则集合（两级过滤，全部确定性）。
+ * - 任一规则命中即返回 true（应投递）；全部不命中返回 false（剪枝掉）。
+ * L1: event_type（空或 '*' 匹配任意）+ topic_filter（空匹配任意；否则 payload JSON 串 includes）。
+ * L2: condition_json（空 = 无附加条件，L1 命中即投，与 P1 完全一致；非空 = 结构化条件全部 AND）。
+ * 两级都命中该规则才算命中；L2 非法规则 fail-closed（跳过，不误投）。
+ *
+ * @param eventObj 可选事件对象；不传时从 payloadStr 解析。旧的三参调用保持兼容。
  */
-export declare function subscriptionMatches(eventType: string, payloadStr: string, subs: Subscription[]): boolean;
+export declare function subscriptionMatches(eventType: string, payloadStr: string, subs: Subscription[], eventObj?: Record<string, unknown>): boolean;
 export interface Message {
     id: string;
     from_agent: string;

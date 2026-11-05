@@ -230,40 +230,80 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_event_log_undelivered  ON event_log(agent_id, delivered, id);
 `);
 
-// ─── P1: 订阅表（SSE 事件订阅剪枝） ───────────────────
+// ─── P1/P2-B: 订阅表（SSE 事件订阅剪枝 + L2 结构化条件） ───
 // 借鉴 DeepSeek Super-Agent「订阅直通」思想：让 Agent 显式声明关心哪些事件，
 // Hub 在 broadcastToAll 时按订阅规则剪枝，未订阅 Agent 维持现状全投（保守零回归）。
-//   - event_type：'*' 或空 = 匹配任意事件类型；具体值（如 'message'/'task_assigned'）须相等
-//   - topic_filter：空 = 不限主题；非空 = 对事件 payload 的 JSON 串做子串 includes
-// 唯一约束 (agent_id, event_type, topic_filter) 保证幂等写入。
+//   L1: event_type（'*' 或空 = 任意类型）+ topic_filter（空 = 不限；非空 = payload JSON 串 includes）
+//   L2: condition_json（空 = 无附加条件；非空 = 结构化条件数组，全部 AND 命中才投递）
+// 唯一约束含 condition_json，保证「同 L1 规则 + 不同 L2 条件」可并存且幂等。
 db.exec(`
   CREATE TABLE IF NOT EXISTS subscriptions (
-    id           TEXT PRIMARY KEY,
-    agent_id     TEXT NOT NULL,
-    event_type   TEXT NOT NULL DEFAULT '*',
-    topic_filter TEXT NOT NULL DEFAULT '',
-    created_at   INTEGER NOT NULL,
-    UNIQUE(agent_id, event_type, topic_filter)
+    id             TEXT PRIMARY KEY,
+    agent_id       TEXT NOT NULL,
+    event_type     TEXT NOT NULL DEFAULT '*',
+    topic_filter   TEXT NOT NULL DEFAULT '',
+    condition_json TEXT NOT NULL DEFAULT '',
+    created_at     INTEGER NOT NULL,
+    UNIQUE(agent_id, event_type, topic_filter, condition_json)
   );
 
   CREATE INDEX IF NOT EXISTS idx_subscriptions_agent ON subscriptions(agent_id);
 `);
+
+// 幂等迁移：P1 时代老库没有 condition_json 且唯一约束只含前三列。
+// SQLite 无法用 ALTER TABLE 修改表级唯一约束，故重建表并复制旧数据
+// （旧规则 condition_json='' = 无 L2 条件，语义完全不变）。
+try {
+  const subCols = db.pragma("table_info(subscriptions)") as PragmaColumnInfo[];
+  if (subCols.length > 0 && !subCols.some((c) => c.name === "condition_json")) {
+    transaction(() => {
+      db.exec(`
+        CREATE TABLE subscriptions_v2 (
+          id             TEXT PRIMARY KEY,
+          agent_id       TEXT NOT NULL,
+          event_type     TEXT NOT NULL DEFAULT '*',
+          topic_filter   TEXT NOT NULL DEFAULT '',
+          condition_json TEXT NOT NULL DEFAULT '',
+          created_at     INTEGER NOT NULL,
+          UNIQUE(agent_id, event_type, topic_filter, condition_json)
+        );
+        INSERT INTO subscriptions_v2 (id, agent_id, event_type, topic_filter, condition_json, created_at)
+          SELECT id, agent_id, event_type, topic_filter, '', created_at FROM subscriptions;
+        DROP TABLE subscriptions;
+        ALTER TABLE subscriptions_v2 RENAME TO subscriptions;
+        CREATE INDEX IF NOT EXISTS idx_subscriptions_agent ON subscriptions(agent_id);
+      `);
+    });
+    logger.info("db_migration", {
+      module: "db", table: "subscriptions", phase: "P2-B",
+      detail: "condition_json column + unique constraint rebuilt (old rules keep L1-only semantics)",
+    });
+  }
+} catch (e: unknown) {
+  logger.warn("db_migration_warning", {
+    module: "db", table: "subscriptions", phase: "P2-B", error: getErrorMessage(e),
+  });
+}
 
 export interface Subscription {
   id: string;
   agent_id: string;
   event_type: string;
   topic_filter: string;
+  condition_json: string;
   created_at: number;
 }
 
 export const subscriptionStmt: Record<string, Statement> = {
   subscribe: db.prepare<Subscription>(
-    `INSERT OR IGNORE INTO subscriptions (id, agent_id, event_type, topic_filter, created_at)
-     VALUES (@id, @agent_id, @event_type, @topic_filter, @created_at)`
+    `INSERT OR IGNORE INTO subscriptions (id, agent_id, event_type, topic_filter, condition_json, created_at)
+     VALUES (@id, @agent_id, @event_type, @topic_filter, @condition_json, @created_at)`
   ),
   unsubscribe: db.prepare<[string, string, string]>(
     `DELETE FROM subscriptions WHERE agent_id=? AND event_type=? AND topic_filter=?`
+  ),
+  unsubscribeExact: db.prepare<[string, string, string, string]>(
+    `DELETE FROM subscriptions WHERE agent_id=? AND event_type=? AND topic_filter=? AND condition_json=?`
   ),
   unsubscribeAll: db.prepare<string>(
     `DELETE FROM subscriptions WHERE agent_id=?`
@@ -276,32 +316,175 @@ export const subscriptionStmt: Record<string, Statement> = {
   ),
 };
 
+// ─── P2-B: L2 结构化条件 DSL（纯数据、确定性、零 LLM、无 eval） ───
+// 条件数组全部 AND；每条 { path, op, value? }。
+// op: eq / ne / in / contains / gt / lt / exists
+// path: dot 路径（字母数字下划线/连字符，最多 5 段），禁止 __proto__/constructor/prototype。
+// value: 仅标量（string/number/boolean/null）；op=in 时须为标量数组。
+export type ConditionOp = "eq" | "ne" | "in" | "contains" | "gt" | "lt" | "exists";
+export interface StructuredCondition {
+  path: string;
+  op: ConditionOp;
+  value?: unknown;
+}
+const CONDITION_OPS = new Set<string>(["eq", "ne", "in", "contains", "gt", "lt", "exists"]);
+const OPS_WITHOUT_VALUE = new Set<string>(["exists"]);
+const MAX_CONDITIONS = 10;
+const MAX_PATH_LENGTH = 100;
+const MAX_PATH_DEPTH = 5;
+const MAX_CONDITION_JSON_LENGTH = 1024;
+const UNSAFE_PATH_SEGMENTS = new Set<string>(["__proto__", "constructor", "prototype"]);
+
+function isScalar(v: unknown): boolean {
+  return v === null || ["string", "number", "boolean"].includes(typeof v);
+}
+
+/** 解析并校验 condition_json。非法一律抛错（fail-closed，绝不静默放宽规则）。 */
+export function parseConditions(raw: string): StructuredCondition[] {
+  const text = (raw ?? "").trim();
+  if (!text) return [];
+  if (text.length > MAX_CONDITION_JSON_LENGTH) {
+    throw new Error(`condition_json 过长（上限 ${MAX_CONDITION_JSON_LENGTH} 字符）`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error("condition_json 必须是合法 JSON 数组");
+  }
+  if (!Array.isArray(parsed)) throw new Error("condition_json 必须是条件数组");
+  if (parsed.length > MAX_CONDITIONS) throw new Error(`条件数量超过上限 ${MAX_CONDITIONS}`);
+
+  const out: StructuredCondition[] = [];
+  for (const item of parsed) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("每个条件必须是对象");
+    const rec = item as Record<string, unknown>;
+    if (typeof rec.path !== "string" || !rec.path.trim()) throw new Error("条件 path 必须是非空字符串");
+    const path = rec.path.trim();
+    const parts = path.split(".");
+    if (
+      path.length > MAX_PATH_LENGTH || parts.length > MAX_PATH_DEPTH ||
+      parts.some((p) => !p || !/^[A-Za-z0-9_-]+$/.test(p) || UNSAFE_PATH_SEGMENTS.has(p))
+    ) {
+      throw new Error("条件 path 非法（仅允许字母数字下划线/连字符/点，禁止 __proto__/constructor/prototype）");
+    }
+    if (typeof rec.op !== "string" || !CONDITION_OPS.has(rec.op)) {
+      throw new Error(`条件 op 非法，允许：${[...CONDITION_OPS].join("/")}`);
+    }
+    const op = rec.op as ConditionOp;
+    const value = rec.value;
+    if (!OPS_WITHOUT_VALUE.has(op)) {
+      if (value === undefined) throw new Error(`条件 op=${op} 必须提供 value`);
+      if (op === "in") {
+        if (!Array.isArray(value) || !value.every(isScalar)) throw new Error("op=in 的 value 必须是标量数组");
+      } else if (!isScalar(value)) {
+        throw new Error("条件 value 必须是标量（string/number/boolean/null）");
+      }
+    }
+    const cond: StructuredCondition = { path, op };
+    if (!OPS_WITHOUT_VALUE.has(op)) cond.value = value;
+    out.push(cond);
+  }
+  return out;
+}
+
+/** 规范化：固定键序重序列化，保证语义相同的条件字符串幂等去重。 */
+export function normalizeConditionJson(raw: string): string {
+  const conds = parseConditions(raw);
+  return conds.length === 0 ? "" : JSON.stringify(conds);
+}
+
+function readPath(root: unknown, path: string): unknown {
+  let cur: unknown = root;
+  for (const part of path.split(".")) {
+    if (cur === null || typeof cur !== "object") return undefined;
+    cur = (cur as Record<string, unknown>)[part];
+  }
+  return cur;
+}
+
+function matchesOne(c: StructuredCondition, actual: unknown): boolean {
+  switch (c.op) {
+    case "exists": return actual !== undefined;
+    case "eq": return Object.is(actual, c.value);
+    case "ne": return !Object.is(actual, c.value);
+    case "in": return Array.isArray(c.value) && c.value.some((v) => Object.is(v, actual));
+    case "contains":
+      if (typeof actual === "string") return actual.includes(String(c.value));
+      if (Array.isArray(actual)) return actual.some((v) => Object.is(v, c.value));
+      return false;
+    case "gt":
+      return typeof actual === "number" && typeof c.value === "number" &&
+        Number.isFinite(actual) && Number.isFinite(c.value) && actual > c.value;
+    case "lt":
+      return typeof actual === "number" && typeof c.value === "number" &&
+        Number.isFinite(actual) && Number.isFinite(c.value) && actual < c.value;
+    default: return false;
+  }
+}
+
+/** 纯函数：全部条件 AND 命中才返回 true；无条件返回 true。 */
+export function evaluateConditions(conds: StructuredCondition[], event: Record<string, unknown>): boolean {
+  for (const c of conds) {
+    if (!matchesOne(c, readPath(event, c.path))) return false;
+  }
+  return true;
+}
+
+/** 从订阅规则的 condition_json 求值；非法规则 fail-closed（不投递）。 */
+export function evaluateConditionJson(raw: string, event: Record<string, unknown>): boolean {
+  if (!raw || !raw.trim()) return true;
+  try {
+    return evaluateConditions(parseConditions(raw), event);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * 订阅事件（幂等：基于唯一约束，重复订阅静默忽略）。
  * @param eventType '*' 或空表示订阅全部事件类型
  * @param topicFilter 空表示不限主题；非空为对事件 payload JSON 的子串过滤
+ * @param conditionJson L2 结构化条件 JSON 数组字符串（空 = 仅 L1，保持 P1 语义）
  */
-export function subscribeEvent(agentId: string, eventType: string, topicFilter: string): void {
+export function subscribeEvent(
+  agentId: string,
+  eventType: string,
+  topicFilter: string,
+  conditionJson = "",
+): void {
   subscriptionStmt.subscribe.run({
     id: randomUUID(),
     agent_id: agentId,
     event_type: eventType && eventType.trim() ? eventType : "*",
     topic_filter: topicFilter && topicFilter.trim() ? topicFilter : "",
+    condition_json: normalizeConditionJson(conditionJson),
     created_at: Date.now(),
   });
 }
 
 /**
  * 退订。
- * - 若 eventType 与 topicFilter 均为默认（'*'/空），则清空该 Agent 的全部订阅；
- * - 否则仅删除精确匹配的那一条规则。
+ * - 若 eventType 与 topicFilter 均为默认（'*'/空）且未指定 conditionJson，则清空该 Agent 全部订阅；
+ * - 指定 conditionJson 时按四元组精确删除（不同 L2 条件可并存）；
+ * - 未指定 conditionJson 时按旧三元组删除（兼容 P1 行为）。
  * @returns 受影响行数
  */
-export function unsubscribeEvent(agentId: string, eventType?: string, topicFilter?: string): number {
-  if ((eventType ?? "*") === "*" && (topicFilter ?? "") === "") {
+export function unsubscribeEvent(
+  agentId: string,
+  eventType?: string,
+  topicFilter?: string,
+  conditionJson?: string,
+): number {
+  const et = eventType ?? "*";
+  const tf = topicFilter ?? "";
+  if (et === "*" && tf === "" && conditionJson === undefined) {
     return subscriptionStmt.unsubscribeAll.run(agentId).changes;
   }
-  return subscriptionStmt.unsubscribe.run(agentId, eventType ?? "*", topicFilter ?? "").changes;
+  if (conditionJson !== undefined) {
+    return subscriptionStmt.unsubscribeExact.run(agentId, et, tf, normalizeConditionJson(conditionJson)).changes;
+  }
+  return subscriptionStmt.unsubscribe.run(agentId, et, tf).changes;
 }
 
 /** 查询某 Agent 的全部订阅规则 */
@@ -315,18 +498,34 @@ export function getAllSubscriptions(): Subscription[] {
 }
 
 /**
- * 纯函数：判断某事件是否命中 Agent 的订阅规则集合。
- * - 任一规则命中即返回 true（应投递）；
- * - 全部不命中返回 false（剪枝掉）。
- * 匹配规则：
- *   - event_type：空或 '*' 匹配任意类型；否则须与事件类型相等；
- *   - topic_filter：空匹配任意主题；否则事件 payload JSON 串须包含该子串。
+ * 纯函数：判断某事件是否命中 Agent 的订阅规则集合（两级过滤，全部确定性）。
+ * - 任一规则命中即返回 true（应投递）；全部不命中返回 false（剪枝掉）。
+ * L1: event_type（空或 '*' 匹配任意）+ topic_filter（空匹配任意；否则 payload JSON 串 includes）。
+ * L2: condition_json（空 = 无附加条件，L1 命中即投，与 P1 完全一致；非空 = 结构化条件全部 AND）。
+ * 两级都命中该规则才算命中；L2 非法规则 fail-closed（跳过，不误投）。
+ *
+ * @param eventObj 可选事件对象；不传时从 payloadStr 解析。旧的三参调用保持兼容。
  */
-export function subscriptionMatches(eventType: string, payloadStr: string, subs: Subscription[]): boolean {
+export function subscriptionMatches(
+  eventType: string,
+  payloadStr: string,
+  subs: Subscription[],
+  eventObj?: Record<string, unknown>,
+): boolean {
   for (const s of subs) {
     const typeOk = !s.event_type || s.event_type === "*" || s.event_type === eventType;
     const topicOk = !s.topic_filter || payloadStr.includes(s.topic_filter);
-    if (typeOk && topicOk) return true;
+    if (!typeOk || !topicOk) continue;
+
+    const raw = s.condition_json ?? "";
+    if (!raw || !raw.trim()) return true; // 旧订阅 / 仅 L1：零回归
+
+    let obj = eventObj;
+    if (!obj) {
+      try { obj = JSON.parse(payloadStr) as Record<string, unknown>; }
+      catch { continue; }
+    }
+    if (evaluateConditionJson(raw, obj)) return true;
   }
   return false;
 }

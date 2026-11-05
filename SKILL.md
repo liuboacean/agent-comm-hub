@@ -1,7 +1,7 @@
 ---
 name: agent-comm-hub
 description: "本地多智能体通信 Hub（MCP stdio / HTTP-SSE），提供消息、任务编排、共享记忆、进化引擎，暴露 59 个 MCP 工具 + Web 管理面板"
-version: "3.0.32"
+version: "3.0.33"
 category: autonomous-ai-agents
 triggers:
   - "agent-comm-hub"
@@ -19,7 +19,7 @@ triggers:
 
 # Agent Communication Hub
 
-> 多智能体消息转发与上下文共享中间件 — **v3.0.32**
+> 多智能体消息转发与上下文共享中间件 — **v3.0.33**
 
 让两个或多个独立 AI 智能体之间实现**实时双向通信**和**上下文自动同步**。基于 MCP 协议 + stdio 模式，消息本地持久化，延迟 < 50ms。
 
@@ -210,12 +210,17 @@ triggers:
 
 | 工具 | 功能 |
 |------|------|
-| `subscribe_events` | 管理**当前 Agent 自身**的 SSE 事件订阅（订阅直通）：`subscribe` 订阅、`unsubscribe` 退订（默认参数清空全部）、`list` 列出。仅可管理自身订阅 |
+| `subscribe_events` | 管理**当前 Agent 自身**的 SSE 事件订阅（两级过滤）：`subscribe` 订阅、`unsubscribe` 退订（默认参数清空全部）、`list` 列出。仅可管理自身订阅 |
 
 > **订阅直通语义**：Agent 订阅后，Hub 在 `broadcastToAll` 广播时按订阅规则剪枝——仅投递命中订阅的事件；**未订阅的 Agent 维持现状全投（零回归）**。点对点 `pushToAgent` 不受影响。
-> - `event_type`：`'*'` 或空 = 订阅全部；具体值（如 `'message'`/`'task_assigned'`/`'activation_changed'`）须相等才命中。
-> - `topic_filter`：空 = 不限主题；非空 = 对事件 payload 的 JSON 串做子串 `includes`。
-> - 退订时若 `event_type` 与 `topic_filter` 均为默认（`'*'`/空），则清空该 Agent 全部订阅。
+> **L1**（P1）：`event_type` 为 `'*'`/空 = 任意类型，否则须相等；`topic_filter` 为空 = 不限主题，非空 = 对事件 payload JSON 串做 `includes`。
+> **L2**（P2-B，可选参数 `condition_json`）：结构化条件 JSON 数组，**全部 AND 命中才投递**；空/不传 = 仅 L1（P1 语义零回归）。纯数据 DSL、零 LLM、无 `eval`。
+> 条件示例：`[{"path":"task.priority","op":"eq","value":"high"}]`
+> - `path`：dot 路径（字母数字/下划线/连字符，≤5 段），禁止 `__proto__`/`constructor`/`prototype`。
+> - `op`：`eq` / `ne` / `in`（value 为标量数组）/ `contains`（字符串或数组）/ `gt` / `lt`（数值比较）/ `exists`（无需 value）。
+> - `value`：仅标量 string/number/boolean/null；上限 10 条件 / 1024 字符。非法条件**直接拒绝**（fail-closed，不静默放宽）。
+> - 多条订阅规则是 **OR**（任一命中即投递）；同一 L1 下不同 L2 条件可并存（唯一约束含 `condition_json`）。
+> - 退订：不传 `condition_json` 且 `event_type`/`topic_filter` 均为默认（`*`/空）→ 清空全部；显式传 `condition_json` → 四元组精确删除单条。
 
 > 所有工具内置 try-catch + 3 次指数退避重试（100ms → 200ms → 400ms）。v2.4.0 统一错误格式：`HubError` 错误码 + `mcpError()`/`mcpFail()` 标准返回。`check_consumed` 查询失败时降级返回 `consumed=false`（不阻塞业务）。
 
@@ -338,6 +343,18 @@ inbox → assigned → [waiting] → in_progress → completed / failed / cancel
 | 看门狗 | SQLite 结构完整性探针 | `scripts/cron_db_watchdog.sh` 新增 `quick_check` + `memories_fts` 行数漂移检查，每 10 分钟一次，仅告警（exit 6/7）不自动重启 |
 | 安全 | 凭据泄露三件套 | `scripts/scan_leaked_credentials.py`（只读、sha256 命中库判定有效凭据）／`redact_leaked_credentials.py`（减害脱敏，默认 dry-run）／`rotate_token.py`（先发后撤可逆轮换，明文仅写 600 文件） |
 
+### v3.0.33 — P2-B 确定性两级过滤（L1 类型/主题 + L2 结构化条件，零 LLM）
+
+| 类别 | 内容 | 说明 |
+|------|------|------|
+| 背景 | DeepSeek「两级过滤」思想 | **只移植「分级」骨架，不移植 LLM 快判/慢判**（违背零 LLM 铁律）。L1 复用 P1 订阅剪枝，L2 为纯数据条件求值 |
+| L2 DSL | `condition_json` 结构化条件数组 | dot path + `eq/ne/in/contains/gt/lt/exists`，全部 AND；value 仅标量；路径禁 `__proto__`/`constructor`；上限 10 条件/1024 字符；**无 eval、无正则、零 LLM**；非法条件 fail-closed 拒绝 |
+| 两级语义 | `subscriptionMatches` | L1 与 L2 同时命中该规则才投递；多条规则 OR；`condition_json` 为空 = 纯 L1（P1 零回归）；未订阅 Agent 仍全投；点对点 `pushToAgent` 不受影响 |
+| 表结构 | `subscriptions` 新增 `condition_json` 列 | 唯一约束由三列扩为四列（同 L1 不同 L2 可并存）。SQLite 无法 ALTER 表级约束，故幂等重建表 + 复制旧数据（旧规则 `condition_json=''`）；二次加载不重复重建 |
+| 工具 | `subscribe_events` 新增可选 `condition_json` | 服务端 `normalizeConditionJson` 校验 + 规范化（固定键序，语义相同幂等去重），非法返回 `mcpFail`；精确退订支持四元组；仍仅可管理自身订阅 |
+| 测试 | `p2-b-filter.test.ts` 21 项 + `p2-b-migration.test.ts` 1 项 | L1 零回归 / 各操作符 / dot path / 多条件 AND / 多规则 OR / L1∧L2 / 9 类非法条件 / 规范化幂等 / 精确退订 / 越权 / 与 P0 组合零回归；迁移专项用独立子进程加载真实编译产物验证老库升级 + 二次幂等 |
+| 限制 | 仅作用于广播剪枝 | L2 不改变点对点投递、不触碰 `event_log` 至少一次语义；条件按字段取值（非字符串子串），`gt/lt` 仅数值且非数值 fail-closed |
+
 ### v3.0.32 — P2-A 事件驱动（outbox-lite 事务化发射 + 到期驱动，默认 opt-in）
 
 | 类别 | 内容 | 说明 |
@@ -361,7 +378,7 @@ inbox → assigned → [waiting] → in_progress → completed / failed / cancel
 | 类别 | 内容 | 说明 |
 |------|------|------|
 | 背景 | 对照 DeepSeek《Super-agent 设计探索》 | 明确**不移植** LLM 慢判/投机执行/Router 重写（违背 Hub「零 LLM + 确定性 + WORM 审计」铁律）；仅采纳「订阅直通 + 批处理」两项确定性增强 |
-| 订阅表 | `subscriptions` 表（db.ts） | 字段 `id/agent_id/event_type/topic_filter/created_at`，唯一约束 `(agent_id, event_type, topic_filter)` 保证幂等；`subscribeEvent`/`unsubscribeEvent`/`getSubscriptions`/`getAllSubscriptions` + 纯函数 `subscriptionMatches` |
+| 订阅表 | `subscriptions` 表（db.ts） | 字段 `id/agent_id/event_type/topic_filter/condition_json/created_at`，唯一约束 `(agent_id, event_type, topic_filter, condition_json)` 保证幂等且允许同 L1 不同 L2 并存；P1 老库由幂等重建迁移升级（旧规则 `condition_json=''`，语义不变）；`subscribeEvent`/`unsubscribeEvent`/`getSubscriptions`/`getAllSubscriptions` + 纯函数 `parseConditions`/`evaluateConditions`/`subscriptionMatches` |
 | 剪枝 | `broadcastToAll` 订阅剪枝（sse.ts） | 仅「有订阅且规则未命中」的 Agent 被跳过；未订阅 Agent 维持全投；点对点 `pushToAgent` 不受影响。内存缓存 `subsCache` 仅含已订阅 Agent，`reloadSubsCache()` 启动 + 订阅变更热刷新 |
 | 批处理 | SSE 事件批处理窗口（sse.ts） | 实时投递路径新增 `enqueueForDelivery`/`flushAgentBuffer`：实现为 **opt-in**，默认 `HUB_SSE_BATCH_MS=0`（关闭，逐条立即投递，保住 D1 严格同步可靠性契约 `delivered=1`）；设为 >0（如 120ms）启用窗口 / 25 条上限突发合并；桥接转发与重连补发始终立即投递 + 至少一次 |
 | 工具 | `subscribe_events`（member 权限） | 单一工具支持 subscribe/unsubscribe/list 三动作，handler 内强制 `agentId === ctx.agentId`（仅能管理自身订阅）；已登记进 fail-closed 权限矩阵 |

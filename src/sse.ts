@@ -386,15 +386,18 @@ export function broadcast(agentIds: string[], event: object): Record<string, boo
  *
  * P1 订阅剪枝：仅当 Agent 已声明订阅且其订阅规则**未命中**本次事件时才跳过；
  * 未订阅（缓存中无该 Agent）的 Agent 维持现状全投，零回归。
+ * P2-B 两级过滤：把事件对象一并交给 subscriptionMatches，让 L2 结构化条件按字段求值；
+ * condition_json 为空的旧订阅走纯 L1 路径，行为不变。
  * 注意：剪枝只在「实时广播」生效；点对点 pushToAgent 不受影响（仍按收件人精确投递）。
  */
 export function broadcastToAll(event: object): Record<string, boolean> {
   const results: Record<string, boolean> = {};
   const eventType = String((event as Record<string, unknown>).event ?? "event");
   const payloadStr = JSON.stringify(event);
+  const eventObj = event as Record<string, unknown>;
   for (const agentId of clients.keys()) {
     const subs = subsCache.get(agentId);
-    if (subs && !subscriptionMatches(eventType, payloadStr, subs)) {
+    if (subs && !subscriptionMatches(eventType, payloadStr, subs, eventObj)) {
       results[agentId] = false; // 订阅剪枝：不投递
       continue;
     }

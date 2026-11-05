@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { subscribeEvent, unsubscribeEvent, getSubscriptions, } from "../db.js";
+import { subscribeEvent, unsubscribeEvent, getSubscriptions, normalizeConditionJson, } from "../db.js";
 import { reloadSubsCache } from "../sse.js";
-import { authed } from "../utils.js";
+import { authed, mcpFail } from "../utils.js";
 /**
  * 注册 SSE 事件订阅工具
  */
@@ -19,13 +19,27 @@ export function registerSubscriptionTools(server, authContext) {
             .string()
             .optional()
             .default("")
-            .describe("主题子串过滤：对事件 payload JSON 做 includes；空 = 不限主题"),
-    }, authed(authContext, "subscribe_events", async (ctx, { action, event_type, topic_filter }) => {
+            .describe("L1 主题子串过滤：对事件 payload JSON 做 includes；空 = 不限主题"),
+        condition_json: z
+            .string()
+            .optional()
+            .describe("P2-B L2 结构化条件 JSON 数组，如 [{\"path\":\"task.priority\",\"op\":\"eq\",\"value\":\"high\"}]；全部 AND 命中才投递。空/不传 = 仅 L1"),
+    }, authed(authContext, "subscribe_events", async (ctx, { action, event_type, topic_filter, condition_json }) => {
         const agentId = ctx.agentId;
         const et = event_type && event_type.trim() ? event_type : "*";
         const tf = topic_filter && topic_filter.trim() ? topic_filter : "";
+        // 校验 + 规范化 L2 条件；非法一律拒绝，不静默放宽（fail-closed）。
+        let cj = "";
+        if (condition_json !== undefined) {
+            try {
+                cj = normalizeConditionJson(condition_json);
+            }
+            catch (err) {
+                return mcpFail(err instanceof Error ? err.message : String(err), "subscribe_events");
+            }
+        }
         if (action === "subscribe") {
-            subscribeEvent(agentId, et, tf);
+            subscribeEvent(agentId, et, tf, cj);
             reloadSubsCache();
             return {
                 content: [
@@ -37,6 +51,7 @@ export function registerSubscriptionTools(server, authContext) {
                             agent_id: agentId,
                             event_type: et,
                             topic_filter: tf,
+                            condition_json: cj,
                             subscriptions: getSubscriptions(agentId),
                         }),
                     },
@@ -44,7 +59,8 @@ export function registerSubscriptionTools(server, authContext) {
             };
         }
         if (action === "unsubscribe") {
-            const removed = unsubscribeEvent(agentId, et, tf);
+            // 未传 condition_json → 旧三元组/清空全部语义；显式传（含空串）→ 四元组精确退订。
+            const removed = unsubscribeEvent(agentId, et, tf, condition_json === undefined ? undefined : cj);
             reloadSubsCache();
             return {
                 content: [

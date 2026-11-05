@@ -3,7 +3,9 @@
  *
  * 仅暴露一个工具 subscribe_events，支持 subscribe / unsubscribe / list 三种动作。
  * 安全约束：只能管理「调用方自身」(ctx.agentId) 的订阅，杜绝越权订阅他人事件；
- * 退订时若 event_type 与 topic_filter 均为默认（'*'/空）则清空该 Agent 全部订阅。
+ * 退订时若 event_type 与 topic_filter 均为默认（'*'/空）且未指定 condition_json，则清空该 Agent 全部订阅。
+ * P2-B：新增可选 condition_json（L2 结构化条件 JSON 数组），服务端严格校验后规范化；
+ * 非法条件一律拒绝（fail-closed），不静默放宽。condition_json 为空 = 仅 L1，保持 P1 语义。
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -12,10 +14,11 @@ import {
   subscribeEvent,
   unsubscribeEvent,
   getSubscriptions,
+  normalizeConditionJson,
   type Subscription,
 } from "../db.js";
 import { reloadSubsCache } from "../sse.js";
-import { authed } from "../utils.js";
+import { authed, mcpFail } from "../utils.js";
 
 /**
  * 注册 SSE 事件订阅工具
@@ -37,15 +40,29 @@ export function registerSubscriptionTools(server: McpServer, authContext?: AuthC
         .string()
         .optional()
         .default("")
-        .describe("主题子串过滤：对事件 payload JSON 做 includes；空 = 不限主题"),
+        .describe("L1 主题子串过滤：对事件 payload JSON 做 includes；空 = 不限主题"),
+      condition_json: z
+        .string()
+        .optional()
+        .describe("P2-B L2 结构化条件 JSON 数组，如 [{\"path\":\"task.priority\",\"op\":\"eq\",\"value\":\"high\"}]；全部 AND 命中才投递。空/不传 = 仅 L1"),
     },
-    authed(authContext, "subscribe_events", async (ctx, { action, event_type, topic_filter }) => {
+    authed(authContext, "subscribe_events", async (ctx, { action, event_type, topic_filter, condition_json }) => {
       const agentId = ctx.agentId;
       const et = event_type && event_type.trim() ? event_type : "*";
       const tf = topic_filter && topic_filter.trim() ? topic_filter : "";
 
+      // 校验 + 规范化 L2 条件；非法一律拒绝，不静默放宽（fail-closed）。
+      let cj = "";
+      if (condition_json !== undefined) {
+        try {
+          cj = normalizeConditionJson(condition_json);
+        } catch (err: unknown) {
+          return mcpFail(err instanceof Error ? err.message : String(err), "subscribe_events");
+        }
+      }
+
       if (action === "subscribe") {
-        subscribeEvent(agentId, et, tf);
+        subscribeEvent(agentId, et, tf, cj);
         reloadSubsCache();
         return {
           content: [
@@ -57,6 +74,7 @@ export function registerSubscriptionTools(server: McpServer, authContext?: AuthC
                 agent_id: agentId,
                 event_type: et,
                 topic_filter: tf,
+                condition_json: cj,
                 subscriptions: getSubscriptions(agentId),
               }),
             },
@@ -65,7 +83,8 @@ export function registerSubscriptionTools(server: McpServer, authContext?: AuthC
       }
 
       if (action === "unsubscribe") {
-        const removed = unsubscribeEvent(agentId, et, tf);
+        // 未传 condition_json → 旧三元组/清空全部语义；显式传（含空串）→ 四元组精确退订。
+        const removed = unsubscribeEvent(agentId, et, tf, condition_json === undefined ? undefined : cj);
         reloadSubsCache();
         return {
           content: [
